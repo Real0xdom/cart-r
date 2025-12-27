@@ -32,11 +32,27 @@ export interface Booking {
   estimated_distance: number | null;
   estimated_duration: number | null;
   total_fare: number;
+  // New fields for tip and fare adjustments
+  tip_amount?: number;
+  fare_multiplier?: number;
+  driver_payout?: number;
+  // Receiver details
+  receiver_name?: string;
+  receiver_phone?: string;
+  // OTP fields
+  pickup_otp: string | null;
+  delivery_otp?: string | null;
+  // Payment and status
   payment_status: 'pending' | 'paid' | 'refunded';
   payment_method: 'cash' | 'online';
   status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
-  pickup_otp: string | null;
+  // Timestamps
   created_at: string;
+  accepted_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  delivery_confirmed_at?: string;
+  // Driver info (populated via join)
   driver?: {
     id: string;
     vehicle_number: string;
@@ -47,6 +63,12 @@ export interface Booking {
       phone: string;
       avatar_url: string | null;
     };
+  };
+  // Customer info (populated via join)
+  customer?: {
+    name: string;
+    phone: string;
+    avatar_url: string | null;
   };
 }
 
@@ -393,3 +415,137 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
+
+// =====================================================
+// DRIVER WORKFLOW FUNCTIONS
+// =====================================================
+
+/**
+ * Mark driver as arrived at pickup location
+ */
+export async function markDriverArrived(
+  bookingId: string
+): Promise<{ success: boolean; error: string | null }> {
+  return updateBookingStatus(bookingId, 'driver_arrived');
+}
+
+/**
+ * Verify pickup OTP and start the trip
+ */
+export async function verifyPickupOTPAndStartTrip(
+  bookingId: string,
+  enteredOTP: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    // Fetch booking to verify OTP
+    const { data: booking, error: fetchError } = await getBookingById(bookingId);
+    
+    if (fetchError || !booking) {
+      return { success: false, error: fetchError || 'Booking not found' };
+    }
+    
+    // Verify OTP
+    if (booking.pickup_otp !== enteredOTP) {
+      return { success: false, error: 'Invalid OTP' };
+    }
+    
+    // Start the trip
+    return updateBookingStatus(bookingId, 'in_progress');
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Complete trip with payment confirmation
+ */
+export async function completeTrip(
+  bookingId: string,
+  paymentMethod: 'cash' | 'online' = 'cash',
+  deliveryOTPVerified: boolean = false
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const additionalData: Record<string, any> = {
+      payment_status: 'paid',
+      payment_method: paymentMethod,
+      delivery_confirmed_at: new Date().toISOString(),
+    };
+    
+    if (deliveryOTPVerified) {
+      additionalData.delivery_otp_verified = true;
+    }
+    
+    return updateBookingStatus(bookingId, 'completed', additionalData);
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Cancel booking by driver
+ */
+export async function cancelBookingByDriver(
+  bookingId: string,
+  reason: string
+): Promise<{ success: boolean; error: string | null }> {
+  return updateBookingStatus(bookingId, 'cancelled', {
+    cancelled_by: 'driver',
+    cancellation_reason: reason,
+  });
+}
+
+/**
+ * Get driver's active booking (if any)
+ */
+export async function getDriverActiveBooking(
+  driverId: string
+): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .in('status', ['accepted', 'driver_arrived', 'in_progress'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      return { data: null, error: error.message };
+    }
+    
+    return { data: data as Booking | null, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message };
+  }
+}
+
+/**
+ * Get driver's completed trips
+ */
+export async function getDriverCompletedTrips(
+  driverId: string,
+  limit: number = 20
+): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('driver_id', driverId)
+      .eq('status', 'completed')
+      .order('completed_at', { ascending: false })
+      .limit(limit);
+    
+    if (error) {
+      return { data: [], error: error.message };
+    }
+    
+    return { data: data as Booking[], error: null };
+  } catch (err: any) {
+    return { data: [], error: err.message };
+  }
+}
+

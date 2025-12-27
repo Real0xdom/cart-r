@@ -1,6 +1,6 @@
 import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
-import { useLocationStore } from "@/store";
+import { useLocationStore, useBookingStore } from "@/store";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
 import { 
@@ -13,18 +13,14 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
-interface ReceiverDetails {
-  name: string;
-  phone: string;
-  saveAs: string;
-}
-
 const ReceiverDetailsPage = () => {
   const {
     destinationAddress,
     destinationLatitude,
     destinationLongitude,
   } = useLocationStore();
+
+  const { setReceiverDetails, receiverDetails: savedDetails } = useBookingStore();
 
   // Redirect back if no destination set
   useEffect(() => {
@@ -33,37 +29,40 @@ const ReceiverDetailsPage = () => {
     }
   }, [destinationAddress, destinationLatitude, destinationLongitude]);
 
-  // Receiver details state
-  const [receiverDetails, setReceiverDetails] = useState<ReceiverDetails>({
-    name: '',
-    phone: '',
-    saveAs: '',
-  });
+  // Receiver details state - initialize from store if available
+  const [receiverName, setReceiverName] = useState(savedDetails?.name || '');
+  const [receiverPhone, setReceiverPhone] = useState(savedDetails?.phone || '');
+  const [selectedSaveAs, setSelectedSaveAs] = useState<string | null>(savedDetails?.saveAs || null);
 
   // Save as options
   const saveAsOptions = ['Home', 'Office', 'Friend', 'Family', 'Other'];
-  const [selectedSaveAs, setSelectedSaveAs] = useState<string | null>(null);
 
   const handleProceed = () => {
-    if (!receiverDetails.name.trim()) {
+    if (!receiverName.trim()) {
       Alert.alert("Required", "Please enter receiver's name");
       return;
     }
-    if (!receiverDetails.phone.trim()) {
+    if (!receiverPhone.trim()) {
       Alert.alert("Required", "Please enter receiver's mobile number");
       return;
     }
-    if (receiverDetails.phone.length < 10) {
+    if (receiverPhone.length < 10) {
       Alert.alert("Invalid", "Please enter a valid mobile number");
       return;
     }
 
-    // Save receiver details (you can store in context/store if needed)
+    // Save receiver details to store
+    setReceiverDetails({
+      name: receiverName.trim(),
+      phone: receiverPhone.trim(),
+      saveAs: selectedSaveAs || undefined,
+    });
+
     // Navigate to select vehicle
     router.push("/select-vehicle");
   };
 
-  const canProceed = receiverDetails.name.trim() && receiverDetails.phone.trim();
+  const canProceed = receiverName.trim() && receiverPhone.trim();
 
   return (
     <RideLayout 
@@ -108,11 +107,11 @@ const ReceiverDetailsPage = () => {
                 className="flex-1 py-4 px-3 font-JakartaMedium text-base text-gray-800"
                 placeholder="Enter receiver's full name"
                 placeholderTextColor="#999"
-                value={receiverDetails.name}
-                onChangeText={(text) => setReceiverDetails({ ...receiverDetails, name: text })}
+                value={receiverName}
+                onChangeText={setReceiverName}
                 autoCapitalize="words"
               />
-              {receiverDetails.name.trim() && (
+              {receiverName.trim() && (
                 <Feather name="check-circle" size={18} color="#22c55e" />
               )}
             </View>
@@ -132,16 +131,16 @@ const ReceiverDetailsPage = () => {
                 placeholderTextColor="#999"
                 keyboardType="phone-pad"
                 maxLength={10}
-                value={receiverDetails.phone}
-                onChangeText={(text) => setReceiverDetails({ ...receiverDetails, phone: text.replace(/[^0-9]/g, '') })}
+                value={receiverPhone}
+                onChangeText={(text) => setReceiverPhone(text.replace(/[^0-9]/g, ''))}
               />
-              {receiverDetails.phone.length === 10 && (
+              {receiverPhone.length === 10 && (
                 <Feather name="check-circle" size={18} color="#22c55e" />
               )}
             </View>
-            {receiverDetails.phone.length > 0 && receiverDetails.phone.length < 10 && (
+            {receiverPhone.length > 0 && receiverPhone.length < 10 && (
               <Text className="text-xs font-JakartaMedium text-orange-500 mt-1 ml-1">
-                {10 - receiverDetails.phone.length} more digits needed
+                {10 - receiverPhone.length} more digits needed
               </Text>
             )}
           </View>

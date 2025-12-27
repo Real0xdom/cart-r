@@ -1,6 +1,15 @@
 import { create } from "zustand";
 
-import { DriverStore, LocationStore, MarkerData, RideStore, SelectedVehicle } from "@/types/type";
+import { 
+  DriverStore, 
+  LocationStore, 
+  MarkerData, 
+  RideStore, 
+  SelectedVehicle,
+  BookingStore,
+  ReceiverDetails,
+  Booking,
+} from "@/types/type";
 
 export const useLocationStore = create<LocationStore>((set) => ({
   userLatitude: null,
@@ -63,4 +72,27 @@ export const useRideStore = create<RideStore>((set) => ({
   selectedVehicle: null,
   setSelectedVehicle: (vehicle: SelectedVehicle) => set(() => ({ selectedVehicle: vehicle })),
   clearSelectedVehicle: () => set(() => ({ selectedVehicle: null })),
+}));
+
+// Booking store - manages receiver details and current active booking
+export const useBookingStore = create<BookingStore>((set) => ({
+  // Receiver details
+  receiverDetails: null,
+  setReceiverDetails: (details: ReceiverDetails) => set(() => ({ receiverDetails: details })),
+  clearReceiverDetails: () => set(() => ({ receiverDetails: null })),
+
+  // Goods description
+  goodsDescription: null,
+  setGoodsDescription: (desc: string | null) => set(() => ({ goodsDescription: desc })),
+
+  // Current active booking
+  currentBooking: null,
+  setCurrentBooking: (booking: Booking | null) => set(() => ({ currentBooking: booking })),
+
+  // Clear all booking state (after trip completion or cancellation)
+  clearAll: () => set(() => ({
+    receiverDetails: null,
+    goodsDescription: null,
+    currentBooking: null,
+  })),
 }));

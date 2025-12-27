@@ -20,7 +20,7 @@ interface LocationData {
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
-const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_PLACES_API_KEY;
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [locationPermissionStatus, setLocationPermissionStatus] = useState<Location.PermissionStatus | null>(null);

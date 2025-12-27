@@ -1,5 +1,5 @@
 // Verify Payment Edge Function
-// Verifies the status of a Cashfree payment link
+// Verifies the status of a Cashfree payment ORDER (Standard Gateway)
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -10,7 +10,7 @@ const corsHeaders = {
 }
 
 interface VerifyPaymentRequest {
-  order_id: string // This is the link_id from create-payment-order
+  order_id: string
 }
 
 serve(async (req) => {
@@ -23,16 +23,12 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const cashfreeAppId = Deno.env.get('CASHFREE_APP_ID')
     const cashfreeSecretKey = Deno.env.get('CASHFREE_SECRET_KEY')
+    const cashfreeEnv = Deno.env.get('CASHFREE_ENV') || 'sandbox'
     
     if (!cashfreeAppId || !cashfreeSecretKey) {
-      console.error('Missing Cashfree credentials')
-      return new Response(
-        JSON.stringify({ error: 'Payment gateway not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        throw new Error("Missing Cashfree credentials");
     }
-    
-    const cashfreeEnv = Deno.env.get('CASHFREE_ENV') || 'sandbox'
+
     const cashfreeBaseUrl = cashfreeEnv === 'production'
       ? 'https://api.cashfree.com/pg'
       : 'https://sandbox.cashfree.com/pg'
@@ -40,7 +36,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const body: VerifyPaymentRequest = await req.json()
-    const { order_id } = body
+    const { order_id, force_fail } = body
 
     if (!order_id) {
       return new Response(
@@ -49,10 +45,34 @@ serve(async (req) => {
       )
     }
 
-    console.log('Verifying payment for link_id:', order_id)
+    console.log('Verifying payment order:', order_id)
 
-    // Get payment link status from Cashfree
-    const cashfreeResponse = await fetch(`${cashfreeBaseUrl}/links/${order_id}`, {
+    // 1. Get order status
+    const cashfreeResponse = await fetch(`${cashfreeBaseUrl}/orders/${order_id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-client-id': cashfreeAppId,
+        'x-client-secret': cashfreeSecretKey,
+        'x-api-version': '2025-01-01',
+      },
+    })
+
+    const responseText = await cashfreeResponse.text()
+    if (!cashfreeResponse.ok) {
+        console.error('Cashfree verify error:', responseText)
+        return new Response(
+            JSON.stringify({ error: 'Failed to verify payment', details: JSON.parse(responseText) }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+    }
+
+    const orderData = JSON.parse(responseText)
+
+    // 2. Get specific payment transactions (to capture method and match user logic)
+    // Matches: cashfree.PGOrderFetchPayments("your-order-id")
+    // 2. Get specific payment transactions
+    const paymentsResponse = await fetch(`${cashfreeBaseUrl}/orders/${order_id}/payments`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -61,94 +81,125 @@ serve(async (req) => {
         'x-api-version': '2023-08-01',
       },
     })
-
-    const responseText = await cashfreeResponse.text()
-    console.log('Cashfree response status:', cashfreeResponse.status)
-    console.log('Cashfree response:', responseText)
-
-    if (!cashfreeResponse.ok) {
-      let errorData
-      try {
-        errorData = JSON.parse(responseText)
-      } catch {
-        errorData = { message: responseText }
-      }
-      console.error('Cashfree error:', errorData)
-      return new Response(
-        JSON.stringify({ error: 'Failed to verify payment', details: errorData }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const linkData = JSON.parse(responseText)
     
-    // Map Cashfree link status to our status
-    // Cashfree link statuses: ACTIVE, PARTIALLY_PAID, PAID, EXPIRED, CANCELLED
+    let paymentDetails = null;
+
+    // Map Cashfree order status using user's requested logic
     let status: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' = 'PENDING'
-    
-    switch (linkData.link_status) {
-      case 'PAID':
-        status = 'PAID'
-        break
-      case 'PARTIALLY_PAID':
-        status = 'PENDING' // Consider partial as pending
-        break
-      case 'EXPIRED':
-      case 'CANCELLED':
-        status = 'CANCELLED'
-        break
-      case 'ACTIVE':
-      default:
-        status = 'PENDING'
-        break
+
+    if (paymentsResponse.ok) {
+        const paymentsData = await paymentsResponse.json();
+        
+        // Logic requested by user:
+        // Check if ANY payment is SUCCESS -> Success
+        // Else if ANY payment is PENDING -> Pending (unless forced failure)
+        // Else -> Failure
+        
+        const successTxns = paymentsData.filter((t: any) => t.payment_status === "SUCCESS");
+        const pendingTxns = paymentsData.filter((t: any) => t.payment_status === "PENDING");
+
+        if (successTxns.length > 0) {
+            status = 'PAID';
+            paymentDetails = successTxns[0];
+        } else if (pendingTxns.length > 0) {
+             // If explicit failure requested (e.g. user cancelled), override pending to failed
+            if (force_fail) {
+               status = 'FAILED';
+            } else {
+               status = 'PENDING';
+            }
+        } else {
+            status = 'FAILED';
+        }
+    } else {
+        // Fallback to order level status if payments fetch fails
+        if (orderData.order_status === 'PAID') {
+            status = 'PAID';
+        } else if (orderData.order_status === 'EXPIRED' || orderData.order_status === 'TERMINATED') {
+            status = 'FAILED'; // Map cancelled/expired to failed for simplicity
+        }
     }
 
-    // If payment is successful and it's a wallet top-up, update the wallet
-    if (status === 'PAID' && linkData.link_notes) {
-      const customerId = linkData.link_notes.cid
-      const paymentType = linkData.link_notes.type
-      const amount = linkData.link_amount
+    // Capture payment details
+    const paymentAmount = orderData.order_amount;
+    const orderTags = orderData.order_tags || {};
 
-      if (paymentType === 'wallet' && customerId && amount) {
+    // Extract metadata
+    const type = orderTags.type;
+    const cid = orderTags.cid;
+    const bid = orderTags.bid;
+
+    // If payment is successful, update the DB
+    if (status === 'PAID') {
+      if (type === 'wallet' && cid) {
         // Update wallet balance
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('balance')
-          .eq('id', customerId)
-          .single()
-
-        if (!userError && userData) {
-          const newBalance = (userData.balance || 0) + amount
-          await supabase
-            .from('users')
-            .update({ balance: newBalance })
-            .eq('id', customerId)
-
-          // Update wallet transaction status
-          await supabase
+        // Check if transaction is already completed to avoid double credit
+        const { data: txn } = await supabase
             .from('wallet_transactions')
-            .update({ status: 'completed' })
+            .select('status')
             .eq('payment_order_id', order_id)
-        }
-      }
+            .single();
 
-      if (paymentType === 'booking' && linkData.link_notes.bid && linkData.link_notes.bid !== 'none') {
-        // Update booking payment status
-        await supabase
+        if (txn && txn.status !== 'completed') {
+            const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('balance')
+            .eq('id', cid)
+            .single()
+
+            if (!userError && userData) {
+                const newBalance = (userData.balance || 0) + paymentAmount
+                await supabase
+                    .from('users')
+                    .update({ balance: newBalance })
+                    .eq('id', cid)
+
+                await supabase
+                    .from('wallet_transactions')
+                    .update({ 
+                        status: 'completed',
+                        // Store payment method if available (e.g., 'upi', 'card')
+                        description: paymentDetails ? `Wallet top-up via ${paymentDetails.payment_group || 'online'}` : 'Wallet top-up'
+                    })
+                    .eq('payment_order_id', order_id)
+            }
+        }
+      } else if (type === 'booking' && bid && bid !== 'none') {
+        // Update booking
+         await supabase
           .from('bookings')
           .update({ 
             payment_status: 'paid',
             updated_at: new Date().toISOString()
           })
-          .eq('id', linkData.link_notes.bid)
+          .eq('id', bid)
       }
+    } else if (status === 'FAILED') {
+       // Also update failed status so user doesn't see "Pending" forever
+       if (type === 'wallet') {
+          await supabase
+            .from('wallet_transactions')
+            .update({ 
+                status: 'failed'
+                // Preserving original description (e.g. "Wallet top-up")
+            })
+            .eq('payment_order_id', order_id)
+       } else if (type === 'booking' && bid && bid !== 'none') {
+          await supabase
+            .from('bookings')
+            .update({ 
+                payment_status: 'failed',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', bid)
+       }
     }
 
     return new Response(
       JSON.stringify({
         status,
-        link_status: linkData.link_status,
-        amount: linkData.link_amount,
+        order_status: orderData.order_status,
+        amount: orderData.order_amount,
         order_id: order_id,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

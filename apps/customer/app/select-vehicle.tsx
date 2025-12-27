@@ -63,7 +63,7 @@ const SelectVehiclePage = () => {
 
   const handleProceed = () => {
     if (selectedVehicle) {
-      router.push("/confirm-ride");
+      router.push("/confirm-booking");
     }
   };
 

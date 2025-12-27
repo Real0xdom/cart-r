@@ -48,6 +48,10 @@ export default function RootLayout() {
           <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />
           <Stack.Screen name="confirm-ride" options={{ headerShown: false }} />
           <Stack.Screen name="book-ride" options={{ headerShown: false }} />
+          <Stack.Screen name="profile-details" options={{ headerShown: false }} />
+          <Stack.Screen name="saved-addresses" options={{ headerShown: false }} />
+          <Stack.Screen name="terms" options={{ headerShown: false }} />
+          <Stack.Screen name="help" options={{ headerShown: false }} />
           <Stack.Screen name="+not-found" />
         </Stack>
       </AuthProvider>

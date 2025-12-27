@@ -153,3 +153,75 @@ declare interface RideStore {
   setSelectedVehicle: (vehicle: SelectedVehicle) => void;
   clearSelectedVehicle: () => void;
 }
+
+// Receiver details for goods delivery
+declare interface ReceiverDetails {
+  name: string;
+  phone: string;
+  saveAs?: string; // 'Home', 'Office', 'Friend', 'Family', 'Other'
+}
+
+// Booking data structure matching database
+declare interface Booking {
+  id: string;
+  booking_number: string;
+  customer_id: string;
+  driver_id: string | null;
+  origin_address: string;
+  origin_latitude: number;
+  origin_longitude: number;
+  destination_address: string;
+  destination_latitude: number;
+  destination_longitude: number;
+  vehicle_type: string;
+  estimated_distance: number | null;
+  estimated_duration: number | null;
+  total_fare: number;
+  tip_amount: number;
+  fare_multiplier: number;
+  driver_payout: number;
+  payment_status: 'pending' | 'paid' | 'refunded';
+  payment_method: 'cash' | 'online';
+  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  pickup_otp: string | null;
+  delivery_otp: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  goods_description: string | null;
+  created_at: string;
+  accepted_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  driver?: {
+    id: string;
+    vehicle_number: string;
+    vehicle_model: string;
+    vehicle_color: string | null;
+    rating: number;
+    user: {
+      name: string;
+      phone: string;
+      avatar_url: string | null;
+    };
+  };
+}
+
+// Booking store for managing current booking state
+declare interface BookingStore {
+  // Receiver details (set in receiver-details screen)
+  receiverDetails: ReceiverDetails | null;
+  setReceiverDetails: (details: ReceiverDetails) => void;
+  clearReceiverDetails: () => void;
+
+  // Goods description (optional)
+  goodsDescription: string | null;
+  setGoodsDescription: (desc: string | null) => void;
+
+  // Current active booking
+  currentBooking: Booking | null;
+  setCurrentBooking: (booking: Booking | null) => void;
+  
+  // Clear all booking state (after trip completion)
+  clearAll: () => void;
+}
+

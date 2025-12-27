@@ -6,5 +6,8 @@
   "scripts": {
     "customer": "cd apps/customer && npx expo start",
     "driver": "cd apps/driver && npx expo start"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
   }
 }

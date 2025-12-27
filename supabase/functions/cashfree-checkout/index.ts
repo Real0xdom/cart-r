@@ -1,187 +1,135 @@
 // Cashfree Checkout Page Edge Function
-// Returns an HTML page that loads Cashfree SDK and initiates payment
+// Serves an HTML page with the Cashfree JS SDK for web checkout
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
 serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+  const url = new URL(req.url)
+  const paymentSessionId = url.searchParams.get('session') || ''
+  const orderId = url.searchParams.get('order') || ''
+  const env = url.searchParams.get('env') || 'sandbox'
+  const returnUrl = url.searchParams.get('return') || 'cartr://payment-callback'
 
-  try {
-    const url = new URL(req.url)
-    const paymentSessionId = url.searchParams.get('session')
-    const orderId = url.searchParams.get('order_id')
-    const returnUrl = url.searchParams.get('return_url') || 'cartr://payment-complete'
-    const isSandbox = url.searchParams.get('env') !== 'production'
-
-    if (!paymentSessionId) {
-      return new Response(
-        JSON.stringify({ error: 'Missing payment session ID' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Return HTML page that loads Cashfree SDK
-    const html = `
-<!DOCTYPE html>
-<html lang="en">
+  const html = `<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CartR Payment</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 24px;
-      padding: 40px;
-      max-width: 400px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .logo {
-      font-size: 28px;
-      font-weight: 800;
-      color: #F5B800;
-      margin-bottom: 20px;
-    }
-    .loading {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-    }
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #F5B800;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .message {
-      color: #666;
-      font-size: 16px;
-    }
-    .error {
-      color: #e74c3c;
-      padding: 20px;
-      background: #ffeaea;
-      border-radius: 12px;
-      margin-top: 20px;
-      display: none;
-    }
-    .success {
-      color: #27ae60;
-      padding: 20px;
-      background: #eafff0;
-      border-radius: 12px;
-      margin-top: 20px;
-      display: none;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CartR Payment</title>
+    <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 420px;
+            width: 92%;
+        }
+        .logo { font-size: 48px; margin-bottom: 10px; }
+        h1 { color: #1a1a2e; margin: 0 0 8px 0; font-size: 24px; }
+        p { color: #666; margin: 0 0 30px 0; font-size: 14px; }
+        .loader {
+            border: 4px solid #f0f0f0;
+            border-top: 4px solid #F5B800;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 0.8s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .message {
+            padding: 16px 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            font-size: 14px;
+            display: none;
+        }
+        .error { color: #c0392b; background: #fdeaea; border: 1px solid #f5c6cb; }
+        .success { color: #27ae60; background: #d4edda; border: 1px solid #c3e6cb; }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">CartR</div>
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      <div class="message">Initializing secure payment...</div>
+    <div class="container">
+        <div class="logo">🚗</div>
+        <h1>CartR Payment</h1>
+        <p id="status">Initializing secure payment...</p>
+        <div class="loader" id="loader"></div>
+        <div class="message error" id="error"></div>
+        <div class="message success" id="success"></div>
     </div>
-    <div class="error" id="error"></div>
-    <div class="success" id="success">
-      <h3>Payment Successful! ✓</h3>
-      <p>Redirecting back to app...</p>
-    </div>
-  </div>
+    <script>
+        var paymentSessionId = "${paymentSessionId}";
+        var orderId = "${orderId}";
+        var env = "${env}";
+        var returnUrl = decodeURIComponent("${encodeURIComponent(returnUrl)}");
 
-  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-  <script>
-    const paymentSessionId = "${paymentSessionId}";
-    const orderId = "${orderId || ''}";
-    const returnUrl = "${returnUrl}";
-    const isSandbox = ${isSandbox};
-
-    async function initPayment() {
-      try {
-        const cashfree = Cashfree({
-          mode: isSandbox ? "sandbox" : "production"
-        });
-
-        const checkoutOptions = {
-          paymentSessionId: paymentSessionId,
-          redirectTarget: "_self"
-        };
-
-        cashfree.checkout(checkoutOptions).then((result) => {
-          if (result.error) {
-            document.getElementById('loading').style.display = 'none';
+        function showError(msg) {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('status').textContent = 'Payment Failed';
             document.getElementById('error').style.display = 'block';
-            document.getElementById('error').innerHTML = '<h3>Payment Failed</h3><p>' + result.error.message + '</p>';
-          }
-          if (result.redirect) {
-            // Payment page was redirected
-            console.log("Payment redirect");
-          }
-          if (result.paymentDetails) {
-            // Payment completed
-            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').textContent = msg;
+        }
+
+        function showSuccess(msg) {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('status').textContent = 'Payment Successful!';
             document.getElementById('success').style.display = 'block';
+            document.getElementById('success').textContent = msg;
+        }
+
+        if (!paymentSessionId) {
+            showError('Missing payment session. Please go back and try again.');
+        } else {
+            document.getElementById('status').textContent = 'Opening payment gateway...';
             
-            // Redirect back to app after 2 seconds
-            setTimeout(() => {
-              window.location.href = returnUrl + '?order_id=' + orderId + '&status=success';
-            }, 2000);
-          }
-        });
-      } catch (error) {
-        console.error('Payment init error:', error);
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('error').style.display = 'block';
-        document.getElementById('error').innerHTML = '<h3>Error</h3><p>' + error.message + '</p>';
-      }
-    }
-
-    // Start payment when page loads
-    window.onload = initPayment;
-  </script>
+            try {
+                var cashfree = Cashfree({ mode: env === 'production' ? 'production' : 'sandbox' });
+                
+                cashfree.checkout({
+                    paymentSessionId: paymentSessionId,
+                    redirectTarget: '_self'
+                }).then(function(result) {
+                    console.log('Checkout result:', result);
+                    if (result.error) {
+                        showError(result.error.message || 'Payment could not be completed');
+                    } else if (result.paymentDetails) {
+                        showSuccess('Payment completed! Redirecting...');
+                        setTimeout(function() {
+                            window.location.href = returnUrl + '?order_id=' + orderId + '&status=success';
+                        }, 1500);
+                    }
+                }).catch(function(err) {
+                    console.error('Checkout error:', err);
+                    showError(err.message || 'Something went wrong. Please try again.');
+                });
+            } catch (e) {
+                console.error('Init error:', e);
+                showError('Failed to initialize payment. Please try again.');
+            }
+        }
+    </script>
 </body>
-</html>
-    `
+</html>`
 
-    return new Response(html, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-      },
-    })
-
-  } catch (error) {
-    console.error('Error:', error)
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
-  }
+  return new Response(html, {
+    headers: {
+      'Content-Type': 'text/html',
+    },
+  })
 })

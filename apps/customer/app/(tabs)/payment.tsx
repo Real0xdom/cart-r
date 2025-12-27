@@ -1,15 +1,31 @@
 import { useState, useEffect, useRef } from "react";
-import { ScrollView, Text, View, TouchableOpacity, TextInput, Alert, ActivityIndicator, AppState } from "react-native";
+import { ScrollView, Text, View, TouchableOpacity, TextInput, Alert, ActivityIndicator, AppState, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import Modal from "react-native-modal";
-import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import CustomButton from "@/components/CustomButton";
-import { Platform } from "react-native";
+
+// Check if WebView is available (only works in dev builds, not Expo Go)
+let CashfreeCheckoutModal: any = null;
+let isWebViewAvailable = false;
+
+if (Platform.OS !== 'web') {
+  try {
+    // This will fail in Expo Go since WebView requires native code
+    require('react-native-webview');
+    CashfreeCheckoutModal = require('@/components/CashfreeCheckoutModal').default;
+    isWebViewAvailable = true;
+    console.log("WebView available - popup checkout enabled");
+  } catch (e: any) {
+    console.log("WebView not available (Expo Go?) - using browser checkout fallback");
+    isWebViewAvailable = false;
+  }
+}
 
 // Check if native SDK is available (only works in dev builds, not Expo Go or Web)
 let CFPaymentGatewayService: any = null;
@@ -18,12 +34,15 @@ let isNativeSDKAvailable = false;
 // Only try to load native SDK on mobile platforms (not web)
 if (Platform.OS !== 'web') {
   try {
-    // Dynamic import - will fail gracefully in Expo Go
+    // Dynamic import - will fail gracefully in Expo Go or if not linked
     const cashfreeModule = require('react-native-cashfree-pg-sdk');
-    CFPaymentGatewayService = cashfreeModule.CFPaymentGatewayService;
-    isNativeSDKAvailable = !!CFPaymentGatewayService;
-  } catch (e) {
-    console.log("Cashfree native SDK not available, using browser fallback");
+    if (cashfreeModule && cashfreeModule.CFPaymentGatewayService) {
+      CFPaymentGatewayService = cashfreeModule.CFPaymentGatewayService;
+      isNativeSDKAvailable = true;
+      console.log("Cashfree native SDK loaded successfully");
+    }
+  } catch (e: any) {
+    console.log("Cashfree native SDK not available:", e?.message || e);
     isNativeSDKAvailable = false;
   }
 }
@@ -31,10 +50,23 @@ if (Platform.OS !== 'web') {
 const Payment = () => {
   const { user, profile } = useAuth();
   const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState<any[]>([]);
   const [isModalVisible, setModalVisible] = useState(false);
+  
+  // Status Modal State
+  const [statusModalVisible, setStatusModalVisible] = useState(false);
+  const [statusType, setStatusType] = useState<'success' | 'failure'>('success');
+  const [statusMessage, setStatusMessage] = useState("");
+
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  
+  // Popup checkout state
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string>("");
+  const [checkoutOrderId, setCheckoutOrderId] = useState<string>("");
+  const [checkoutEnvironment, setCheckoutEnvironment] = useState<'sandbox' | 'production'>('sandbox');
   const appState = useRef(AppState.currentState);
 
   // Listen for app state changes (when user returns from browser)
@@ -61,12 +93,27 @@ const Payment = () => {
         CFPaymentGatewayService.setCallback({
           onVerify: async (orderID: string) => {
             console.log("Order Verified:", orderID);
-            await handlePaymentSuccess(orderID);
+            // Verify against backend to ensure DB is updated (balance + transactions)
+            await verifyPaymentStatus(orderID);
           },
-          onError: (error: any, orderID: string) => {
+          onError: async (error: any, orderID: string) => {
             console.log("Payment Failed:", error, orderID);
-            Alert.alert("Payment Failed", error?.message || "Something went wrong");
+            // 1. Sync DB status (Mark as Failed explicitly via cancel function)
+            try {
+                await supabase.functions.invoke('cancel-payment-order', {
+                    body: { order_id: orderID, reason: error?.message }
+                });
+                // Force refresh list to show "Failed"
+                await fetchTransactions();
+            } catch (e) {
+                console.log("Error cancelling order:", e);
+            }
+            
+            // 2. Force show failure UI
             setLoading(false);
+            setStatusType('failure');
+            setStatusMessage(error?.message || "Payment could not be completed.");
+            setStatusModalVisible(true);
           },
         });
       } catch (e) {
@@ -74,12 +121,44 @@ const Payment = () => {
         isNativeSDKAvailable = false;
       }
     }
-  }, []);
-
-  // Fetch balance on mount
-  useEffect(() => {
-    fetchBalance();
+    
+    // Cleanup: Remove callbacks when component unmounts (per official Cashfree docs)
+    return () => {
+      if (isNativeSDKAvailable && CFPaymentGatewayService) {
+        try {
+          CFPaymentGatewayService.removeCallback();
+        } catch (e) {
+          console.log("Error removing SDK callbacks:", e);
+        }
+      }
+    };
   }, [user]);
+
+  // Fetch data on mount
+  useEffect(() => {
+    if (user) {
+      fetchBalance();
+      fetchTransactions();
+    }
+  }, [user]);
+
+  const fetchTransactions = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('wallet_transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (data) {
+        setTransactions(data);
+      }
+    } catch (e) {
+      console.log("Error fetching transactions:", e);
+    }
+  };
 
   const fetchBalance = async () => {
     if (!user) return;
@@ -98,39 +177,60 @@ const Payment = () => {
     }
   };
 
-  const verifyPaymentStatus = async (orderId: string) => {
+  const verifyPaymentStatus = async (orderId: string, forceFail: boolean = false) => {
     try {
       // Call backend to verify payment status
       const { data, error } = await supabase.functions.invoke('verify-payment', {
-        body: { order_id: orderId }
+        body: { 
+            order_id: orderId,
+            force_fail: forceFail // Signal backend to mark as failed if currently pending
+        }
       });
 
+      // Always update history so "Pending" changes to "Failed" or "Completed"
+      await fetchTransactions();
+
       if (data?.status === 'PAID') {
-        await handlePaymentSuccess(orderId);
+        await handlePaymentSuccess(orderId, data.amount);
       } else if (data?.status === 'FAILED' || data?.status === 'CANCELLED') {
-        Alert.alert("Payment Failed", "The payment was not completed. Please try again.");
+        setLoading(false);
+        setStatusType('failure');
+        setStatusMessage(data?.order_status === 'CANCELLED' ? "Payment Cancelled" : "Payment Failed");
+        setStatusModalVisible(true);
+      } else {
+        // Still Pending
         setLoading(false);
       }
-      // If PENDING or other status, do nothing - user might still be completing payment
     } catch (e) {
       console.log("Error verifying payment:", e);
+      setLoading(false);
     } finally {
       setPendingOrderId(null);
     }
   };
 
-  const handlePaymentSuccess = async (orderId: string) => {
+  const handlePaymentSuccess = async (orderId: string, confirmedAmount?: string | number) => {
+    // Capture local amount before clearing, as fallback
+    const localAmount = amount;
+    
     setModalVisible(false);
     setAmount("");
-    
+    setLoading(false); // Stop loading spinner
+
     try {
-      // Refetch balance from server (backend webhook should have updated it)
+      // Refetch balance and transactions
       await fetchBalance(); 
-      Alert.alert("Success", "Payment successful! Wallet updated.");
+      await fetchTransactions();
+      
+      // Determine amount to show: prefer backend confirmed amount, else fallback to local input
+      const finalAmount = confirmedAmount ? parseFloat(confirmedAmount.toString()) : parseFloat(localAmount || "0");
+
+      // Show Success Modal
+      setStatusType('success');
+      setStatusMessage("₹" + finalAmount.toFixed(2) + " added to wallet!");
+      setStatusModalVisible(true);
     } catch (e) {
       console.error("Error post-payment:", e);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -145,6 +245,13 @@ const Payment = () => {
     
     try {
       // 1. Create Order Session via Backend
+      // Use the registered app scheme 'carter://' for proper deep linking in Production
+      // In DEV (Expo Go), use a dummy HTTPS URL because 'exp://' is often rejected by Cashfree
+      // causing "Authentication Error". We rely on AppState polling to verify payment.
+      const callbackUrl = __DEV__ 
+        ? 'https://docs.cashfree.com/docs/payment-success' // Valid HTTPS URL for testing
+        : 'carter://payment-callback'; // Production app scheme
+        
       const { data, error } = await supabase.functions.invoke('create-payment-order', {
         body: {
           amount: value,
@@ -152,80 +259,89 @@ const Payment = () => {
           customer_phone: profile?.phone || user?.phone || "9999999999",
           customer_name: profile?.name || "CartR User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
-          return_url: Linking.createURL('/payment-callback') // Deep link for return
+          return_url: callbackUrl
         }
       });
 
       if (error) {
-        console.error("Session creation error:", error);
-        throw new Error("Failed to initiate payment session. Please try again.");
+        // Detailed logging for FunctionsHttpError
+        if (error && typeof error === 'object' && 'context' in error) {
+             const context = (error as any).context;
+             if (context && typeof context.json === 'function') {
+                context.json().then((json: any) => console.error("Edge Function Error Details:", json));
+             } else {
+                console.error("Edge Function Error Context:", context);
+             }
+        }
+        console.error("Session creation error (Full):", JSON.stringify(error, null, 2));
+        throw new Error("Failed to initiate payment session. Please check your network and try again.");
       }
       
-      if (!data || (!data.checkout_url && !data.link_url)) {
+      if (!data || !data.payment_session_id || !data.order_id) {
         console.error("Invalid response from payment service:", data);
         throw new Error("Payment service returned invalid response. Please try again.");
       }
 
-      // Edge Function returns: link_id, link_url, checkout_url, order_status
-      const paymentOrderId = data.link_id;
-      const paymentLink = data.checkout_url || data.link_url; // Hosted checkout URL
-      const paymentSessionId = data.link_id; // Use link_id as session ID for native SDK
+      // Edge Function now returns standard Orders API fields
+      const paymentOrderId = data.order_id;
+      const paymentSessionId = data.payment_session_id;
+      const env = data.environment; // 'sandbox' | 'production'
+      let paymentLink = data.checkout_url; 
 
-      console.log("Payment order created:", { paymentOrderId, paymentLink });
+      console.log("Payment order created:", { paymentOrderId, paymentSessionId, env });
 
-      // Store order ID for verification when user returns
-      setPendingOrderId(paymentOrderId);
-
-      // 2. Try native SDK first, fallback to browser (only on mobile)
+      // 2. Initiate Payment via Native SDK
+      // This requires a Development Build (APK) to work. 
+      // It will NOT work in standard Expo Go.
+      
       if (Platform.OS !== 'web' && isNativeSDKAvailable && CFPaymentGatewayService) {
         try {
-          const { CFDropCheckoutPayment, CFEnvironment, CFPaymentComponentBuilder, CFPaymentModes, CFSession, CFThemeBuilder } = require('react-native-cashfree-pg-sdk');
+          console.log("Attempting native SDK payment...");
           
+          // Import from contract package
+          const { CFSession, CFEnvironment, CFDropCheckoutPayment, CFThemeBuilder, CFTheme } = require('cashfree-pg-api-contract');
+          
+          const sdkEnv = env === 'production' ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+          
+          // Create Session
           const session = new CFSession(
             paymentSessionId,
             paymentOrderId,
-            CFEnvironment.SANDBOX
+            sdkEnv
           );
 
-          const paymentModes = new CFPaymentComponentBuilder()
-            .add(CFPaymentModes.UPI)
-            .add(CFPaymentModes.CARD)
-            .add(CFPaymentModes.NB)
-            .add(CFPaymentModes.WALLET)
-            .build();
+          // Create Theme (Optional but good practice)
+          // const theme = new CFThemeBuilder()
+          //   .setNavigationBarBackgroundColor("#ffffff")
+          //   .setNavigationBarTextColor("#111111")
+          //   .setButtonBackgroundColor("#0286FF")
+          //   .setButtonTextColor("#ffffff")
+          //   .setPrimaryTextColor("#111111")
+          //   .setSecondaryTextColor("#111111")
+          //   .build();
 
-          const theme = new CFThemeBuilder()
-            .setNavigationBarBackgroundColor('#F5B800')
-            .setNavigationBarTextColor('#000000')
-            .setButtonBackgroundColor('#F5B800')
-            .setButtonTextColor('#000000')
-            .build();
+          // Create Drop Checkout Payment Object
+          const dropPayment = new CFDropCheckoutPayment(
+            session,
+            null, // component (payment modes) - null for all
+            null  // theme - null for default
+          );
 
-          const dropPayment = new CFDropCheckoutPayment(session, paymentModes, theme);
+          // Initiate Native Payment
+          console.log("Launching CFPaymentGatewayService.doPayment...");
           CFPaymentGatewayService.doPayment(dropPayment);
-          return;
-        } catch (nativeError) {
-          console.log("Native SDK failed, falling back to browser:", nativeError);
+          console.log("Native Payment Initiated");
+          
+        } catch (nativeError: any) {
+          console.error("Native SDK Error:", nativeError);
+          Alert.alert("Payment Error", "Could not initialize payment SDK: " + nativeError.message);
         }
-      }
-
-      // 3. Browser-based fallback (works in Expo Go and production)
-      // Use the Cashfree JS Drop-in checkout URL
-      const checkoutUrl = paymentLink || `https://sandbox.cashfree.com/pg/orders/${paymentOrderId}`;
-      
-      console.log("Opening payment URL:", checkoutUrl);
-      
-      const result = await WebBrowser.openBrowserAsync(checkoutUrl, {
-        dismissButtonStyle: 'close',
-        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-        toolbarColor: '#F5B800',
-        controlsColor: '#000000',
-      });
-
-      // When browser closes, verify payment status
-      if (result.type === 'cancel' || result.type === 'dismiss') {
-        // User closed browser - check status
-        setTimeout(() => verifyPaymentStatus(paymentOrderId), 1000);
+      } else {
+        // Fallback for when SDK is missing (e.g. running in Expo Go by mistake)
+        Alert.alert(
+          "Development Build Required", 
+          "Cashfree Native SDK is not installed. You are likely running in Expo Go.\n\nPlease run this in the Development Build APK."
+        );
       }
 
     } catch (err: any) {
@@ -281,17 +397,59 @@ const Payment = () => {
             )}
         </View>
 
-        {/* Transactions Placeholder */}
+        {/* Transactions list */}
         <View className="px-5 mt-2">
             <Text className="text-lg font-JakartaBold mb-4">Recent Transactions</Text>
             
-            {/* Empty State */}
-            <View className="items-center justify-center py-10 opacity-50">
-                <View className="bg-gray-200 w-16 h-16 rounded-full items-center justify-center mb-3">
-                    <Feather name="list" size={24} color="gray" />
-                </View>
-                <Text className="text-gray-500 font-JakartaMedium">No recent transactions</Text>
-            </View>
+            {transactions.length === 0 ? (
+              /* Empty State */
+              <View className="items-center justify-center py-10 opacity-50">
+                  <View className="bg-gray-200 w-16 h-16 rounded-full items-center justify-center mb-3">
+                      <Feather name="list" size={24} color="gray" />
+                  </View>
+                  <Text className="text-gray-500 font-JakartaMedium">No recent transactions</Text>
+              </View>
+            ) : (
+              /* Transaction List */
+              <View>
+                {transactions.map((txn) => (
+                  <View key={txn.id} className="flex-row items-center justify-between py-4 border-b border-gray-100">
+                    <View className="flex-row items-center flex-1">
+                      <View className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+                        txn.type === 'credit' ? 'bg-green-100' : 'bg-red-100'
+                      }`}>
+                        <Feather 
+                          name={txn.type === 'credit' ? 'arrow-down-left' : 'arrow-up-right'} 
+                          size={18} 
+                          color={txn.type === 'credit' ? '#10B981' : '#EF4444'} 
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="font-JakartaBold text-gray-800 text-sm">
+                          {txn.description || (txn.type === 'credit' ? 'Wallet Top-up' : 'Payment')}
+                        </Text>
+                        <Text className="text-xs text-gray-500">
+                          {new Date(txn.created_at).toLocaleDateString()} • {new Date(txn.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </Text>
+                      </View>
+                    </View>
+                    <View className="items-end">
+                      <Text className={`font-JakartaBold ${
+                        txn.type === 'credit' ? 'text-green-600' : 'text-gray-900'
+                      }`}>
+                        {txn.type === 'credit' ? '+' : '-'} ₹{parseFloat(txn.amount).toFixed(2)}
+                      </Text>
+                      <Text className={`text-[10px] uppercase font-JakartaBold ${
+                        txn.status === 'completed' ? 'text-green-600' : 
+                        txn.status === 'failed' ? 'text-red-500' : 'text-orange-500'
+                      }`}>
+                        {txn.status}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
         </View>
       </ScrollView>
 
@@ -361,6 +519,75 @@ const Payment = () => {
                     </View>
                 </>
             )}
+        </View>
+      </Modal>
+
+      {/* Cashfree Popup Checkout Modal - Only render when WebView is available */}
+      {isWebViewAvailable && CashfreeCheckoutModal && (
+        <CashfreeCheckoutModal
+          visible={showCheckoutModal}
+          paymentSessionId={checkoutSessionId}
+          orderId={checkoutOrderId}
+          environment={checkoutEnvironment}
+          onSuccess={async (orderId: string, paymentDetails: any) => {
+            console.log("Payment successful:", orderId, paymentDetails);
+            setShowCheckoutModal(false);
+            // Verify against backend to ensure DB is updated
+            await verifyPaymentStatus(orderId);
+          }}
+          onFailure={(error: string, orderId: string) => {
+            console.log("Payment failed:", error, orderId);
+            setShowCheckoutModal(false);
+            setLoading(false);
+            Alert.alert(
+              "Payment Failed", 
+              error || "The payment could not be completed. Please try again."
+            );
+          }}
+          onClose={() => {
+            console.log("Checkout modal closed by user");
+            setShowCheckoutModal(false);
+            setLoading(false);
+            // Optionally verify payment status in case user completed payment
+            if (checkoutOrderId) {
+              setTimeout(() => verifyPaymentStatus(checkoutOrderId), 500);
+            }
+          }}
+        />
+      )}
+      {/* Status Modal (Success/Failure) */}
+      <Modal 
+        isVisible={statusModalVisible} 
+        onBackdropPress={() => setStatusModalVisible(false)}
+        animationIn="fadeInUp"
+        animationOut="fadeOutDown"
+        className="m-0 justify-end"
+      >
+        <View className="bg-white rounded-t-[32px] p-8 items-center h-auto min-h-[300px]">
+            <View className={`w-20 h-20 rounded-full items-center justify-center mb-6 ${
+                statusType === 'success' ? 'bg-green-100' : 'bg-red-100'
+            }`}>
+                <Feather 
+                    name={statusType === 'success' ? 'check' : 'x'} 
+                    size={40} 
+                    color={statusType === 'success' ? '#10B981' : '#EF4444'} 
+                />
+            </View>
+            
+            <Text className="text-2xl font-JakartaBold mb-2 text-center text-gray-900">
+                {statusType === 'success' ? 'Payment Successful' : 'Payment Failed'}
+            </Text>
+            
+            <Text className="text-gray-500 text-center font-JakartaMedium mb-8">
+                {statusMessage}
+            </Text>
+
+            <CustomButton 
+                title={statusType === 'success' ? "Done" : "Try Again"}
+                onPress={() => setStatusModalVisible(false)}
+                className={`w-full ${statusType === 'success' ? 'bg-brand-500' : 'bg-gray-200'} mb-4`}
+                textVariant={statusType === 'success' ? 'primary' : 'secondary'}
+            />
         </View>
       </Modal>
     </SafeAreaView>

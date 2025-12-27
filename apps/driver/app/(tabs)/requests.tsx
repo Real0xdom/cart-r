@@ -8,6 +8,16 @@ import * as Location from 'expo-location';
 
 const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, onAccept: (id: string) => void, onReject: (id: string) => void }) => (
     <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+        {/* Increased Fare Badge */}
+        {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
+            <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
+                <Text className="text-white font-JakartaBold text-xs">🔥 Increased Fare</Text>
+                {request.tip_amount && request.tip_amount > 0 && (
+                    <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
+                )}
+            </View>
+        )}
+        
         <View className="flex-row justify-between items-start mb-4">
             <View className="flex-1">
                 <Text className="text-gray-400 text-xs mb-1">PICKUP</Text>
@@ -16,7 +26,7 @@ const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, on
                 </Text>
             </View>
             <View className="bg-green-500/20 px-3 py-1 rounded-full ml-2">
-                <Text className="text-green-400 font-JakartaBold">₹{request.total_fare}</Text>
+                <Text className="text-green-400 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
             </View>
         </View>
 

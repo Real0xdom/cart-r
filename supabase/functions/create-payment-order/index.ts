@@ -1,5 +1,6 @@
 // Create Payment Order Edge Function
-// Creates a Cashfree payment link for wallet top-up or booking payments
+// Creates a Cashfree payment ORDER (Standard Gateway) instead of Link
+// This is required for Native SDK integration and standard checkout
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -30,6 +31,9 @@ serve(async (req) => {
     const cashfreeAppId = Deno.env.get('CASHFREE_APP_ID')
     const cashfreeSecretKey = Deno.env.get('CASHFREE_SECRET_KEY')
     
+    // CASHFREE_ENV is the master switch
+    const cashfreeEnv = Deno.env.get('CASHFREE_ENV') || 'sandbox'
+    
     if (!cashfreeAppId || !cashfreeSecretKey) {
       console.error('Missing Cashfree credentials')
       return new Response(
@@ -38,10 +42,12 @@ serve(async (req) => {
       )
     }
     
-    const cashfreeEnv = Deno.env.get('CASHFREE_ENV') || 'sandbox'
+    // Ensure correct base URL
     const cashfreeBaseUrl = cashfreeEnv === 'production'
       ? 'https://api.cashfree.com/pg'
       : 'https://sandbox.cashfree.com/pg'
+
+    console.log(`Using Cashfree Env: ${cashfreeEnv} (${cashfreeBaseUrl})`)
 
     const supabase = createClient(supabaseUrl, supabaseKey)
 
@@ -64,9 +70,10 @@ serve(async (req) => {
     }
 
     const isWalletTopUp = !booking_id
-    const linkId = isWalletTopUp 
-      ? `CARTR_WALLET_${customer_id.substring(0, 8)}_${Date.now()}`
-      : `CARTR_BOOKING_${booking_id!.substring(0, 8)}_${Date.now()}`
+    // Order ID format: strict requirement for alphanumeric
+    const orderId = isWalletTopUp 
+      ? `WALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
+      : `BOOKING_${booking_id!.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
 
     // For booking payments, verify the booking exists
     if (!isWalletTopUp) {
@@ -92,36 +99,32 @@ serve(async (req) => {
       }
     }
 
-    // Create Payment Link using Cashfree Payment Links API
-    const paymentLinkPayload = {
-      link_id: linkId,
-      link_amount: amount,
-      link_currency: 'INR',
-      link_purpose: isWalletTopUp ? 'CartR Wallet Top-up' : 'CartR Ride Payment',
+    // Create Payment Order using Cashfree Orders API
+    const orderPayload = {
+      order_id: orderId,
+      order_amount: amount,
+      order_currency: 'INR',
       customer_details: {
+        customer_id: customer_id.replace(/-/g, '').substring(0, 10), // Strict ID requirements
         customer_phone: (customer_phone || '9999999999').replace(/\D/g, '').slice(-10),
         customer_email: customer_email || 'user@cartr.app',
         customer_name: (customer_name || 'CartR User').substring(0, 100),
       },
-      link_notify: {
-        send_sms: false,
-        send_email: false,
-      },
-      link_meta: {
-        return_url: return_url || 'cartr://payment-complete',
+      order_meta: {
+        return_url: return_url || `cartr://payment-complete?order_id=${orderId}`,
         notify_url: `${supabaseUrl}/functions/v1/payment-webhook`,
       },
-      link_notes: {
-        cid: customer_id.replace(/-/g, '').substring(0, 50),
-        bid: (booking_id || 'none').replace(/-/g, '').substring(0, 50),
+      order_tags: {
         type: isWalletTopUp ? 'wallet' : 'booking',
+        cid: customer_id,
+        bid: booking_id || 'none'
       },
-      link_expiry_time: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      order_expiry_time: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 mins expiry
     }
 
-    console.log('Creating Cashfree payment link:', JSON.stringify(paymentLinkPayload, null, 2))
+    console.log('Creating Cashfree Order:', JSON.stringify(orderPayload, null, 2))
 
-    const cashfreeResponse = await fetch(`${cashfreeBaseUrl}/links`, {
+    const cashfreeResponse = await fetch(`${cashfreeBaseUrl}/orders`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -129,12 +132,12 @@ serve(async (req) => {
         'x-client-secret': cashfreeSecretKey,
         'x-api-version': '2023-08-01',
       },
-      body: JSON.stringify(paymentLinkPayload),
+      body: JSON.stringify(orderPayload),
     })
 
     const responseText = await cashfreeResponse.text()
     console.log('Cashfree response status:', cashfreeResponse.status)
-    console.log('Cashfree response:', responseText)
+    console.log('Cashfree response body:', responseText)
 
     if (!cashfreeResponse.ok) {
       let errorData
@@ -145,16 +148,13 @@ serve(async (req) => {
       }
       console.error('Cashfree error:', errorData)
       return new Response(
-        JSON.stringify({ error: 'Failed to create payment link', details: errorData }),
+        JSON.stringify({ error: 'Failed to create payment order', details: errorData }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
     const cashfreeData = JSON.parse(responseText)
     
-    // The payment link URL is directly usable in any browser
-    const paymentUrl = cashfreeData.link_url
-
     // Store transaction for tracking
     if (isWalletTopUp) {
       try {
@@ -165,7 +165,7 @@ serve(async (req) => {
             amount: amount,
             type: 'credit',
             status: 'pending',
-            payment_order_id: linkId,
+            payment_order_id: orderId, // Use order_id
             description: 'Wallet top-up',
           })
       } catch (err) {
@@ -175,20 +175,31 @@ serve(async (req) => {
       await supabase
         .from('bookings')
         .update({
-          payment_id: linkId,
+          payment_id: orderId,
           payment_method: 'online',
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking_id)
-    }
+      }
+
+    // Generate proper Web Checkout URL for fallback (browser-based checkout)
+    // We point to our own 'checkout-page' Edge Function which hosts the Cashfree JS SDK
+    // We MUST use the SUPABASE_URL env var to ensure we get the public URL (project-ref.supabase.co)
+    // avoiding internal hostnames like 'h-runtime' which cause 401 errors.
+    const projectUrl = Deno.env.get('SUPABASE_URL')!;
+    const checkoutPageUrl = `${projectUrl}/functions/v1/checkout-page`;
+
+    const webCheckoutUrl = `${checkoutPageUrl}?session_id=${cashfreeData.payment_session_id}&env=${cashfreeEnv}`;
 
     return new Response(
       JSON.stringify({
-        link_id: cashfreeData.link_id,
-        link_url: paymentUrl,
-        checkout_url: paymentUrl,
-        order_status: cashfreeData.link_status,
+        payment_session_id: cashfreeData.payment_session_id, // This is what Native SDK needs
+        order_id: cashfreeData.order_id,
+        order_status: cashfreeData.order_status,
         is_wallet_topup: isWalletTopUp,
+        environment: cashfreeEnv, // Pass env explicitly to client
+        // Provide a fallback checkout URL for Web/browser-based checkout
+        checkout_url: webCheckoutUrl
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

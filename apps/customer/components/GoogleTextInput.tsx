@@ -4,7 +4,11 @@ import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplet
 import { icons } from "@/constants";
 import { GoogleInputProps } from "@/types/type";
 
-const googlePlacesApiKey = process.env.EXPO_PUBLIC_PLACES_API_KEY;
+const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+// Debug: Log API key status (remove after debugging)
+console.log('Google Places API Key status:', googlePlacesApiKey ? 'LOADED (' + googlePlacesApiKey.substring(0, 10) + '...)' : 'NOT FOUND');
+
 
 const GoogleTextInput = ({
   icon,

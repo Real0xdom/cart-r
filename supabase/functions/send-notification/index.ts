@@ -94,7 +94,7 @@ serve(async (req) => {
       )
     }
 
-    // Prepare Expo push message
+    // Prepare Expo push message with high priority for overlay notifications
     const message: ExpoPushMessage = {
       to: user.expo_push_token,
       title,
@@ -102,6 +102,8 @@ serve(async (req) => {
       data: data || {},
       sound: 'default',
       priority: 'high',
+      channelId: 'ride-requests', // Android notification channel for high-priority
+      _displayInForeground: true, // Show even when app is in foreground
     }
 
     // Send to Expo Push API

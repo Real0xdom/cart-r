@@ -19,6 +19,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: "com.carter.customer",
     config: {
       googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+    },
+    // Required for UPI Intent (showing installed UPI apps) per Cashfree docs
+    infoPlist: {
+      LSApplicationQueriesSchemes: [
+        "phonepe",
+        "tez",
+        "paytmmp",
+        "bhim",
+        "amazonpay",
+        "credpay"
+      ]
     }
   },
   android: {
