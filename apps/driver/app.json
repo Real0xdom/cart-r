@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "Carter Driver",
+    "slug": "carter-driver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/driver-icon.png",
+    "scheme": "carter-driver",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/driver-splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#22C55E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.carter.driver",
+      "config": {
+        "googleMapsApiKey": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
+      },
+      "infoPlist": {
+        "UIBackgroundModes": ["location", "fetch"],
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
+        "NSLocationWhenInUseUsageDescription": "Carter Driver needs your location to receive ride requests."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/driver-adaptive-icon.png",
+        "backgroundColor": "#22C55E"
+      },
+      "package": "com.carter.driver",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
+        }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "server",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://driver.cart-r.com/"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

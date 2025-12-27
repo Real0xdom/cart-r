@@ -1,0 +1,395 @@
+import { supabase } from './supabase';
+
+// =====================================================
+// BOOKING API HELPERS
+// =====================================================
+
+export interface CreateBookingParams {
+  customerId: string;
+  originAddress: string;
+  originLatitude: number;
+  originLongitude: number;
+  destinationAddress: string;
+  destinationLatitude: number;
+  destinationLongitude: number;
+  vehicleType: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+  estimatedDistance?: number;
+  estimatedDuration?: number;
+}
+
+export interface Booking {
+  id: string;
+  booking_number: string;
+  customer_id: string;
+  driver_id: string | null;
+  origin_address: string;
+  origin_latitude: number;
+  origin_longitude: number;
+  destination_address: string;
+  destination_latitude: number;
+  destination_longitude: number;
+  vehicle_type: string;
+  estimated_distance: number | null;
+  estimated_duration: number | null;
+  total_fare: number;
+  payment_status: 'pending' | 'paid' | 'refunded';
+  payment_method: 'cash' | 'online';
+  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  pickup_otp: string | null;
+  created_at: string;
+  driver?: {
+    id: string;
+    vehicle_number: string;
+    vehicle_model: string;
+    rating: number;
+    user: {
+      name: string;
+      phone: string;
+      avatar_url: string | null;
+    };
+  };
+}
+
+// Fare configuration per vehicle type (in INR)
+const FARE_CONFIG = {
+  bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
+  auto: { baseFare: 30, perKmRate: 12, perMinRate: 1.5, minimumFare: 40 },
+  mini: { baseFare: 50, perKmRate: 14, perMinRate: 2, minimumFare: 80 },
+  sedan: { baseFare: 80, perKmRate: 18, perMinRate: 2.5, minimumFare: 120 },
+  suv: { baseFare: 100, perKmRate: 22, perMinRate: 3, minimumFare: 150 },
+  truck: { baseFare: 150, perKmRate: 25, perMinRate: 3.5, minimumFare: 200 },
+};
+
+/**
+ * Calculate fare based on distance, duration, and vehicle type
+ */
+export function calculateFare(
+  distanceKm: number,
+  durationMinutes: number,
+  vehicleType: keyof typeof FARE_CONFIG
+): number {
+  const config = FARE_CONFIG[vehicleType];
+  const distanceFare = distanceKm * config.perKmRate;
+  const timeFare = durationMinutes * config.perMinRate;
+  const totalFare = config.baseFare + distanceFare + timeFare;
+  
+  return Math.max(Math.round(totalFare), config.minimumFare);
+}
+
+/**
+ * Generate a unique booking number
+ */
+function generateBookingNumber(): string {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `CARTR-${timestamp}-${random}`;
+}
+
+/**
+ * Generate a 4-digit OTP for pickup verification
+ */
+function generateOTP(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+/**
+ * Create a new booking
+ */
+export async function createBooking(params: CreateBookingParams): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0 } = params;
+    
+    // Calculate fare
+    const totalFare = calculateFare(estimatedDistance, estimatedDuration, vehicleType);
+    
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert({
+        booking_number: generateBookingNumber(),
+        customer_id: customerId,
+        origin_address: params.originAddress,
+        origin_latitude: params.originLatitude,
+        origin_longitude: params.originLongitude,
+        destination_address: params.destinationAddress,
+        destination_latitude: params.destinationLatitude,
+        destination_longitude: params.destinationLongitude,
+        vehicle_type: vehicleType,
+        estimated_distance: estimatedDistance,
+        estimated_duration: estimatedDuration,
+        total_fare: totalFare,
+        base_fare: FARE_CONFIG[vehicleType].baseFare,
+        distance_fare: estimatedDistance * FARE_CONFIG[vehicleType].perKmRate,
+        time_fare: estimatedDuration * FARE_CONFIG[vehicleType].perMinRate,
+        pickup_otp: generateOTP(),
+        status: 'pending',
+        payment_status: 'pending',
+        payment_method: 'cash',
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error creating booking:', error);
+      return { data: null, error: error.message };
+    }
+    
+    return { data: data as Booking, error: null };
+  } catch (err: any) {
+    console.error('Booking creation failed:', err);
+    return { data: null, error: err.message || 'Failed to create booking' };
+  }
+}
+
+/**
+ * Fetch customer's bookings
+ */
+export async function getCustomerBookings(customerId: string): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        driver:drivers(
+          id,
+          vehicle_number,
+          vehicle_model,
+          rating,
+          user:users(name, phone, avatar_url)
+        )
+      `)
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      return { data: [], error: error.message };
+    }
+    
+    return { data: data as Booking[], error: null };
+  } catch (err: any) {
+    return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Get a single booking by ID
+ */
+export async function getBookingById(bookingId: string): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        driver:drivers(
+          id,
+          vehicle_number,
+          vehicle_model,
+          rating,
+          user:users(name, phone, avatar_url)
+        )
+      `)
+      .eq('id', bookingId)
+      .single();
+    
+    if (error) {
+      return { data: null, error: error.message };
+    }
+    
+    return { data: data as Booking, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message };
+  }
+}
+
+/**
+ * Update booking status
+ */
+export async function updateBookingStatus(
+  bookingId: string,
+  status: Booking['status'],
+  additionalData?: Record<string, any>
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+    
+    // Add timestamps based on status
+    if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
+    if (status === 'driver_arrived') updateData.driver_arrived_at = new Date().toISOString();
+    if (status === 'in_progress') updateData.started_at = new Date().toISOString();
+    if (status === 'completed') updateData.completed_at = new Date().toISOString();
+    if (status === 'cancelled') updateData.cancelled_at = new Date().toISOString();
+    
+    if (additionalData) {
+      Object.assign(updateData, additionalData);
+    }
+    
+    const { error } = await supabase
+      .from('bookings')
+      .update(updateData)
+      .eq('id', bookingId);
+    
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Subscribe to booking updates (real-time)
+ */
+export function subscribeToBooking(
+  bookingId: string,
+  onUpdate: (booking: Booking) => void
+) {
+  const subscription = supabase
+    .channel(`booking-${bookingId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `id=eq.${bookingId}`,
+      },
+      (payload) => {
+        onUpdate(payload.new as Booking);
+      }
+    )
+    .subscribe();
+  
+  return () => {
+    subscription.unsubscribe();
+  };
+}
+
+/**
+ * Get available bookings for drivers (pending bookings nearby)
+ */
+export async function getAvailableBookings(
+  driverLatitude: number,
+  driverLongitude: number,
+  radiusKm: number = 10
+): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    // For now, fetch all pending bookings
+    // TODO: Implement PostGIS distance filtering
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('status', 'pending')
+      .is('driver_id', null)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    
+    if (error) {
+      return { data: [], error: error.message };
+    }
+    
+    // Client-side distance filtering (temporary solution)
+    const filtered = (data || []).filter((booking: any) => {
+      const distance = calculateDistance(
+        driverLatitude,
+        driverLongitude,
+        booking.origin_latitude,
+        booking.origin_longitude
+      );
+      return distance <= radiusKm;
+    });
+    
+    return { data: filtered as Booking[], error: null };
+  } catch (err: any) {
+    return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Accept a booking (for drivers)
+ */
+export async function acceptBooking(
+  bookingId: string,
+  driverId: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('bookings')
+      .update({
+        driver_id: driverId,
+        status: 'accepted',
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', bookingId)
+      .eq('status', 'pending'); // Only accept if still pending
+    
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Subscribe to available bookings for drivers (real-time)
+ */
+export function subscribeToAvailableBookings(
+  onInsert: (booking: Booking) => void,
+  onDelete: (bookingId: string) => void
+) {
+  const subscription = supabase
+    .channel('available-bookings')
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'bookings',
+      },
+      (payload) => {
+        if (payload.new.status === 'pending' && !payload.new.driver_id) {
+          onInsert(payload.new as Booking);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+      },
+      (payload) => {
+        // If booking was accepted or cancelled, remove from available list
+        if (payload.new.status !== 'pending' || payload.new.driver_id) {
+          onDelete(payload.new.id as string);
+        }
+      }
+    )
+    .subscribe();
+  
+  return () => {
+    subscription.unsubscribe();
+  };
+}
+
+// Helper: Calculate distance between two coordinates (Haversine formula)
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function toRad(deg: number): number {
+  return deg * (Math.PI / 180);
+}

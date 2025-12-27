@@ -1,0 +1,10 @@
+{
+  "name": "carter-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Carter - Pune's Logistics App",
+  "scripts": {
+    "customer": "cd apps/customer && npx expo start",
+    "driver": "cd apps/driver && npx expo start"
+  }
+}
