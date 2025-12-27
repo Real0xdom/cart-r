@@ -4,11 +4,11 @@
     "slug": "carter-driver",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/driver-icon.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "carter-driver",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/driver-splash.png",
+      "image": "./assets/images/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#22C55E"
     },
@@ -29,7 +29,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/driver-adaptive-icon.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#22C55E"
       },
       "package": "com.carter.driver",
