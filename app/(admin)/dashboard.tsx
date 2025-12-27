@@ -1,48 +1,116 @@
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Note: In a real Expo Web setup, we'd add Platform checks or .web.tsx extensions
-// But this works for basic structure
+export default function AdminDashboard() {
+  const { adminSignOut } = useAuth();
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [rides, setRides] = useState<any[]>([]);
 
-const AdminDashboard = () => {
-    const { signOut } = useAuth();
+  useEffect(() => {
+    fetchDrivers();
+    fetchRides();
+  }, []);
 
-    return (
-        <SafeAreaView className="flex-1 bg-gray-50">
-            <View className="flex-row items-center justify-between p-5 bg-white shadow-sm">
-                <Text className="text-2xl font-JakartaBold text-primary-500">Admin Portal</Text>
-                <TouchableOpacity onPress={signOut}>
-                    <Text className="text-red-500 font-JakartaSemiBold">Logout</Text>
-                </TouchableOpacity>
-            </View>
+  const fetchDrivers = async () => {
+    const { data } = await supabase
+      .from('drivers')
+      .select('id, user_id, is_verified, status');
 
-            <ScrollView className="p-5">
-                <View className="flex-row flex-wrap gap-4">
-                    {/* Stats Cards */}
-                    <View className="bg-white p-6 rounded-xl shadow-sm w-[300px]">
-                        <Text className="text-gray-500 mb-2">Total Users</Text>
-                        <Text className="text-3xl font-JakartaBold">1,234</Text>
-                    </View>
-                    <View className="bg-white p-6 rounded-xl shadow-sm w-[300px]">
-                        <Text className="text-gray-500 mb-2">Active Drivers</Text>
-                        <Text className="text-3xl font-JakartaBold">56</Text>
-                    </View>
-                    <View className="bg-white p-6 rounded-xl shadow-sm w-[300px]">
-                        <Text className="text-gray-500 mb-2">Today's Revenue</Text>
-                        <Text className="text-3xl font-JakartaBold">₹12,450</Text>
-                    </View>
-                </View>
+    if (data) setDrivers(data);
+  };
 
-                <View className="mt-8">
-                    <Text className="text-xl font-JakartaBold mb-4">Verification Requests</Text>
-                    <View className="bg-white rounded-xl shadow-sm p-4">
-                        <Text className="text-gray-400 text-center py-10">No pending driver verifications</Text>
-                    </View>
-                </View>
-            </ScrollView>
-        </SafeAreaView>
-    );
-};
+  const fetchRides = async () => {
+    const { data } = await supabase
+      .from('rides')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-export default AdminDashboard;
+    if (data) setRides(data);
+  };
+
+  const verifyDriver = async (id: string) => {
+    await supabase
+      .from('drivers')
+      .update({ is_verified: true, status: 'approved' })
+      .eq('id', id);
+
+    fetchDrivers();
+  };
+
+  return (
+    <ScrollView style={{ padding: 20 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 26, fontWeight: 'bold' }}>Admin Panel</Text>
+        <TouchableOpacity onPress={adminSignOut}>
+          <Text style={{ color: 'red' }}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* DRIVERS */}
+      <Text style={{ fontSize: 20, marginTop: 30 }}>Drivers</Text>
+
+      {drivers.length === 0 && (
+        <Text style={{ color: 'gray', marginTop: 10 }}>
+          No drivers yet
+        </Text>
+      )}
+
+      {drivers.map(driver => (
+        <View
+          key={driver.id}
+          style={{
+            backgroundColor: '#fff',
+            padding: 12,
+            marginTop: 10,
+            borderRadius: 8,
+          }}
+        >
+          <Text>Driver ID: {driver.id}</Text>
+          <Text>Status: {driver.status}</Text>
+
+          {!driver.is_verified && (
+            <TouchableOpacity
+              onPress={() => verifyDriver(driver.id)}
+              style={{
+                backgroundColor: '#0286FF',
+                padding: 10,
+                marginTop: 10,
+              }}
+            >
+              <Text style={{ color: '#fff', textAlign: 'center' }}>
+                Verify Driver
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ))}
+
+      {/* RIDES */}
+      <Text style={{ fontSize: 20, marginTop: 40 }}>Rides</Text>
+
+      {rides.length === 0 && (
+        <Text style={{ color: 'gray', marginTop: 10 }}>
+          No rides yet
+        </Text>
+      )}
+
+      {rides.map(ride => (
+        <View
+          key={ride.id}
+          style={{
+            backgroundColor: '#fff',
+            padding: 12,
+            marginTop: 10,
+            borderRadius: 8,
+          }}
+        >
+          <Text>Status: {ride.status}</Text>
+          <Text>Pickup: {ride.pickup}</Text>
+          <Text>Drop: {ride.dropoff}</Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
