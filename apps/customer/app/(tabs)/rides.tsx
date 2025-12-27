@@ -149,8 +149,13 @@ const Rides = () => {
           params: { bookingId: booking.id },
         });
       }
+    } else {
+      // For completed/cancelled trips
+      router.push({
+        pathname: '/ride-details/[id]',
+        params: { id: booking.id }
+      });
     }
-    // For completed/cancelled trips, could show trip details (future enhancement)
   };
 
   // Separate active and past bookings

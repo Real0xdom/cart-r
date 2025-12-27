@@ -19,7 +19,10 @@
         "googleMapsApiKey": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
       },
       "infoPlist": {
-        "UIBackgroundModes": ["location", "fetch"],
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ],
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
         "NSLocationWhenInUseUsageDescription": "Carter Driver needs your location to receive ride requests."
       }
@@ -40,7 +43,12 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "VIBRATE"
+        "VIBRATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "web": {
@@ -65,6 +73,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://driver.cart-r.com/"
+      },
+      "eas": {
+        "projectId": "c7204baf-bff3-41dd-930f-daf97fb3d0dc"
+      }
     }
   }
 }

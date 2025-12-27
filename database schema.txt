@@ -8,6 +8,14 @@ CREATE TABLE public.admin (
   CONSTRAINT admin_pkey PRIMARY KEY (id, created_at, is_active),
   CONSTRAINT admin_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
+CREATE TABLE public.admins (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  role text DEFAULT 'admin'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT admins_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.audit_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   table_name text NOT NULL,
@@ -62,6 +70,16 @@ CREATE TABLE public.bookings (
   driver_notes text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  receiver_name character varying,
+  receiver_phone character varying,
+  goods_description text,
+  goods_weight_kg numeric,
+  tip_amount numeric DEFAULT 0,
+  fare_multiplier numeric DEFAULT 1.00,
+  driver_payout numeric,
+  delivery_otp character varying,
+  delivery_confirmed_at timestamp with time zone,
+  delivery_proof_url text,
   CONSTRAINT bookings_pkey PRIMARY KEY (id),
   CONSTRAINT bookings_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.users(id),
   CONSTRAINT bookings_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
@@ -107,6 +125,8 @@ CREATE TABLE public.drivers (
   total_earnings numeric DEFAULT 0.00,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  is_verified boolean DEFAULT false,
+  status text DEFAULT 'pending'::text,
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
   CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT drivers_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id)
@@ -175,6 +195,19 @@ CREATE TABLE public.ratings (
   CONSTRAINT ratings_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
   CONSTRAINT ratings_from_user_id_fkey FOREIGN KEY (from_user_id) REFERENCES public.users(id),
   CONSTRAINT ratings_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.rides (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  driver_id uuid,
+  status text,
+  pickup text,
+  dropoff text,
+  created_at timestamp with time zone DEFAULT now(),
+  completed_at timestamp with time zone,
+  CONSTRAINT rides_pkey PRIMARY KEY (id),
+  CONSTRAINT rides_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT rides_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
 );
 CREATE TABLE public.spatial_ref_sys (
   srid integer NOT NULL CHECK (srid > 0 AND srid <= 998999),

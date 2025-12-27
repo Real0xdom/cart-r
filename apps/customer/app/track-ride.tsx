@@ -174,7 +174,7 @@ const TrackRidePage = () => {
           </View>
         )}
 
-        {/* Trip Info */}
+            {/* Trip Info */}
         <View className="bg-gray-50 rounded-2xl p-4 mb-4 flex-1">
           <View className="flex-row justify-between mb-3">
             <View>
@@ -207,6 +207,30 @@ const TrackRidePage = () => {
               </Text>
             </View>
           </View>
+
+          {/* Payment Request Banner */}
+          {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
+              For now we rely on status='in_progress' and user check manually via push notification, 
+              or we can add a persistent button here if not paid. */}
+          {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
+             <TouchableOpacity
+                onPress={() => router.push({ pathname: "/pay-booking", params: { bookingId: booking.id } })}
+                className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
+             >
+                <View className="flex-row items-center">
+                    <Feather name="credit-card" size={18} color="#0286FF" />
+                    <Text className="ml-2 text-primary-600 font-JakartaSemiBold">Pay Online</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#0286FF" />
+             </TouchableOpacity>
+          )}
+
+          {booking?.payment_status === 'paid' && (
+             <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
+                <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
+             </View>
+          )}
+
         </View>
 
         {/* SOS Button */}
