@@ -201,6 +201,8 @@ export async function getCustomerBookings(customerId: string): Promise<{ data: B
  */
 export async function getBookingById(bookingId: string): Promise<{ data: Booking | null; error: string | null }> {
   try {
+    console.log('[getBookingById] Fetching booking:', bookingId);
+    
     const { data, error } = await supabase
       .from('bookings')
       .select(`
@@ -210,18 +212,27 @@ export async function getBookingById(bookingId: string): Promise<{ data: Booking
           vehicle_number,
           vehicle_model,
           rating,
-          user:users(name, phone, avatar_url)
+          user:users!drivers_user_id_fkey(name, phone, avatar_url)
         )
       `)
       .eq('id', bookingId)
       .single();
     
+    console.log('[getBookingById] Query result:', {
+      hasData: !!data,
+      error: error?.message || null,
+      bookingId
+    });
+    
     if (error) {
+      console.error('[getBookingById] Database error:', error);
       return { data: null, error: error.message };
     }
     
+    console.log('[getBookingById] Booking data:', JSON.stringify(data, null, 2));
     return { data: data as Booking, error: null };
   } catch (err: any) {
+    console.error('[getBookingById] Exception:', err);
     return { data: null, error: err.message };
   }
 }

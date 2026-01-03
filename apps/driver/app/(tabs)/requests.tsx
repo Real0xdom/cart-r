@@ -209,18 +209,31 @@ const DriverRequests = () => {
     }, [location, driverProfile?.vehicle_type]);
 
     const handleAccept = async (id: string) => {
+        console.log('========================================');
+        console.log('[HANDLE ACCEPT] Booking ID:', id);
+        console.log('[HANDLE ACCEPT] Driver profile:', driverProfile?.id);
+        console.log('========================================');
+        
         if (!driverProfile?.id) {
+            console.error('[HANDLE ACCEPT] No driver profile found');
             Alert.alert("Error", "Driver profile not found. Please log in again.");
             return;
         }
 
+        console.log('[HANDLE ACCEPT] Calling acceptBooking...');
         const { success, error } = await acceptBooking(id, driverProfile.id);
         
+        console.log('[HANDLE ACCEPT] Accept result:', { success, error });
+        
         if (success) {
+            console.log('[HANDLE ACCEPT] Booking accepted successfully');
+            console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
             Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
             // Navigate to active ride screen
             router.push(`/ride/${id}`);
+            console.log('[HANDLE ACCEPT] Navigation triggered');
         } else {
+            console.error('[HANDLE ACCEPT] Failed to accept:', error);
             Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
             // Refresh list
             fetchRequests();

@@ -53,16 +53,28 @@ const ActiveRide = () => {
     // Fetch booking data
     useEffect(() => {
         if (!id) {
+            console.log('[ACTIVE RIDE] No booking ID provided');
             router.back();
             return;
         }
 
+        console.log('[ACTIVE RIDE] Fetching booking details for ID:', id);
+
         const fetchBooking = async () => {
             const { data, error } = await getBookingById(id);
+            
+            console.log('[ACTIVE RIDE] getBookingById result:', {
+                hasData: !!data,
+                error: error,
+                bookingId: id
+            });
+            
             if (data) {
+                console.log('[ACTIVE RIDE] Booking loaded successfully:', JSON.stringify(data, null, 2));
                 setBooking(data);
             } else {
-                Alert.alert('Error', 'Failed to load ride details');
+                console.error('[ACTIVE RIDE] Failed to load booking:', error);
+                Alert.alert('Error', `Failed to load ride details: ${error || 'Unknown error'}`);
                 router.back();
             }
             setIsLoading(false);
@@ -71,7 +83,9 @@ const ActiveRide = () => {
         fetchBooking();
 
         // Subscribe to real-time updates
+        console.log('[ACTIVE RIDE] Subscribing to booking updates');
         const unsubscribe = subscribeToBooking(id, (updatedBooking) => {
+            console.log('[ACTIVE RIDE] Received booking update:', updatedBooking.status);
             setBooking(updatedBooking);
         });
 
