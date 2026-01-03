@@ -67,22 +67,42 @@ const WaitingForDriverPage = () => {
     return () => pulse.stop();
   }, [driverAccepted, showTimeout]);
 
+  // Watch for driverAccepted state changes
+  useEffect(() => {
+    console.log('[STATE CHANGE] driverAccepted changed to:', driverAccepted);
+  }, [driverAccepted]);
+
   // Countdown timer
   useEffect(() => {
-    if (driverAccepted || showTimeout) return;
+    console.log('[TIMER] Effect triggered - driverAccepted:', driverAccepted, 'showTimeout:', showTimeout);
+    
+    if (driverAccepted || showTimeout) {
+      console.log('[TIMER] Timer should be stopped (driverAccepted or timeout)');
+      return;
+    }
 
+    console.log('[TIMER] Starting countdown timer from', timeRemaining);
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
-        if (prev <= 1) {
+        const newValue = prev - 1;
+        if (newValue % 10 === 0) { // Log every 10 seconds
+          console.log('[TIMER] Time remaining:', newValue);
+        }
+        
+        if (newValue <= 1) {
+          console.log('[TIMER] Timeout reached! Showing timeout screen');
           clearInterval(timer);
           setShowTimeout(true);
           return 0;
         }
-        return prev - 1;
+        return newValue;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => {
+      console.log('[TIMER] Cleanup - clearing timer');
+      clearInterval(timer);
+    };
   }, [driverAccepted, showTimeout]);
 
   // Redirect if no booking ID - wrapped in useEffect to avoid setState during render
@@ -96,12 +116,19 @@ const WaitingForDriverPage = () => {
   useEffect(() => {
     if (!bookingId) return;
 
+    console.log('[WAITING] Setting up subscription for booking:', bookingId);
+
     // Fetch latest booking data
     getBookingById(bookingId).then(({ data }) => {
       if (data) {
+        console.log('[WAITING] Initial booking data:', {
+          status: data.status,
+          hasDriver: !!data.driver
+        });
         setBooking(data);
         setTipAmount(data.tip_amount || 0);
         if (data.status === 'accepted' && data.driver) {
+          console.log('[WAITING] Driver already accepted - stopping timer');
           setDriverAccepted(true);
         }
       }
@@ -109,22 +136,36 @@ const WaitingForDriverPage = () => {
 
     // Subscribe to real-time updates
     const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
+      console.log('[WAITING] Booking updated:', {
+        status: updatedBooking.status,
+        hasDriver: !!updatedBooking.driver_id,
+        driverObject: updatedBooking.driver
+      });
+      
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
 
       if (updatedBooking.status === 'accepted') {
+        console.log('[WAITING] Driver accepted! Stopping timer and fetching full details');
         setDriverAccepted(true);
         // Fetch full booking with driver details
         getBookingById(bookingId).then(({ data }) => {
           if (data) {
+            console.log('[WAITING] Full booking with driver loaded');
+            console.log('[WAITING] Driver details:', data.driver);
             setBooking(data);
             setCurrentBooking(data);
+          } else {
+            console.error('[WAITING] Failed to fetch full booking details');
           }
         });
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log('[WAITING] Unsubscribing from booking updates');
+      unsubscribe();
+    };
   }, [bookingId]);
 
   // Handle cancel booking

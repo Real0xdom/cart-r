@@ -140,7 +140,7 @@ export async function getBookingById(bookingId: string): Promise<{
           rating,
           current_latitude,
           current_longitude,
-          user:users(name, phone, avatar_url)
+          user:users!drivers_user_id_fkey(name, phone, avatar_url)
         )
       `)
       .eq('id', bookingId)
