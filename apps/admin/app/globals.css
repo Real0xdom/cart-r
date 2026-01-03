@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Palette */
+  --color-cream: #FAF8F5;
+  --color-white: #FFFFFF;
+  --color-black: #1A1A1A;
+  --color-orange: #FF9800;
+  --color-orange-light: #FFF3E0;
+  --color-green: #4CAF50;
+  --color-green-light: #E8F5E9;
+  --color-gray-dark: #4B5563;
+  --color-gray-light: #E5E7EB;
+
+  --background: var(--color-cream);
+  --foreground: var(--color-black);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-orange: var(--color-orange);
+  --color-brand-black: var(--color-black);
+  --color-brand-cream: var(--color-cream);
+  --color-brand-green: var(--color-green);
+  
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Force light mode styles */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom Utilities */
+@layer components {
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-sm;
+  }
+  
+  .btn-primary {
+    @apply bg-orange-500 text-white font-medium py-3 px-6 rounded-xl hover:bg-orange-600 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .card-panel {
+    @apply bg-white rounded-2xl shadow-sm border border-gray-100;
+  }
+}
