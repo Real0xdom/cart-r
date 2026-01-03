@@ -132,7 +132,16 @@ const DriverRequests = () => {
     const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
 
     const fetchRequests = async () => {
-        if (!location || !driverProfile?.vehicle_type) return; // Wait for location and driver profile
+        console.log('========================================');
+        console.log('[DRIVER REQUESTS] Fetching available bookings...');
+        console.log('[DRIVER REQUESTS] Location:', location);
+        console.log('[DRIVER REQUESTS] Driver vehicle type:', driverProfile?.vehicle_type);
+        console.log('========================================');
+        
+        if (!location || !driverProfile?.vehicle_type) {
+            console.log('[DRIVER REQUESTS] Missing location or vehicle type, skipping fetch');
+            return; // Wait for location and driver profile
+        }
         
         const { data, error } = await getAvailableBookings(
             location.latitude,
@@ -142,9 +151,11 @@ const DriverRequests = () => {
         );
         
         if (error) {
-            console.error("Error fetching requests:", error);
+            console.error("[DRIVER REQUESTS] Error fetching requests:", error);
             // Don't show alert on auto-refresh to avoid annoyance
         } else {
+            console.log('[DRIVER REQUESTS] Found bookings:', data.length);
+            console.log('[DRIVER REQUESTS] Bookings:', JSON.stringify(data, null, 2));
             setRequests(data);
         }
         setLoading(false);

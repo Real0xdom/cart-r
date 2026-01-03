@@ -301,6 +301,13 @@ export async function getAvailableBookings(
   radiusKm: number = 10
 ): Promise<{ data: Booking[]; error: string | null }> {
   try {
+    console.log('[getAvailableBookings] Called with:', {
+      driverLatitude,
+      driverLongitude,
+      driverVehicleType,
+      radiusKm
+    });
+    
     // Fetch pending bookings matching driver's vehicle type
     // Only show bookings that match the driver's registered vehicle
     const { data, error } = await supabase
@@ -313,9 +320,17 @@ export async function getAvailableBookings(
       .order('created_at', { ascending: false })
       .limit(30);
     
+    console.log('[getAvailableBookings] Database query result:', {
+      count: data?.length || 0,
+      error: error?.message || null
+    });
+    
     if (error) {
+      console.error('[getAvailableBookings] Database error:', error);
       return { data: [], error: error.message };
     }
+    
+    console.log('[getAvailableBookings] Raw bookings from DB:', JSON.stringify(data, null, 2));
     
     const now = new Date();
     
@@ -323,6 +338,7 @@ export async function getAvailableBookings(
     const filtered = (data || []).filter((booking: any) => {
       // Filter out expired bookings
       if (booking.expires_at && new Date(booking.expires_at) < now) {
+        console.log(`[getAvailableBookings] Filtered out expired booking: ${booking.id}`);
         return false;
       }
       
@@ -333,11 +349,25 @@ export async function getAvailableBookings(
         booking.origin_latitude,
         booking.origin_longitude
       );
-      return distance <= radiusKm;
+      
+      console.log(`[getAvailableBookings] Booking ${booking.id}: distance = ${distance.toFixed(2)}km (limit: ${radiusKm}km)`);
+      
+      if (distance > radiusKm) {
+        console.log(`[getAvailableBookings] Filtered out - too far: ${booking.id}`);
+        return false;
+      }
+      
+      return true;
+    });
+    
+    console.log('[getAvailableBookings] After filtering:', {
+      total: data?.length || 0,
+      filtered: filtered.length
     });
     
     return { data: filtered as Booking[], error: null };
   } catch (err: any) {
+    console.error('[getAvailableBookings] Exception:', err);
     return { data: [], error: err.message };
   }
 }

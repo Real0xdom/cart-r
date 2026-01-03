@@ -11,6 +11,7 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
@@ -58,15 +59,23 @@ const SelectVehiclePage = () => {
       setLoading(true);
       setError(null);
       try {
+        console.log('[SELECT VEHICLE] Calculating fares...');
         const options = await calculateFares(
           userLatitude,
           userLongitude,
           destinationLatitude,
           destinationLongitude
         );
+        console.log('[SELECT VEHICLE] Fare options received:', options.length);
+        console.log('[SELECT VEHICLE] Vehicle types:', options.map(o => o.vehicle_type).join(', '));
+        console.log('[SELECT VEHICLE] Full fare data:', JSON.stringify(options, null, 2));
+        
+        const hasTruck = options.some(o => o.vehicle_type === 'truck');
+        console.log('[SELECT VEHICLE] Has truck?', hasTruck);
+        
         setFares(options);
       } catch (err) {
-        console.error(err);
+        console.error('[SELECT VEHICLE] Error:', err);
         setError("Failed to load vehicle options. Please try again.");
       } finally {
         setLoading(false);
@@ -217,7 +226,11 @@ const SelectVehiclePage = () => {
       snapPoints={["50%", "85%"]}
       useView={true}
     >
-      <View className="flex-1">
+      <ScrollView 
+        className="flex-1"
+        showsVerticalScrollIndicator={true}
+        bounces={true}
+      >
         {loading ? (
           <View className="items-center justify-center py-10">
             <ActivityIndicator size="large" color="#FF9800" />
@@ -231,14 +244,13 @@ const SelectVehiclePage = () => {
         ) : (
           <>
             {/* Vehicle List */}
-            <FlatList
-              data={fares}
-              renderItem={renderVehicleItem}
-              keyExtractor={(item) => item.vehicle_type}
-              showsVerticalScrollIndicator={false}
-              style={{ maxHeight: 280 }}
-              contentContainerStyle={{ paddingBottom: 10 }}
-            />
+            <View>
+              {fares.map((item) => (
+                <View key={item.vehicle_type}>
+                  {renderVehicleItem({ item })}
+                </View>
+              ))}
+            </View>
 
             {/* Tip Section */}
             {selectedVehicle && (
@@ -308,7 +320,7 @@ const SelectVehiclePage = () => {
             </View>
           </>
         )}
-      </View>
+      </ScrollView>
     </RideLayout>
   );
 };
