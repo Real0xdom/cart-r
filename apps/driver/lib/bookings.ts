@@ -99,12 +99,16 @@ export function calculateFare(
 }
 
 /**
- * Generate a unique booking number
+ * Generate a unique booking number with nanosecond precision and randomness
+ * Format: CARTR-{timestamp}-{nano}-{random} = ~30 characters
  */
 function generateBookingNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase();
+  // Add sub-millisecond precision using performance.now()
+  const nano = Math.floor((performance.now() % 1) * 1000000).toString(36).toUpperCase();
+  // Add random component for extra uniqueness
   const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `CARTR-${timestamp}-${random}`;
+  return `CARTR-${timestamp}${nano}${random}`;
 }
 
 /**

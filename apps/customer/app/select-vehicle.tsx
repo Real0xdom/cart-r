@@ -81,6 +81,12 @@ const SelectVehiclePage = () => {
   };
 
   const handleBookNow = async () => {
+    console.log('========================================');
+    console.log('[BOOK NOW] Button clicked');
+    console.log('[BOOK NOW] Selected vehicle:', selectedVehicle);
+    console.log('[BOOK NOW] Receiver details:', receiverDetails);
+    console.log('========================================');
+    
     if (!selectedVehicle) return;
     
     if (!profile?.id) {
@@ -101,7 +107,8 @@ const SelectVehiclePage = () => {
     setIsBooking(true);
 
     try {
-      const { data: booking, error } = await createBooking({
+      console.log('[BOOK NOW] Calling createBooking...');
+      const bookingParams = {
         customerId: profile.id,
         originAddress: userAddress || "",
         originLatitude: userLatitude,
@@ -112,14 +119,22 @@ const SelectVehiclePage = () => {
         vehicle: selectedVehicle,
         receiverDetails: receiverDetails,
         tipAmount: tipAmount,
-      });
+      };
+      console.log('[BOOK NOW] Booking params:', JSON.stringify(bookingParams, null, 2));
+      
+      const { data: booking, error } = await createBooking(bookingParams);
+
+      console.log('[BOOK NOW] Booking result:', { booking, error });
 
       if (error || !booking) {
+        console.error('[BOOK NOW] Error creating booking:', error);
         Alert.alert("Error", error || "Failed to create booking. Please try again.");
         setIsBooking(false);
         return;
       }
 
+      console.log('[BOOK NOW] Booking created successfully:', booking.id);
+      
       // Save booking to store
       setCurrentBooking(booking);
 
@@ -130,7 +145,7 @@ const SelectVehiclePage = () => {
       });
 
     } catch (err: any) {
-      console.error("Booking creation failed:", err);
+      console.error("[BOOK NOW] Booking creation failed:", err);
       Alert.alert("Error", err.message || "Something went wrong. Please try again.");
       setIsBooking(false);
     }

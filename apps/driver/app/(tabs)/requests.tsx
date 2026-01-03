@@ -208,7 +208,7 @@ const DriverRequests = () => {
         if (success) {
             Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
             // Navigate to active ride screen
-            router.push(`/(driver)/ride/${id}` as any);
+            router.push(`/ride/${id}`);
         } else {
             Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
             // Refresh list
