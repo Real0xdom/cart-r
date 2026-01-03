@@ -17,7 +17,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithPhone: (phone: string) => Promise<{ error: Error | null }>;
   signInWithWhatsApp: (phone: string) => Promise<{ error: Error | null }>;
-  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null }>;
+  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null; data?: { user: User | null; session: Session | null } }>;
   verifyWhatsAppOtp: (phone: string, token: string, targetRole: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -37,26 +37,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fetch user profile from database
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Fetch user profile (might not exist for new phone auth users)
+      const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
         .single();
       
-      if (error) throw error;
-      setProfile(data);
+      if (!userError && userData) {
+        setProfile(userData);
+      }
 
-      // If user is a driver, fetch driver profile
-      if (data?.role === 'driver') {
-        const { data: driverData, error: driverError } = await supabase
-          .from('drivers')
-          .select('*')
-          .eq('user_id', userId)
-          .single();
-        
-        if (!driverError && driverData) {
-          setDriverProfile(driverData);
-        }
+      // Always try to fetch driver profile in the driver app
+      const { data: driverData, error: driverError } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (!driverError && driverData) {
+        setDriverProfile(driverData);
+      } else {
+        setDriverProfile(null);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -66,14 +68,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize auth state
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+    const initializeAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // Handle invalid refresh token by signing out
+        if (error) {
+          console.warn('Session error, signing out:', error.message);
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          setIsLoading(false);
+          return;
+        }
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+        // Clear any invalid session
+        await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
       }
       setIsLoading(false);
-    });
+    };
+    
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -164,14 +188,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Verify OTP
   const verifyOtp = async (phone: string, token: string) => {
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         phone,
         token,
         type: 'sms',
       });
 
       if (error) throw error;
-      return { error: null };
+      return { error: null, data };
     } catch (error) {
       return { error: error as Error };
     }
@@ -214,9 +238,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Navigate based on role
         if (targetRole === 'driver') {
-          router.replace('/(driver)/(tabs)/home');
+          router.replace('/(tabs)/home');
         } else {
-          router.replace('/(customer)/(tabs)/home');
+          router.replace('/');
         }
       }
 

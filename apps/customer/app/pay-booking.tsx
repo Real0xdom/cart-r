@@ -114,7 +114,7 @@ const PayBooking = () => {
     if (isLoading || !booking) {
         return (
             <SafeAreaView className="flex-1 bg-white items-center justify-center">
-                <ActivityIndicator size="large" color="#0286FF" />
+                <ActivityIndicator size="large" color="#FF9800" />
             </SafeAreaView>
         );
     }

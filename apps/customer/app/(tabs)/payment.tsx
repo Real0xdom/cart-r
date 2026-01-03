@@ -314,7 +314,7 @@ const Payment = () => {
           // const theme = new CFThemeBuilder()
           //   .setNavigationBarBackgroundColor("#ffffff")
           //   .setNavigationBarTextColor("#111111")
-          //   .setButtonBackgroundColor("#0286FF")
+          //   .setButtonBackgroundColor("#FF9800")
           //   .setButtonTextColor("#ffffff")
           //   .setPrimaryTextColor("#111111")
           //   .setSecondaryTextColor("#111111")
@@ -381,10 +381,10 @@ const Payment = () => {
                     
                     <TouchableOpacity 
                         onPress={() => setModalVisible(true)}
-                        className="bg-brand-500 px-4 py-2 rounded-full flex-row items-center"
+                        className="bg-green-500 px-4 py-2 rounded-full flex-row items-center"
                     >
-                        <Feather name="plus" size={16} color="black" />
-                        <Text className="font-JakartaBold text-black ml-1 text-sm">Add Money</Text>
+                        <Feather name="plus" size={16} color="white" />
+                        <Text className="font-JakartaBold text-white ml-1 text-sm">Add Money</Text>
                     </TouchableOpacity>
                 </View>
             </View>

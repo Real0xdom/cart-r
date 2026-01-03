@@ -61,10 +61,11 @@ const FindRide = () => {
 
   return (
     <RideLayout 
-      title="Step 1: Select Locations" 
+      title="Select Locations" 
       snapPoints={["15%", "50%", "85%"]}
       mapSelectionMode={selectingOnMap}
       onMapLocationSelected={handleMapLocationSelected}
+      useView={true}
     >
       {/* From Field */}
       <View className="my-3">
@@ -76,7 +77,7 @@ const FindRide = () => {
             <Text className="text-lg font-JakartaSemiBold">Pickup Location</Text>
           </View>
           {isLoading && (
-            <ActivityIndicator size="small" color="#0286FF" />
+            <ActivityIndicator size="small" color="#FF9800" />
           )}
         </View>
         
@@ -94,7 +95,7 @@ const FindRide = () => {
             className="flex-row items-center py-2"
             disabled={isLoading}
           >
-            <Feather name="navigation" size={16} color="#0286FF" />
+            <Feather name="navigation" size={16} color="#FF9800" />
             <Text className="ml-2 text-sm font-JakartaMedium text-blue-500">
               Use current location
             </Text>
@@ -145,7 +146,7 @@ const FindRide = () => {
       {/* Info message when selecting on map */}
       {selectingOnMap && (
         <View className="bg-blue-100 p-4 rounded-xl mb-4 flex-row items-center">
-          <Feather name="info" size={18} color="#0286FF" />
+          <Feather name="info" size={18} color="#FF9800" />
           <Text className="ml-3 text-sm font-JakartaMedium text-blue-700 flex-1">
             Drag the sheet down and tap on the map to select your {selectingOnMap === 'from' ? 'pickup' : 'drop'} location
           </Text>
@@ -155,14 +156,7 @@ const FindRide = () => {
         </View>
       )}
 
-      {/* Progress indicator */}
-      <View className="flex-row items-center justify-center my-4">
-        <View className="w-3 h-3 bg-blue-500 rounded-full" />
-        <View className="w-8 h-0.5 bg-gray-300 mx-1" />
-        <View className="w-3 h-3 bg-gray-300 rounded-full" />
-        <View className="w-8 h-0.5 bg-gray-300 mx-1" />
-        <View className="w-3 h-3 bg-gray-300 rounded-full" />
-      </View>
+
 
       <CustomButton
         title={canProceed ? "Next: Receiver Details →" : "Enter both locations"}

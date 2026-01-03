@@ -1,14 +1,11 @@
 import { View, Image } from "react-native";
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
+import { useRef } from "react";
 
 import { icons } from "@/constants";
 import { GoogleInputProps } from "@/types/type";
 
 const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-// Debug: Log API key status (remove after debugging)
-console.log('Google Places API Key status:', googlePlacesApiKey ? 'LOADED (' + googlePlacesApiKey.substring(0, 10) + '...)' : 'NOT FOUND');
-
 
 const GoogleTextInput = ({
   icon,
@@ -17,14 +14,18 @@ const GoogleTextInput = ({
   textInputBackgroundColor,
   handlePress,
 }: GoogleInputProps) => {
+  const ref = useRef<any>(null);
+
   return (
     <View
       className={`flex flex-row items-center justify-center relative z-50 rounded-xl ${containerStyle}`}
     >
       <GooglePlacesAutocomplete
+        ref={ref}
         fetchDetails={true}
         placeholder="Search"
         debounce={200}
+        enablePoweredByContainer={false}
         styles={{
           textInputContainer: {
             alignItems: "center",
@@ -62,6 +63,9 @@ const GoogleTextInput = ({
             longitude: details?.geometry.location.lng!,
             address: data.description,
           });
+          // Clear the input to close the list
+          ref.current?.setAddressText(data.description);
+          ref.current?.blur();
         }}
         query={{
           key: googlePlacesApiKey,

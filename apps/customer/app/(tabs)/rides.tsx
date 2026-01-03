@@ -115,6 +115,7 @@ const Rides = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+
   const fetchBookings = useCallback(async () => {
     if (!profile?.id) return;
     
@@ -158,13 +159,7 @@ const Rides = () => {
     }
   };
 
-  // Separate active and past bookings
-  const activeBookings = bookings.filter(b => 
-    ['pending', 'accepted', 'driver_arrived', 'in_progress'].includes(b.status)
-  );
-  const pastBookings = bookings.filter(b => 
-    ['completed', 'cancelled'].includes(b.status)
-  );
+
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -199,13 +194,13 @@ const Rides = () => {
                 </Text>
                 <TouchableOpacity 
                   onPress={() => router.push('/(tabs)/home')}
-                  className="mt-6 bg-blue-500 px-6 py-3 rounded-xl"
+                  className="mt-6 bg-green-500 px-6 py-3 rounded-xl"
                 >
                   <Text className="text-white font-JakartaBold">Book a Ride</Text>
                 </TouchableOpacity>
               </>
             ) : (
-              <ActivityIndicator size="large" color="#0286FF" />
+              <ActivityIndicator size="large" color="#FF9800" />
             )}
           </View>
         )}
@@ -213,17 +208,7 @@ const Rides = () => {
           <>
             <Text className="text-2xl font-JakartaBold mb-4 text-gray-800">My Trips</Text>
             
-            {/* Active trips section */}
-            {activeBookings.length > 0 && (
-              <View className="mb-4">
-                <View className="flex-row items-center mb-2">
-                  <View className="w-2 h-2 bg-green-500 rounded-full mr-2" />
-                  <Text className="text-green-700 font-JakartaSemiBold">
-                    Active ({activeBookings.length})
-                  </Text>
-                </View>
-              </View>
-            )}
+
           </>
         }
         stickyHeaderIndices={[]}

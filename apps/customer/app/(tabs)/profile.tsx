@@ -71,7 +71,7 @@ const Profile = () => {
       {/* User Info Card */}
       <TouchableOpacity 
         onPress={() => router.push("/profile-details")}
-        className="flex flex-row items-center bg-blue-50 p-4 rounded-xl border border-blue-100 mb-4"
+        className="flex flex-row items-center bg-green-50 p-4 rounded-xl border border-green-100 mb-4"
       >
         <Image
           source={{
@@ -83,7 +83,7 @@ const Profile = () => {
           <Text className="text-lg font-JakartaBold text-gray-900">{profile?.name || "User Name"}</Text>
           <Text className="text-sm text-gray-500 font-Jakarta">{profile?.email || "email@example.com"}</Text>
         </View>
-        <View className="w-8 h-8 rounded-full bg-blue-500 items-center justify-center">
+        <View className="w-8 h-8 rounded-full bg-green-500 items-center justify-center">
           <Image source={icons.arrowDown} className="w-4 h-4 -rotate-90" resizeMode="contain" tintColor="white" />
         </View>
       </TouchableOpacity>

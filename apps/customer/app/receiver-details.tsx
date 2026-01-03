@@ -66,29 +66,11 @@ const ReceiverDetailsPage = () => {
 
   return (
     <RideLayout 
-      title="Step 2: Receiver Details" 
+      title="Receiver Details" 
       snapPoints={["40%", "70%", "90%"]}
     >
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Drop Location Summary */}
-        <View className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
-          <View className="flex-row items-start">
-            <View className="bg-red-500 rounded-full p-2 mr-3">
-              <Feather name="map-pin" size={18} color="#fff" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-sm font-JakartaSemiBold text-red-600 mb-1">
-                📍 Drop Location
-              </Text>
-              <Text className="text-base font-JakartaMedium text-gray-800" numberOfLines={2}>
-                {destinationAddress || 'No destination set'}
-              </Text>
-              <Text className="text-xs font-JakartaMedium text-red-500 mt-2">
-                Your goods will be dropped here
-              </Text>
-            </View>
-          </View>
-        </View>
+      <View>
+
 
         {/* Receiver Details Form */}
         <View className="mb-6">
@@ -186,14 +168,7 @@ const ReceiverDetailsPage = () => {
           </View>
         </View>
 
-        {/* Progress indicator */}
-        <View className="flex-row items-center justify-center my-4">
-          <View className="w-3 h-3 bg-green-500 rounded-full" />
-          <View className="w-8 h-0.5 bg-green-500 mx-1" />
-          <View className="w-3 h-3 bg-blue-500 rounded-full" />
-          <View className="w-8 h-0.5 bg-gray-300 mx-1" />
-          <View className="w-3 h-3 bg-gray-300 rounded-full" />
-        </View>
+
 
         {/* Navigation Buttons */}
         <View className="flex-row gap-3 mb-6">
@@ -213,7 +188,7 @@ const ReceiverDetailsPage = () => {
             disabled={!canProceed}
           />
         </View>
-      </ScrollView>
+      </View>
     </RideLayout>
   );
 };

@@ -211,10 +211,8 @@ export function estimateETA(distanceKm: number, vehicleType: string): number {
   // Average speeds by vehicle type (km/h) in city traffic
   const averageSpeeds: Record<string, number> = {
     bike: 25,
-    auto: 20,
-    mini: 22,
+    tempo: 20,
     sedan: 22,
-    suv: 20,
     truck: 18,
   };
 

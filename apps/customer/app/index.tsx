@@ -1,16 +1,21 @@
 import { Redirect } from "expo-router";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, Image } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 
 const CustomerEntry = () => {
   const { user, profile, isLoading } = useAuth();
 
-  // Show loading while checking auth state
+  // Show loading while checking auth state - CartR branded
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#0286FF" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#4CAF50' }}>
+        <Image 
+          source={require('@/assets/splash-logo.png')} 
+          style={{ width: 200, height: 200, marginBottom: 20 }}
+          resizeMode="contain"
+        />
+        <ActivityIndicator size="large" color="#ffffff" />
       </View>
     );
   }
@@ -20,8 +25,8 @@ const CustomerEntry = () => {
     return <Redirect href="/(tabs)/home" />;
   }
 
-  // If not signed in, go to welcome screen
-  return <Redirect href="/welcome" />;
+  // If not signed in, go to sign-in screen directly
+  return <Redirect href="/sign-in" />;
 };
 
 export default CustomerEntry;

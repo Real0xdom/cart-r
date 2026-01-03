@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, Redirect } from "expo-router";
 import { useState } from "react";
 import {
   ScrollView,
@@ -16,11 +16,18 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
 const PersonalInfo = () => {
-  const { user } = useAuth();
+  const { user, profile, driverProfile } = useAuth();
+  
+  // ROUTE GUARD: Approved drivers should NOT see onboarding - redirect to home
+  if (driverProfile?.verification_status === 'approved') {
+    console.log('[PersonalInfo] Driver is already approved - redirecting to home');
+    return <Redirect href="/(tabs)/home" />;
+  }
+  
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    fullName: "",
-    email: "",
+    fullName: profile?.name || "",
+    email: profile?.email || "",
     phone: user?.phone || "",
   });
 

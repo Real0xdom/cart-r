@@ -141,6 +141,18 @@ The application uses a comprehensive PostgreSQL schema including:
 
 ---
 
+## 📚 Documentation
+
+For detailed setup instructions and guides, see:
+
+| Document | Description |
+|----------|-------------|
+| [Developer Setup Guide](docs/DEVELOPER_SETUP_GUIDE.md) | Complete setup from scratch |
+| [APK Testing Guide](docs/APK_TESTING_GUIDE.md) | How to test development APKs |
+| [Quick Reference](docs/QUICK_REFERENCE.md) | Commands and credentials cheat sheet |
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites

@@ -8,9 +8,9 @@
     "scheme": "carter-driver",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/images/splash.png",
+      "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#22C55E"
+      "backgroundColor": "#4CAF50"
     },
     "ios": {
       "supportsTablet": false,
@@ -69,7 +69,9 @@
           "locationAlwaysAndWhenInUsePermission": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
           "isAndroidBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-font",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

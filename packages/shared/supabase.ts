@@ -61,7 +61,7 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          vehicle_type: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
           vehicle_number: string;
           vehicle_model: string;
           vehicle_color: string | null;
@@ -88,7 +88,7 @@ export type Database = {
           destination_address: string;
           destination_latitude: number;
           destination_longitude: number;
-          vehicle_type: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
           estimated_distance: number | null;
           estimated_duration: number | null;
           total_fare: number;

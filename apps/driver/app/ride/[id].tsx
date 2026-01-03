@@ -4,8 +4,10 @@
 import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
+import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, Booking } from '@/lib/bookings';
 
 const ActiveRide = () => {
@@ -13,6 +15,40 @@ const ActiveRide = () => {
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
+    const [driverLocation, setDriverLocation] = useState<{latitude: number, longitude: number} | null>(null);
+    const mapRef = useRef<MapView>(null);
+
+    // Get driver's current location
+    useEffect(() => {
+        let subscription: Location.LocationSubscription | null = null;
+        
+        (async () => {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                // Get initial location
+                const location = await Location.getCurrentPositionAsync({});
+                setDriverLocation({
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude
+                });
+                
+                // Watch location updates
+                subscription = await Location.watchPositionAsync(
+                    { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+                    (location) => {
+                        setDriverLocation({
+                            latitude: location.coords.latitude,
+                            longitude: location.coords.longitude
+                        });
+                    }
+                );
+            }
+        })();
+        
+        return () => {
+            subscription?.remove();
+        };
+    }, []);
 
     // Fetch booking data
     useEffect(() => {
@@ -41,6 +77,23 @@ const ActiveRide = () => {
 
         return () => unsubscribe();
     }, [id]);
+
+    // Fit map to show route when booking and driver location are available
+    useEffect(() => {
+        if (booking && driverLocation && mapRef.current) {
+            const isInProgress = booking.status === 'in_progress';
+            const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
+            const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
+            
+            mapRef.current.fitToCoordinates([
+                { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
+                { latitude: targetLat, longitude: targetLng }
+            ], {
+                edgePadding: { top: 80, right: 50, bottom: 250, left: 50 },
+                animated: true
+            });
+        }
+    }, [booking, driverLocation]);
 
     const openNavigation = () => {
         if (!booking) return;
@@ -143,14 +196,75 @@ const ActiveRide = () => {
     const status = getStatusBadge();
     const customerName = booking.customer?.name || 'Customer';
     const isInProgress = booking.status === 'in_progress';
+    const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
+    const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
 
     return (
         <SafeAreaView className="flex-1 bg-gray-900">
-            {/* Map Placeholder */}
-            <View className="flex-1 bg-gray-800 items-center justify-center">
-                <Text className="text-4xl mb-2">🗺️</Text>
-                <Text className="text-gray-400">Map View</Text>
-                <Text className="text-gray-500 text-sm">(Integrate MapView here)</Text>
+            {/* Map View */}
+            <View className="flex-1">
+                {driverLocation ? (
+                    <MapView
+                        ref={mapRef}
+                        style={{ flex: 1 }}
+                        provider={PROVIDER_GOOGLE}
+                        initialRegion={{
+                            latitude: driverLocation.latitude,
+                            longitude: driverLocation.longitude,
+                            latitudeDelta: 0.05,
+                            longitudeDelta: 0.05,
+                        }}
+                        showsUserLocation={false}
+                        showsMyLocationButton={false}
+                    >
+                        {/* Driver marker */}
+                        <Marker
+                            coordinate={driverLocation}
+                            title="You"
+                            anchor={{ x: 0.5, y: 0.5 }}
+                        >
+                            <View className="bg-blue-500 p-2 rounded-full border-2 border-white">
+                                <Text className="text-lg">🚗</Text>
+                            </View>
+                        </Marker>
+
+                        {/* Pickup marker */}
+                        <Marker
+                            coordinate={{
+                                latitude: booking.origin_latitude,
+                                longitude: booking.origin_longitude,
+                            }}
+                            title="Pickup"
+                            pinColor={isInProgress ? "gray" : "green"}
+                        />
+
+                        {/* Dropoff marker */}
+                        <Marker
+                            coordinate={{
+                                latitude: booking.destination_latitude,
+                                longitude: booking.destination_longitude,
+                            }}
+                            title="Drop-off"
+                            pinColor={isInProgress ? "red" : "blue"}
+                        />
+
+                        {/* Route line from driver to target */}
+                        <Polyline
+                            coordinates={[
+                                driverLocation,
+                                { latitude: targetLat, longitude: targetLng }
+                            ]}
+                            strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
+                            strokeWidth={4}
+                            lineDashPattern={[10, 5]}
+                        />
+                    </MapView>
+                ) : (
+                    <View className="flex-1 bg-gray-800 items-center justify-center">
+                        <ActivityIndicator size="large" color="#22c55e" />
+                        <Text className="text-gray-400 mt-2">Getting location...</Text>
+                    </View>
+                )}
             </View>
 
             {/* Bottom Sheet */}

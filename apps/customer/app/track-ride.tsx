@@ -3,7 +3,7 @@
 
 import { useBookingStore, useLocationStore } from "@/store";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   Text, 
   View, 
@@ -13,8 +13,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import Map from "@/components/Map";
+import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById } from "@/lib/bookings";
+import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import type { Booking } from "@/types/type";
 
 const TrackRidePage = () => {
@@ -28,6 +29,9 @@ const TrackRidePage = () => {
     longitude: number;
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
+  const [completedBookingAmount, setCompletedBookingAmount] = useState(0);
+  const mapRef = useRef<MapView>(null);
 
   // Fetch booking and set up subscriptions
   useEffect(() => {
@@ -50,12 +54,10 @@ const TrackRidePage = () => {
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
 
-      // If completed, show completion screen
+      // If completed, show payment confirmation modal first
       if (updatedBooking.status === 'completed') {
-        router.replace({
-          pathname: "/ride-complete",
-          params: { bookingId },
-        });
+        setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
+        setShowPaymentConfirmation(true);
       }
     });
 
@@ -73,6 +75,23 @@ const TrackRidePage = () => {
 
     return () => unsubscribeLocation();
   }, [booking?.driver_id]);
+
+  // Fit map to show driver and destination
+  useEffect(() => {
+    if (driverLocation && booking && mapRef.current) {
+      const isInProgress = booking.status === 'in_progress';
+      const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
+      const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
+      
+      mapRef.current.fitToCoordinates([
+        driverLocation,
+        { latitude: targetLat, longitude: targetLng }
+      ], {
+        edgePadding: { top: 80, right: 50, bottom: 400, left: 50 },
+        animated: true
+      });
+    }
+  }, [driverLocation, booking?.status]);
 
   // Call driver
   const handleCallDriver = () => {
@@ -96,11 +115,12 @@ const TrackRidePage = () => {
   };
 
   const status = getStatusMessage();
+  const isInProgress = booking?.status === 'in_progress';
 
   if (isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-white items-center justify-center">
-        <ActivityIndicator size="large" color="#0286FF" />
+        <ActivityIndicator size="large" color="#FF9800" />
         <Text className="mt-4 text-gray-500 font-JakartaMedium">Loading tracking...</Text>
       </SafeAreaView>
     );
@@ -108,9 +128,75 @@ const TrackRidePage = () => {
 
   return (
     <View className="flex-1 bg-white">
-      {/* Map */}
+      {/* Map with driver tracking */}
       <View className="absolute inset-0 h-[55%]">
-        <Map />
+        {booking ? (
+          <MapView
+            ref={mapRef}
+            style={{ flex: 1 }}
+            provider={PROVIDER_GOOGLE}
+            initialRegion={{
+              latitude: booking.origin_latitude,
+              longitude: booking.origin_longitude,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+            showsUserLocation={false}
+            showsMyLocationButton={false}
+          >
+            {/* Driver marker */}
+            {driverLocation && (
+              <Marker
+                coordinate={driverLocation}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <View style={{ backgroundColor: '#3b82f6', padding: 8, borderRadius: 20, borderWidth: 2, borderColor: 'white' }}>
+                  <Text style={{ fontSize: 18 }}>🚗</Text>
+                </View>
+              </Marker>
+            )}
+
+            {/* Pickup marker */}
+            <Marker
+              coordinate={{
+                latitude: booking.origin_latitude,
+                longitude: booking.origin_longitude,
+              }}
+              title="Pickup"
+              pinColor={isInProgress ? "gray" : "green"}
+            />
+
+            {/* Dropoff marker */}
+            <Marker
+              coordinate={{
+                latitude: booking.destination_latitude,
+                longitude: booking.destination_longitude,
+              }}
+              title="Drop-off"
+              pinColor="red"
+            />
+
+            {/* Route line from driver to current target */}
+            {driverLocation && (
+              <Polyline
+                coordinates={[
+                  driverLocation,
+                  {
+                    latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
+                    longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude
+                  }
+                ]}
+                strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
+                strokeWidth={4}
+                lineDashPattern={[10, 5]}
+              />
+            )}
+          </MapView>
+        ) : (
+          <View className="flex-1 bg-gray-100 items-center justify-center">
+            <ActivityIndicator size="large" color="#22c55e" />
+          </View>
+        )}
       </View>
 
       {/* Header */}
@@ -218,10 +304,10 @@ const TrackRidePage = () => {
                 className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
              >
                 <View className="flex-row items-center">
-                    <Feather name="credit-card" size={18} color="#0286FF" />
+                    <Feather name="credit-card" size={18} color="#FF9800" />
                     <Text className="ml-2 text-primary-600 font-JakartaSemiBold">Pay Online</Text>
                 </View>
-                <Feather name="chevron-right" size={18} color="#0286FF" />
+                <Feather name="chevron-right" size={18} color="#FF9800" />
              </TouchableOpacity>
           )}
 
@@ -239,6 +325,21 @@ const TrackRidePage = () => {
           <Text className="ml-2 text-white font-JakartaBold">Emergency SOS</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Payment Confirmation Modal - shown after trip completion */}
+      <PaymentConfirmationModal
+        visible={showPaymentConfirmation}
+        bookingId={bookingId || ''}
+        amount={completedBookingAmount}
+        onConfirm={() => {
+          setShowPaymentConfirmation(false);
+          router.replace("/(tabs)/home");
+        }}
+        onSkip={() => {
+          setShowPaymentConfirmation(false);
+          router.replace("/(tabs)/home");
+        }}
+      />
     </View>
   );
 };

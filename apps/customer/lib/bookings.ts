@@ -83,6 +83,8 @@ export async function createBooking(params: CreateBookingParams): Promise<{
       status: 'pending',
       payment_status: 'pending',
       payment_method: 'cash', // Default to cash, can be changed later
+      // Booking expires in 3 minutes if no driver accepts
+      expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
     };
 
     const { data, error } = await supabase
@@ -309,10 +311,12 @@ export async function retryBookingWithIncreasedPrice(
         fare_multiplier: newFareMultiplier,
         driver_payout: newDriverPayout,
         status: 'pending', // Reset to pending
+        // Extend expiration by 3 more minutes
+        expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', bookingId)
-      .eq('status', 'pending'); // Only update if still pending
+      .in('status', ['pending']); // Only update if still pending
 
     if (error) {
       return { success: false, error: error.message };

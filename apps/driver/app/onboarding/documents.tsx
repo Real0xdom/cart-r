@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, Redirect } from "expo-router";
 import { useState } from "react";
 import {
   ScrollView,
@@ -26,7 +26,14 @@ interface DocumentItem {
 
 const Documents = () => {
   const params = useLocalSearchParams();
-  const { user } = useAuth();
+  const { user, driverProfile } = useAuth();
+  
+  // ROUTE GUARD: Approved drivers should NOT see onboarding - redirect to home
+  if (driverProfile?.verification_status === 'approved') {
+    console.log('[Documents] Driver is already approved - redirecting to home');
+    return <Redirect href="/(tabs)/home" />;
+  }
+  
   const [loading, setLoading] = useState(false);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([
@@ -35,7 +42,7 @@ const Documents = () => {
       name: "Driving License",
       description: "Front side of your DL",
       required: true,
-      uri: null,
+      uri: driverProfile?.license_image_url || null,
       uploading: false,
     },
     {
@@ -43,7 +50,7 @@ const Documents = () => {
       name: "Vehicle RC",
       description: "Registration Certificate",
       required: true,
-      uri: null,
+      uri: driverProfile?.rc_image_url || null,
       uploading: false,
     },
     {
@@ -51,7 +58,7 @@ const Documents = () => {
       name: "Vehicle Insurance",
       description: "Valid insurance document",
       required: true,
-      uri: null,
+      uri: driverProfile?.insurance_image_url || null,
       uploading: false,
     },
     {
@@ -59,7 +66,7 @@ const Documents = () => {
       name: "Vehicle Photo",
       description: "Clear photo of your vehicle",
       required: false,
-      uri: null,
+      uri: driverProfile?.vehicle_image_url || null,
       uploading: false,
     },
   ]);
@@ -67,7 +74,6 @@ const Documents = () => {
   const pickImage = async (docId: string) => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.7,
@@ -112,9 +118,31 @@ const Documents = () => {
     );
 
     try {
-      // Read the file
+      // For local testing, just save the local URI without uploading
+      // TODO: In production, uncomment the Supabase upload code below
+      
+      // Just use local URI for now (works for testing the flow)
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId ? { ...d, uri: uri, uploading: false } : d
+        )
+      );
+      Alert.alert("Success", "Document saved successfully!");
+      return;
+
+      /* 
+      // Production Supabase upload code:
+      // Read file as base64
       const response = await fetch(uri);
       const blob = await response.blob();
+      
+      // Convert blob to ArrayBuffer
+      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(blob);
+      });
       
       // Generate unique filename
       const fileExt = uri.split(".").pop() || "jpg";
@@ -123,7 +151,7 @@ const Documents = () => {
       // Upload to Supabase Storage
       const { data, error } = await supabase.storage
         .from("driver-documents")
-        .upload(fileName, blob, {
+        .upload(fileName, arrayBuffer, {
           contentType: `image/${fileExt}`,
           upsert: true,
         });
@@ -145,6 +173,7 @@ const Documents = () => {
       );
 
       Alert.alert("Success", "Document uploaded successfully!");
+      */
     } catch (error: any) {
       console.error("Upload error:", error);
       Alert.alert("Upload Failed", error.message || "Failed to upload document");
@@ -170,20 +199,25 @@ const Documents = () => {
     setLoading(true);
     try {
       // Create driver record
-      const { error } = await supabase.from("drivers").insert({
-        user_id: user?.id,
-        vehicle_type: params.vehicleType,
-        vehicle_number: params.vehicleNumber,
-        vehicle_model: params.vehicleModel,
-        vehicle_color: params.vehicleColor || null,
-        license_number: params.licenseNumber,
-        license_expiry: parseDateString(params.licenseExpiry as string),
-        license_image_url: documents.find((d) => d.id === "license")?.uri,
-        rc_image_url: documents.find((d) => d.id === "rc")?.uri,
-        insurance_image_url: documents.find((d) => d.id === "insurance")?.uri,
-        vehicle_image_url: documents.find((d) => d.id === "vehicle")?.uri,
-        verification_status: "pending",
-      });
+      // Create or update driver record
+      const { error } = await supabase.from("drivers").upsert(
+        {
+          user_id: user?.id,
+          vehicle_type: params.vehicleType,
+          vehicle_number: params.vehicleNumber,
+          vehicle_model: params.vehicleModel,
+          vehicle_color: params.vehicleColor || null,
+          license_number: params.licenseNumber,
+          license_expiry: parseDateString(params.licenseExpiry as string),
+          license_image_url: documents.find((d) => d.id === "license")?.uri,
+          rc_image_url: documents.find((d) => d.id === "rc")?.uri,
+          insurance_image_url: documents.find((d) => d.id === "insurance")?.uri,
+          vehicle_image_url: documents.find((d) => d.id === "vehicle")?.uri,
+          verification_status: "pending",
+          rejection_reason: null, // Clear rejection reason on resubmission
+        },
+        { onConflict: "user_id" } // Match on user_id for rejected drivers resubmitting
+      );
 
       if (error) {
         throw error;

@@ -152,7 +152,7 @@ const CashfreePayment = ({
 
         {loading && (
           <View className="items-center mt-3">
-            <ActivityIndicator size="small" color="#0286FF" />
+            <ActivityIndicator size="small" color="#FF9800" />
             <Text className="text-gray-500 mt-2">Creating your booking...</Text>
           </View>
         )}

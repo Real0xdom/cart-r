@@ -31,6 +31,11 @@ import onboarding1 from "@/assets/images/onboarding1.png";
 import onboarding2 from "@/assets/images/onboarding2.png";
 import onboarding3 from "@/assets/images/onboarding3.png";
 import signUpCar from "@/assets/images/signup-car.png";
+import deliveryTruck from "@/assets/images/delivery-truck.png";
+import truckTransparent from "@/assets/images/truck-transparent.png";
+import homeBanner from "@/assets/images/home-banner.png";
+
+import loginHero from "@/assets/login-hero.jpg";
 
 export const images = {
   onboarding1,
@@ -38,9 +43,13 @@ export const images = {
   onboarding3,
   getStarted,
   signUpCar,
+  deliveryTruck,
+  truckTransparent,
+  homeBanner,
   check,
   noResult,
   message,
+  loginHero,
 };
 
 export const icons = {

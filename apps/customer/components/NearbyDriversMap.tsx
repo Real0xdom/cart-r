@@ -29,10 +29,8 @@ interface NearbyDriversMapProps {
 
 const vehicleEmojis: Record<string, string> = {
   bike: '🏍️',
-  auto: '🛺',
-  mini: '🚗',
-  sedan: '🚙',
-  suv: '🚐',
+  tempo: '🛺',
+  sedan: '🚗',
   truck: '🚚',
 };
 

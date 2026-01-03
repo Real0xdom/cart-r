@@ -12,7 +12,7 @@ export interface CreateBookingParams {
   destinationAddress: string;
   destinationLatitude: number;
   destinationLongitude: number;
-  vehicleType: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+  vehicleType: 'bike' | 'tempo' | 'sedan' | 'truck';
   estimatedDistance?: number;
   estimatedDuration?: number;
 }
@@ -51,6 +51,8 @@ export interface Booking {
   accepted_at?: string;
   started_at?: string;
   completed_at?: string;
+  cancelled_at?: string;
+  expires_at?: string;
   delivery_confirmed_at?: string;
   // Driver info (populated via join)
   driver?: {
@@ -75,11 +77,9 @@ export interface Booking {
 // Fare configuration per vehicle type (in INR)
 const FARE_CONFIG = {
   bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
-  auto: { baseFare: 30, perKmRate: 12, perMinRate: 1.5, minimumFare: 40 },
-  mini: { baseFare: 50, perKmRate: 14, perMinRate: 2, minimumFare: 80 },
-  sedan: { baseFare: 80, perKmRate: 18, perMinRate: 2.5, minimumFare: 120 },
-  suv: { baseFare: 100, perKmRate: 22, perMinRate: 3, minimumFare: 150 },
-  truck: { baseFare: 150, perKmRate: 25, perMinRate: 3.5, minimumFare: 200 },
+  tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
+  sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
+  truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
 };
 
 /**
@@ -288,30 +288,41 @@ export function subscribeToBooking(
 }
 
 /**
- * Get available bookings for drivers (pending bookings nearby)
+ * Get available bookings for drivers (pending bookings nearby, not expired, matching vehicle type)
  */
 export async function getAvailableBookings(
   driverLatitude: number,
   driverLongitude: number,
+  driverVehicleType: string,
   radiusKm: number = 10
 ): Promise<{ data: Booking[]; error: string | null }> {
   try {
-    // For now, fetch all pending bookings
-    // TODO: Implement PostGIS distance filtering
+    // Fetch pending bookings matching driver's vehicle type
+    // Only show bookings that match the driver's registered vehicle
     const { data, error } = await supabase
       .from('bookings')
       .select('*')
       .eq('status', 'pending')
+      .eq('vehicle_type', driverVehicleType) // Filter by driver's vehicle type
       .is('driver_id', null)
+      .is('cancelled_at', null)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(30);
     
     if (error) {
       return { data: [], error: error.message };
     }
     
-    // Client-side distance filtering (temporary solution)
+    const now = new Date();
+    
+    // Client-side filtering for distance and expiration
     const filtered = (data || []).filter((booking: any) => {
+      // Filter out expired bookings
+      if (booking.expires_at && new Date(booking.expires_at) < now) {
+        return false;
+      }
+      
+      // Filter by distance
       const distance = calculateDistance(
         driverLatitude,
         driverLongitude,
@@ -328,28 +339,31 @@ export async function getAvailableBookings(
 }
 
 /**
- * Accept a booking (for drivers)
+ * Accept a booking (for drivers) - uses atomic database function for race condition protection
  */
 export async function acceptBooking(
   bookingId: string,
   driverId: string
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        driver_id: driverId,
-        status: 'accepted',
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .eq('status', 'pending'); // Only accept if still pending
-    
+    // Use atomic database function for proper race condition handling
+    const { data, error } = await supabase.rpc('accept_booking_atomic', {
+      p_booking_id: bookingId,
+      p_driver_id: driverId,
+    });
+
     if (error) {
+      console.error('RPC Error accepting booking:', error);
       return { success: false, error: error.message };
     }
+
+    // Parse the result from the RPC function
+    const result = data as { success: boolean; message: string };
     
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
     return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -357,9 +371,10 @@ export async function acceptBooking(
 }
 
 /**
- * Subscribe to available bookings for drivers (real-time)
+ * Subscribe to available bookings for drivers (real-time) - filtered by vehicle type
  */
 export function subscribeToAvailableBookings(
+  driverVehicleType: string,
   onInsert: (booking: Booking) => void,
   onDelete: (bookingId: string) => void
 ) {
@@ -373,7 +388,8 @@ export function subscribeToAvailableBookings(
         table: 'bookings',
       },
       (payload) => {
-        if (payload.new.status === 'pending' && !payload.new.driver_id) {
+        // Only show bookings matching driver's vehicle type
+        if (payload.new.status === 'pending' && !payload.new.driver_id && payload.new.vehicle_type === driverVehicleType) {
           onInsert(payload.new as Booking);
         }
       }

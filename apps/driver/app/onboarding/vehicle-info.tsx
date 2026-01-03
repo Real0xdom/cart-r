@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, Redirect } from "expo-router";
 import { useState } from "react";
 import {
   ScrollView,
@@ -16,21 +16,41 @@ import { icons } from "@/constants";
 
 const VEHICLE_TYPES = [
   { id: "bike", name: "Bike", icon: "🏍️", description: "2-wheeler delivery" },
-  { id: "auto", name: "Auto", icon: "🛺", description: "Auto rickshaw" },
-  { id: "mini", name: "Mini", icon: "🚗", description: "Hatchback/Mini car" },
-  { id: "sedan", name: "Sedan", icon: "🚙", description: "Sedan car" },
-  { id: "suv", name: "SUV", icon: "🚐", description: "SUV/MUV" },
+  { id: "tempo", name: "Tempo", icon: "🛺", description: "Three-wheeler cargo" },
+  { id: "sedan", name: "Sedan", icon: "🚗", description: "Mini car/Sedan" },
   { id: "truck", name: "Truck", icon: "🚚", description: "Pickup/Truck" },
 ];
 
+import { useAuth } from "@/contexts/AuthContext";
+
 const VehicleInfo = () => {
-  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const { driverProfile } = useAuth();
+  
+  // ROUTE GUARD: Approved drivers should NOT see onboarding - redirect to home
+  if (driverProfile?.verification_status === 'approved') {
+    console.log('[VehicleInfo] Driver is already approved - redirecting to home');
+    return <Redirect href="/(tabs)/home" />;
+  }
+  
+  const [selectedType, setSelectedType] = useState<string | null>(driverProfile?.vehicle_type || null);
+  
+  // Format date to DD/MM/YYYY for display
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return "";
+    try {
+      const date = new Date(dateStr);
+      return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+    } catch (e) {
+      return "";
+    }
+  };
+
   const [form, setForm] = useState({
-    vehicleNumber: "",
-    vehicleModel: "",
-    vehicleColor: "",
-    licenseNumber: "",
-    licenseExpiry: "",
+    vehicleNumber: driverProfile?.vehicle_number || "",
+    vehicleModel: driverProfile?.vehicle_model || "",
+    vehicleColor: driverProfile?.vehicle_color || "",
+    licenseNumber: driverProfile?.license_number || "",
+    licenseExpiry: formatDate(driverProfile?.license_expiry ?? undefined),
   });
 
   const onContinue = () => {
@@ -130,7 +150,7 @@ const VehicleInfo = () => {
             <InputField
               label="Vehicle Number"
               placeholder="KA01AB1234"
-              icon={icons.car}
+              icon={icons.marker}
               value={form.vehicleNumber}
               onChangeText={(value) =>
                 setForm({ ...form, vehicleNumber: value.toUpperCase() })
@@ -141,7 +161,7 @@ const VehicleInfo = () => {
             <InputField
               label="Vehicle Model"
               placeholder="e.g., Maruti Swift, Toyota Innova"
-              icon={icons.car}
+              icon={icons.marker}
               value={form.vehicleModel}
               onChangeText={(value) => setForm({ ...form, vehicleModel: value })}
               containerStyle="mt-4"
@@ -150,7 +170,7 @@ const VehicleInfo = () => {
             <InputField
               label="Vehicle Color"
               placeholder="e.g., White, Silver, Black"
-              icon={icons.car}
+              icon={icons.marker}
               value={form.vehicleColor}
               onChangeText={(value) => setForm({ ...form, vehicleColor: value })}
               containerStyle="mt-4"
@@ -175,7 +195,7 @@ const VehicleInfo = () => {
             <InputField
               label="License Expiry Date"
               placeholder="DD/MM/YYYY"
-              icon={icons.calendar}
+              icon={icons.list}
               value={form.licenseExpiry}
               onChangeText={(value) => setForm({ ...form, licenseExpiry: value })}
               containerStyle="mt-4"

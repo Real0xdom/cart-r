@@ -84,11 +84,12 @@ export async function getExpoPushToken(): Promise<string | null> {
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) return null;
 
-    // Get push token
+    // Get push token - must provide projectId for dev builds
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: undefined, // Uses the project ID from app.json
+      projectId: 'c7204baf-bff3-41dd-930f-daf97fb3d0dc', // EAS projectId from app.json
     });
 
+    console.log('📱 Got push token:', tokenData.data);
     return tokenData.data;
   } catch (error) {
     console.error('Error getting push token:', error);

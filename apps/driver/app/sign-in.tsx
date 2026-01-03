@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 
 const DriverSignIn = () => {
-    const { signInWithPhone, verifyOtp } = useAuth();
+    const { signInWithPhone, verifyOtp, refreshProfile } = useAuth();
 
     const [form, setForm] = useState({
         phone: "+91",
@@ -62,24 +62,30 @@ const DriverSignIn = () => {
             if (error) {
                 Alert.alert("Error", error.message);
             } else {
-                // Check if driver record exists
+                // Check if driver record exists - DATABASE IS THE SINGLE SOURCE OF TRUTH
                 const { data: driverData } = await supabase
                     .from("drivers")
                     .select("id, verification_status")
                     .eq("user_id", data?.user?.id)
                     .single();
 
+                // Sync AuthContext with database BEFORE navigating
+                await refreshProfile();
+
                 if (!driverData) {
-                    // New driver - go to onboarding
+                    // New driver - go to onboarding form
                     router.replace("/onboarding/personal-info");
+                } else if (driverData.verification_status === "approved") {
+                    // ✅ Approved driver - go directly to main app
+                    router.replace("/(tabs)/home");
                 } else if (driverData.verification_status === "pending") {
-                    // Pending verification
+                    // ⏳ Pending verification - show pending screen
                     router.replace("/onboarding/verification-pending");
                 } else if (driverData.verification_status === "rejected") {
-                    // Rejected - allow re-upload
+                    // ❌ Rejected - show rejection screen with option to resubmit
                     router.replace("/onboarding/verification-pending");
                 } else {
-                    // Approved - go to home
+                    // Fallback for any other status - go to home
                     router.replace("/(tabs)/home");
                 }
             }

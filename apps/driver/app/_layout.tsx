@@ -11,7 +11,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 SplashScreen.preventAutoHideAsync();
 
 // Ignore specific warnings
-LogBox.ignoreLogs(["Supabase:", "Warning:"]);
+LogBox.ignoreLogs([
+  "Supabase:",
+  "Warning:",
+  "[Layout children]", // Expo router warning about nested routes
+]);
 
 export default function RootLayout() {
   const [loaded] = useFonts({

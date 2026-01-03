@@ -12,7 +12,7 @@ export interface CreateBookingParams {
   destinationAddress: string;
   destinationLatitude: number;
   destinationLongitude: number;
-  vehicleType: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+  vehicleType: 'bike' | 'tempo' | 'sedan' | 'truck';
   estimatedDistance?: number;
   estimatedDuration?: number;
 }
@@ -53,11 +53,9 @@ export interface Booking {
 // Fare configuration per vehicle type (in INR)
 const FARE_CONFIG = {
   bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
-  auto: { baseFare: 30, perKmRate: 12, perMinRate: 1.5, minimumFare: 40 },
-  mini: { baseFare: 50, perKmRate: 14, perMinRate: 2, minimumFare: 80 },
-  sedan: { baseFare: 80, perKmRate: 18, perMinRate: 2.5, minimumFare: 120 },
-  suv: { baseFare: 100, perKmRate: 22, perMinRate: 3, minimumFare: 150 },
-  truck: { baseFare: 150, perKmRate: 25, perMinRate: 3.5, minimumFare: 200 },
+  tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
+  sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
+  truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
 };
 
 /**

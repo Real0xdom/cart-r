@@ -65,7 +65,7 @@ const RideDetails = () => {
     if (isLoading || !booking) {
         return (
             <SafeAreaView className="flex-1 bg-white items-center justify-center">
-                <ActivityIndicator size="large" color="#0286FF" />
+                <ActivityIndicator size="large" color="#FF9800" />
             </SafeAreaView>
         );
     }
@@ -92,8 +92,8 @@ const RideDetails = () => {
                 <View className="bg-white p-5 rounded-2xl mb-4 shadow-sm">
                     <View className="flex-row justify-between items-center mb-4">
                         <Text className="text-gray-500 font-JakartaMedium">Status</Text>
-                        <View className={`px-3 py-1 rounded-full ${isCompleted ? 'bg-green-100' : isCancelled ? 'bg-red-100' : 'bg-blue-100'}`}>
-                            <Text className={`text-xs font-JakartaBold ${isCompleted ? 'text-green-700' : isCancelled ? 'text-red-700' : 'text-blue-700'}`}>
+                        <View className={`px-3 py-1 rounded-full ${isCompleted ? 'bg-green-100' : isCancelled ? 'bg-red-100' : 'bg-orange-100'}`}>
+                            <Text className={`text-xs font-JakartaBold ${isCompleted ? 'text-green-700' : isCancelled ? 'text-red-700' : 'text-orange-700'}`}>
                                 {booking.status.toUpperCase().replace('_', ' ')}
                             </Text>
                         </View>
@@ -159,8 +159,8 @@ const RideDetails = () => {
                 <View className="bg-white p-5 rounded-2xl mb-4 shadow-sm">
                     <Text className="text-lg font-JakartaBold mb-4">Receiver</Text>
                     <View className="flex-row items-center">
-                        <View className="w-10 h-10 bg-blue-50 rounded-full items-center justify-center mr-3">
-                            <Feather name="user" size={18} color="#0286FF" />
+                        <View className="w-10 h-10 bg-orange-50 rounded-full items-center justify-center mr-3">
+                            <Feather name="user" size={18} color="#FF9800" />
                         </View>
                         <View>
                             <Text className="font-JakartaSemiBold text-gray-800">

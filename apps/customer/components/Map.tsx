@@ -194,7 +194,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
   if (!userLatitude || !userLongitude) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0286FF" />
+        <ActivityIndicator size="large" color="#FF9800" />
         <Text style={styles.loadingText}>Getting your location...</Text>
         <Text style={styles.loadingSubtext}>Please allow location access when prompted</Text>
       </View>
@@ -285,7 +285,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
         <Marker
           key="temp-marker"
           coordinate={tempMarker}
-          pinColor="#0286FF"
+          pinColor="#FF9800"
         >
           <Callout>
             <Text>Selecting location...</Text>
@@ -333,7 +333,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
                 longitude: destinationLongitude,
               }}
               apikey={directionsAPI}
-              strokeColor="#0286FF"
+              strokeColor="#FF9800"
               strokeWidth={4}
             />
           )}

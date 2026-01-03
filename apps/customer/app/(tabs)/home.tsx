@@ -1,120 +1,392 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
-import { View, Text, TouchableOpacity, Image, TextInput, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity, Image, ScrollView, ActivityIndicator, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons"; // Ensure you have this installed or use standard icons
+import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { images } from "@/constants";
+import { useState, useEffect, useCallback } from "react";
+import { getCustomerBookings } from "@/lib/bookings";
+import type { Booking } from "@/types/type";
+import { useLocationStore } from "@/store";
+import * as SecureStore from 'expo-secure-store';
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const Home = () => {
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
+  const { userAddress, userLatitude, userLongitude, setUserLocation } = useLocationStore();
+  const [inTransitBooking, setInTransitBooking] = useState<Booking | null>(null);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load saved location on mount
+  useEffect(() => {
+    const loadSavedLocation = async () => {
+      try {
+        const saved = await SecureStore.getItemAsync('user_pickup_preference');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.address) {
+            setUserLocation({
+              latitude: parsed.latitude,
+              longitude: parsed.longitude,
+              address: parsed.address
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load saved location:', error);
+      }
+    };
+    loadSavedLocation();
+  }, []);
+
+  // Save location whenever it changes
+  useEffect(() => {
+    const saveLocation = async () => {
+      if (userAddress && userLatitude && userLongitude) {
+        try {
+          await SecureStore.setItemAsync('user_pickup_preference', JSON.stringify({
+            latitude: userLatitude,
+            longitude: userLongitude,
+            address: userAddress
+          }));
+        } catch (error) {
+          console.error('Failed to save location:', error);
+        }
+      }
+    };
+    saveLocation();
+  }, [userAddress, userLatitude, userLongitude]);
+
+  const fetchBookings = useCallback(async () => {
+    if (!profile?.id) {
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const { data, error } = await getCustomerBookings(profile.id);
+      if (data && !error) {
+        // Find the first in_progress (in transit) booking
+        const transitBooking = data.find(b => b.status === 'in_progress');
+        setInTransitBooking(transitBooking || null);
+        
+        // Get recent completed bookings for the horizontal scroll
+        const recentCompleted = data
+          .filter(b => b.status === 'completed' || b.status === 'cancelled')
+          .slice(0, 5);
+        setRecentBookings(recentCompleted);
+      }
+    } catch (err) {
+      console.error('Error fetching bookings:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [profile?.id]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
+
+  // Format date for cards
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', { 
+      day: 'numeric', 
+      month: 'short'
+    });
+  };
+
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return { bg: '#E8F5E9', text: '#4CAF50' };
+      case 'in_progress': return { bg: '#FFF3E0', text: '#FF9800' };
+      case 'cancelled': return { bg: '#FFEBEE', text: '#F44336' };
+      case 'pending': return { bg: '#E3F2FD', text: '#2196F3' };
+      default: return { bg: '#F5F5F5', text: '#757575' };
+    }
+  };
 
   return (
-    <SafeAreaView className="flex-1 bg-general-900 px-5">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-        {/* Header */}
-        <View className="flex-row items-center justify-between mt-2">
-          <View className="flex-row items-center">
-            <View className="bg-white p-1 rounded-full shadow-sm mr-3">
-               {/* Simple avatar placeholder */}
-               <Image source={images.check} className="w-10 h-10 rounded-full" resizeMode="contain" />
+    <SafeAreaView className="flex-1 bg-general-900" edges={['bottom', 'left', 'right']}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={{ paddingBottom: 120 }}
+      >
+        {/* Horizontal Banner (Replaces Header) */}
+        <View className="w-full items-center">
+          <Image 
+            source={images.homeBanner}
+            className="w-full h-64"
+            resizeMode="contain"
+          />
+        </View>
+
+        {/* Pickup Location Field (Auto-detected/Preferred) */}
+        <View className="mx-5 -mt-4">
+          <Text className="text-xs font-JakartaBold text-gray-500 mb-2 uppercase tracking-wider">
+            Pick up from
+          </Text>
+          <TouchableOpacity 
+            onPress={() => router.push("/find-ride")}
+            className="flex-row items-center bg-white rounded-2xl p-4 shadow-sm border border-brand-100"
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 bg-brand-100 rounded-full items-center justify-center mr-3">
+              <Ionicons name="location" size={20} color="#FF9800" />
             </View>
-            <View>
-              <Text className="text-gray-500 text-xs font-JakartaMedium">Delivery to</Text>
-              <View className="flex-row items-center">
-                <Text className="text-black font-JakartaBold text-sm">Northern Gate</Text>
-                <Feather name="chevron-down" size={14} color="black" style={{ marginLeft: 4 }} />
-              </View>
+            <View className="flex-1">
+              <Text className="text-black font-JakartaBold text-sm" numberOfLines={1}>
+                {userAddress || "Detecting location..."}
+              </Text>
+              <Text className="text-gray-400 text-xs font-JakartaMedium mt-0.5">
+                Put your preferred location
+              </Text>
             </View>
-          </View>
-          <TouchableOpacity onPress={() => signOut()} className="bg-white p-3 rounded-full shadow-sm">
-             <Feather name="bell" size={20} color="black" />
+            <Feather name="edit-2" size={16} color="#A0A0A0" />
           </TouchableOpacity>
         </View>
 
-        {/* Title */}
-        <Text className="text-3xl font-JakartaBold text-black mt-8 leading-tight">
-          Reliable Delivery{'\n'}At Your Door
-        </Text>
-
-        {/* Search Bar - Navigates to find-ride on press */}
+        {/* Search Bar */}
         <TouchableOpacity 
           onPress={() => router.push("/find-ride")}
-          className="mt-6 flex-row items-center bg-white rounded-3xl p-4 shadow-sm"
+          className="mx-5 mt-4 flex-row items-center bg-white rounded-2xl p-4 shadow-sm border border-gray-100"
+          activeOpacity={0.8}
         >
-          <Feather name="search" size={20} color="#A0A0A0" />
-          <Text className="flex-1 ml-3 font-JakartaMedium text-gray-400">Search...</Text>
-          <View className="bg-gray-100 p-2 rounded-full">
-             <Feather name="filter" size={16} color="black" />
+          <View className="w-10 h-10 bg-gray-100 rounded-xl items-center justify-center">
+            <Feather name="search" size={18} color="#A0A0A0" />
+          </View>
+          <Text className="flex-1 ml-3 font-JakartaMedium text-gray-400">
+            Where are you sending?
+          </Text>
+          <View className="w-10 h-10 bg-black rounded-xl items-center justify-center">
+             <Feather name="arrow-right" size={18} color="white" />
           </View>
         </TouchableOpacity>
 
-        {/* Current Shipments Header */}
-        <View className="mt-8 flex-row items-center justify-between mb-4">
-          <Text className="text-lg font-JakartaBold text-black">My Current Shipments</Text>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/rides")}>
-            <Text className="text-gray-500 font-JakartaMedium text-sm">See All</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Shipment Card */}
-        <TouchableOpacity 
-            activeOpacity={0.9}
-            className="bg-white rounded-[32px] p-5 shadow-sm overflow-hidden relative"
-            onPress={() => router.push("/tracking")} // Navigate to details
-        >
-            {/* Tag */}
-            <View className="flex-row justify-between items-start z-10">
-                <View className="bg-gray-100 px-4 py-2 rounded-full">
-                    <Text className="text-gray-600 text-xs font-JakartaBold">Transit</Text>
-                </View>
+        {/* Current Shipment Section */}
+        {loading ? (
+          <View className="mt-8 items-center py-10">
+            <ActivityIndicator size="large" color="#FF9800" />
+            <Text className="text-gray-500 font-JakartaMedium mt-3">Loading shipments...</Text>
+          </View>
+        ) : inTransitBooking ? (
+          <>
+            {/* Current Shipment Header */}
+            <View className="mx-5 mt-8 flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-JakartaBold text-black">Current Shipment</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/rides")}>
+                <Text className="text-brand-500 font-JakartaMedium text-sm">See All</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Truck Image - positioned absolutely to overlap */}
-            <View className="items-center -mt-8 mb-4">
-                 <Image 
-                    source={images.signUpCar} 
-                    className="w-64 h-40"
-                    resizeMode="contain"
+            {/* Active Shipment Card */}
+            <TouchableOpacity 
+              activeOpacity={0.9}
+              className="mx-5 bg-white rounded-3xl overflow-hidden shadow-md"
+              onPress={() => router.push({
+                pathname: "/track-ride",
+                params: { bookingId: inTransitBooking.id }
+              })}
+            >
+              {/* Card Header with Status */}
+              <View className="p-5 pb-0">
+                <View className="flex-row items-center justify-between">
+                  <View className="flex-row items-center">
+                    <View className="bg-green-100 px-3 py-1.5 rounded-full flex-row items-center">
+                      <View className="w-2 h-2 bg-green-500 rounded-full mr-2" />
+                      <Text className="text-green-600 text-xs font-JakartaBold">In Transit</Text>
+                    </View>
+                    {inTransitBooking.estimated_duration && (
+                      <Text className="text-gray-400 text-xs font-JakartaMedium ml-3">
+                        ~{inTransitBooking.estimated_duration} min
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity className="w-8 h-8 bg-gray-100 rounded-full items-center justify-center">
+                    <Feather name="more-vertical" size={16} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Truck Image */}
+              <View className="items-center py-2">
+                <Image 
+                  source={images.truckTransparent}
+                  className="w-52 h-32"
+                  resizeMode="contain"
                 />
+              </View>
+
+              {/* Progress Bar */}
+              <View className="px-5">
+                <View className="h-2 bg-gray-100 rounded-full relative flex-row items-center">
+                  <View className="w-2/3 h-full bg-gradient-to-r from-brand-500 to-green-500 rounded-full" style={{ backgroundColor: '#FF9800' }} />
+                  <View 
+                    className="absolute w-5 h-5 bg-brand-500 border-[3px] border-white rounded-full items-center justify-center shadow-sm"
+                    style={{ left: '60%' }}
+                  >
+                    <View className="w-1.5 h-1.5 bg-white rounded-full" />
+                  </View>
+                  <View className="absolute right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+                </View>
+              </View>
+
+              {/* Locations */}
+              <View className="px-5 pt-5 flex-row justify-between">
+                <View className="flex-1 pr-4">
+                  <View className="flex-row items-center mb-1">
+                    <View className="w-2 h-2 bg-brand-500 rounded-full mr-2" />
+                    <Text className="text-gray-400 text-xs font-JakartaMedium">From</Text>
+                  </View>
+                  <Text className="text-black font-JakartaBold text-sm" numberOfLines={2}>
+                    {inTransitBooking.origin_address}
+                  </Text>
+                </View>
+                <View className="flex-1 items-end pl-4">
+                  <View className="flex-row items-center mb-1">
+                    <View className="w-2 h-2 bg-green-500 rounded-full mr-2" />
+                    <Text className="text-gray-400 text-xs font-JakartaMedium">To</Text>
+                  </View>
+                  <Text className="text-black font-JakartaBold text-sm text-right" numberOfLines={2}>
+                    {inTransitBooking.destination_address}
+                  </Text>
+                </View>
+              </View>
+              
+              {/* Footer with Driver Info & Track Button */}
+              <View className="mt-5 flex-row items-center justify-between bg-brand-100 p-4">
+                <View className="flex-row items-center flex-1">
+                  <View className="w-10 h-10 bg-brand-500 rounded-full items-center justify-center mr-3">
+                    <Feather name="user" size={18} color="white" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-gray-500 text-xs font-JakartaMedium">
+                      {inTransitBooking.booking_number || `#${inTransitBooking.id.slice(0, 8).toUpperCase()}`}
+                    </Text>
+                    <Text className="text-black font-JakartaBold text-sm">
+                      {inTransitBooking.driver?.user?.name || 'Driver Assigned'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  className="bg-black w-12 h-12 rounded-full items-center justify-center shadow-lg"
+                  onPress={() => router.push({
+                    pathname: "/track-ride",
+                    params: { bookingId: inTransitBooking.id }
+                  })}
+                >
+                  <Feather name="navigation" size={20} color="white" />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </>
+        ) : (
+          /* Empty State - No Active Shipment */
+          <View className="mx-5 mt-8 bg-white rounded-3xl p-6 items-center shadow-sm">
+            <View className="w-full h-32 items-center justify-center mb-4">
+              <Image 
+                source={images.truckTransparent}
+                className="w-40 h-32"
+                resizeMode="contain"
+              />
+            </View>
+            <Text className="text-gray-800 font-JakartaBold text-xl text-center mb-2">
+              No Active Deliveries
+            </Text>
+            <Text className="text-gray-500 font-JakartaMedium text-sm text-center mb-5 px-4">
+              You don't have any shipments in transit right now. Book a delivery to get started!
+            </Text>
+            <TouchableOpacity 
+              onPress={() => router.push("/find-ride")}
+              className="bg-brand-500 w-full py-4 rounded-2xl flex-row items-center justify-center shadow-md"
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="local-shipping" size={20} color="white" />
+              <Text className="text-white font-JakartaBold ml-2">Book Delivery</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Recent Shipments Section */}
+        {recentBookings.length > 0 && (
+          <>
+            <View className="mx-5 mt-8 flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-JakartaBold text-black">Recent Shipments</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/rides")}>
+                <Text className="text-brand-500 font-JakartaMedium text-sm">See All</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Progress Info */}
-            <View className="mt-2">
-                <Text className="text-right text-gray-500 text-xs font-JakartaMedium mb-2">4h Away</Text>
-                
-                {/* Custom Progress Bar */}
-                <View className="h-2 bg-gray-100 rounded-full mb-6 relative flex-row items-center">
-                    <View className="w-2/3 h-full bg-black rounded-full" />
-                    <View className="absolute left-[60%] w-6 h-6 bg-black border-[3px] border-white rounded-full items-center justify-center shadow-sm">
-                        <View className="w-1.5 h-1.5 bg-brand-500 rounded-full" />
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
+            >
+              {recentBookings.map((booking) => {
+                const statusStyle = getStatusColor(booking.status);
+                return (
+                  <TouchableOpacity
+                    key={booking.id}
+                    className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100"
+                    style={{ width: SCREEN_WIDTH * 0.7 }}
+                    onPress={() => router.push({
+                      pathname: "/track-ride",
+                      params: { bookingId: booking.id }
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    <View className="flex-row items-center justify-between mb-3">
+                      <View 
+                        className="px-3 py-1 rounded-full"
+                        style={{ backgroundColor: statusStyle.bg }}
+                      >
+                        <Text 
+                          className="text-xs font-JakartaBold capitalize"
+                          style={{ color: statusStyle.text }}
+                        >
+                          {booking.status.replace('_', ' ')}
+                        </Text>
+                      </View>
+                      <Text className="text-gray-400 text-xs font-JakartaMedium">
+                        {formatDate(booking.created_at)}
+                      </Text>
                     </View>
-                    <View className="absolute right-0 w-3 h-3 bg-gray-300 rounded-full border-2 border-white" />
-                </View>
+                    
+                    <Text className="text-gray-500 text-xs font-JakartaMedium mb-1">
+                      {booking.booking_number || `#${booking.id.slice(0, 8).toUpperCase()}`}
+                    </Text>
+                    
+                    <View className="flex-row items-center mt-2">
+                      <View className="w-2 h-2 bg-brand-500 rounded-full" />
+                      <Text className="text-gray-700 font-JakartaMedium text-sm ml-2 flex-1" numberOfLines={1}>
+                        {booking.origin_address}
+                      </Text>
+                    </View>
+                    
+                    <View className="flex-row items-center mt-2">
+                      <View className="w-2 h-2 bg-green-500 rounded-full" />
+                      <Text className="text-gray-700 font-JakartaMedium text-sm ml-2 flex-1" numberOfLines={1}>
+                        {booking.destination_address}
+                      </Text>
+                    </View>
 
-                {/* Locations */}
-                <View className="flex-row justify-between items-start">
-                    <View>
-                        <Text className="text-black font-JakartaBold text-sm mb-1">15 Feb 2026</Text>
-                        <Text className="text-gray-400 text-xs font-JakartaMedium">Marina, Dubai</Text>
+                    <View className="flex-row items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                      <Text className="text-black font-JakartaBold">
+                        ₹{booking.total_fare?.toFixed(0) || '0'}
+                      </Text>
+                      <View className="flex-row items-center">
+                        <Feather name="chevron-right" size={16} color="#999" />
+                      </View>
                     </View>
-                    <View className="items-end">
-                        <Text className="text-black font-JakartaBold text-sm mb-1">Estimated 16 Feb 2026</Text>
-                        <Text className="text-gray-400 text-xs font-JakartaMedium">Jumeirah, Dubai</Text>
-                    </View>
-                </View>
-                
-                {/* Footer with ID and Action */}
-                <View className="mt-6 flex-row items-center justify-between bg-brand-100 p-4 -mx-5 -mb-5">
-                    <View className="ml-2">
-                        <Text className="text-gray-500 text-xs font-JakartaMedium">Tracking ID</Text>
-                        <Text className="text-black font-JakartaBold text-lg">#ER 454-152</Text>
-                    </View>
-                    <TouchableOpacity className="bg-brand-500 w-12 h-12 rounded-full items-center justify-center shadow-lg mr-2">
-                            <Feather name="arrow-up-right" size={24} color="black" />
-                    </TouchableOpacity>
-                </View>
-            </View>
-        </TouchableOpacity>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
 
       </ScrollView>
     </SafeAreaView>

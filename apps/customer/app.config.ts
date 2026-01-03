@@ -10,9 +10,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "carter",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./assets/images/splash.png",
+    image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#0286FF"
+    backgroundColor: "#4CAF50"
   },
   ios: {
     supportsTablet: true,

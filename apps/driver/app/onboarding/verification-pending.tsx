@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text, View, Image, ActivityIndicator } from "react-native";
+import { Text, View, Image, ActivityIndicator, Linking, Alert } from "react-native";
 
 import CustomButton from "@/components/CustomButton";
 import { supabase } from "@/lib/supabase";
@@ -71,13 +71,18 @@ const VerificationPending = () => {
   };
 
   const onContactSupport = () => {
-    // Open email or support page
-    router.push("/(tabs)/profile");
+    // Open email client
+    const supportEmail = "support@cartr.com";
+    const subject = "Driver Application Support";
+    const url = `mailto:${supportEmail}?subject=${subject}`;
+    Linking.openURL(url).catch(() => 
+      Alert.alert("Error", "Could not open email client. Please email support@cartr.com")
+    );
   };
 
   const onRetryApplication = () => {
-    // Go back to documents to re-upload
-    router.push("/onboarding/documents");
+    // Go back to start of onboarding to allow editing all info
+    router.push("/onboarding/personal-info");
   };
 
   return (
@@ -144,7 +149,7 @@ const VerificationPending = () => {
           )}
 
           <CustomButton
-            title="Re-upload Documents"
+            title="Edit Application"
             onPress={onRetryApplication}
             className="bg-green-500 w-full mb-3"
           />

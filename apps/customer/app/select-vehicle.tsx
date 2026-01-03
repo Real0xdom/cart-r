@@ -1,34 +1,53 @@
 import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
-import { useLocationStore, useRideStore } from "@/store";
+import { useLocationStore, useRideStore, useBookingStore } from "@/store";
+import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
 import { 
   Text, 
   View, 
   TouchableOpacity, 
-  ScrollView,
+  FlatList,
   ActivityIndicator,
-  Image,
+  Alert,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import Slider from "@react-native-community/slider";
 import { calculateFares, FareEstimate } from "@/lib/fare";
-import { icons } from "@/constants";
+import { createBooking } from "@/lib/bookings";
 
 const SelectVehiclePage = () => {
+  const { profile } = useAuth();
   const {
+    userAddress,
     userLatitude,
     userLongitude,
+    destinationAddress,
     destinationLatitude,
     destinationLongitude,
-    destinationAddress,
   } = useLocationStore();
   
   const { setSelectedVehicle, selectedVehicle } = useRideStore();
+  const { receiverDetails, setCurrentBooking } = useBookingStore();
 
   const [fares, setFares] = useState<FareEstimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tipAmount, setTipAmount] = useState(0);
+  const [isBooking, setIsBooking] = useState(false);
+
+  // Redirect if missing required data
+  useEffect(() => {
+    if (!userAddress || !destinationAddress) {
+      router.replace("/find-ride");
+      return;
+    }
+    if (!receiverDetails) {
+      router.replace("/receiver-details");
+      return;
+    }
+  }, [userAddress, destinationAddress, receiverDetails]);
 
   useEffect(() => {
     const fetchFares = async () => {
@@ -61,19 +80,67 @@ const SelectVehiclePage = () => {
     setSelectedVehicle(vehicle);
   };
 
-  const handleProceed = () => {
-    if (selectedVehicle) {
-      router.push("/confirm-booking");
+  const handleBookNow = async () => {
+    if (!selectedVehicle) return;
+    
+    if (!profile?.id) {
+      Alert.alert("Error", "Please sign in to continue");
+      return;
+    }
+
+    if (!userLatitude || !userLongitude || !destinationLatitude || !destinationLongitude) {
+      Alert.alert("Error", "Location data is missing. Please try again.");
+      return;
+    }
+
+    if (!receiverDetails) {
+      Alert.alert("Error", "Receiver details are missing. Please go back.");
+      return;
+    }
+
+    setIsBooking(true);
+
+    try {
+      const { data: booking, error } = await createBooking({
+        customerId: profile.id,
+        originAddress: userAddress || "",
+        originLatitude: userLatitude,
+        originLongitude: userLongitude,
+        destinationAddress: destinationAddress || "",
+        destinationLatitude: destinationLatitude,
+        destinationLongitude: destinationLongitude,
+        vehicle: selectedVehicle,
+        receiverDetails: receiverDetails,
+        tipAmount: tipAmount,
+      });
+
+      if (error || !booking) {
+        Alert.alert("Error", error || "Failed to create booking. Please try again.");
+        setIsBooking(false);
+        return;
+      }
+
+      // Save booking to store
+      setCurrentBooking(booking);
+
+      // Navigate to waiting screen
+      router.replace({
+        pathname: "/waiting-for-driver",
+        params: { bookingId: booking.id },
+      });
+
+    } catch (err: any) {
+      console.error("Booking creation failed:", err);
+      Alert.alert("Error", err.message || "Something went wrong. Please try again.");
+      setIsBooking(false);
     }
   };
 
   const getVehicleIcon = (type: string) => {
     switch (type.toLowerCase()) {
-      case 'bike': return '🛵'; // Placeholder until images are loaded
-      case 'auto': return '🛺';
-      case 'mini': return '🚗';
-      case 'sedan': return '🚘';
-      case 'suv': return '🚙';
+      case 'bike': return '🏍️';
+      case 'tempo': return '🛺';
+      case 'sedan': return '🚗';
       case 'truck': return '🚚';
       default: return '🚗';
     }
@@ -81,127 +148,151 @@ const SelectVehiclePage = () => {
 
   const getVehicleDescription = (type: string) => {
     switch (type.toLowerCase()) {
-      case 'bike': return 'Best for small packages up to 20kg';
-      case 'auto': return 'Good for medium loads up to 100kg';
-      case 'mini': return 'For furniture & appliances';
-      case 'sedan': return 'Comfortable ride for 4 people';
-      case 'suv': return 'Luxury & Space for 6 people';
-      case 'truck': return 'Large cargo moving';
-      default: return 'Standard ride';
+      case 'bike': return 'Small packages up to 20kg';
+      case 'tempo': return 'Medium loads up to 500kg';
+      case 'sedan': return 'Furniture & appliances';
+      case 'truck': return 'Heavy goods moving';
+      default: return 'Standard delivery';
     }
   };
 
-  // Helper to map vehicle type to icon from constants if available
-  const getIconSource = (type: string) => {
-      // You can map these to your actual image assets
-      return icons.car; // Fallback to generic car icon for now
-  };
+  const totalFare = selectedVehicle ? selectedVehicle.total_fare + tipAmount : 0;
+
+  const renderVehicleItem = ({ item }: { item: FareEstimate }) => (
+    <TouchableOpacity
+      onPress={() => handleSelectVehicle(item)}
+      className={`flex-row items-center p-4 mb-3 rounded-2xl border ${
+        selectedVehicle?.vehicle_type === item.vehicle_type
+          ? 'bg-brand-100 border-brand-500'
+          : 'bg-white border-gray-100'
+      }`}
+    >
+      <View className="w-12 h-12 bg-gray-50 rounded-full items-center justify-center mr-3">
+        <Text className="text-xl">{getVehicleIcon(item.vehicle_type)}</Text>
+      </View>
+      
+      <View className="flex-1">
+        <Text className="text-base font-JakartaBold capitalize text-gray-900">
+          {item.vehicle_type}
+        </Text>
+        <Text className="text-xs text-gray-500 font-JakartaMedium">
+          {getVehicleDescription(item.vehicle_type)}
+        </Text>
+        <Text className="text-xs text-gray-400 mt-0.5">
+          {item.duration_minutes} min • {item.distance_km} km
+        </Text>
+      </View>
+
+      <View className="items-end">
+        <Text className="text-lg font-JakartaBold text-gray-900">
+          ₹{item.total_fare}
+        </Text>
+        {selectedVehicle?.vehicle_type === item.vehicle_type && (
+          <View className="bg-brand-500 rounded-full p-1 mt-1">
+            <Feather name="check" size={10} color="#fff" />
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <RideLayout 
-      title="Step 3: Select Vehicle" 
-      snapPoints={["40%", "85%"]}
+      title="Select Vehicle" 
+      snapPoints={["50%", "85%"]}
+      useView={true}
     >
-        {/* Drop Location Summary */}
-        <View className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
-          <View className="flex-row items-center">
-            <View className="bg-red-500 rounded-full p-1.5 mr-3">
-              <Feather name="map-pin" size={12} color="#fff" />
-            </View>
-            <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={1}>
-              {destinationAddress || 'Drop Location'}
-            </Text>
-          </View>
-        </View>
-
-        <Text className="text-xl font-JakartaBold text-gray-800 mb-4">
-          Available Vehicles
-        </Text>
-
+      <View className="flex-1">
         {loading ? (
-             <View className="items-center justify-center py-10">
-                <ActivityIndicator size="large" color="#0286FF" />
-                <Text className="text-gray-500 mt-2 font-JakartaMedium">Calculating best fares...</Text>
-             </View>
+          <View className="items-center justify-center py-10">
+            <ActivityIndicator size="large" color="#FF9800" />
+            <Text className="text-gray-500 mt-2 font-JakartaMedium">Calculating fares...</Text>
+          </View>
         ) : error ? (
-            <View className="items-center justify-center py-10">
-                <Text className="text-red-500 font-JakartaMedium text-center mb-4">{error}</Text>
-                <CustomButton title="Retry" onPress={() => setFares([])} bgVariant="outline" />
-            </View>
+          <View className="items-center justify-center py-10">
+            <Text className="text-red-500 font-JakartaMedium text-center mb-4">{error}</Text>
+            <CustomButton title="Retry" onPress={() => setFares([])} bgVariant="outline" />
+          </View>
         ) : (
-            <ScrollView showsVerticalScrollIndicator={false} className="mb-20">
-                {fares.map((item) => (
-                    <TouchableOpacity
-                        key={item.vehicle_type}
-                        onPress={() => handleSelectVehicle(item)}
-                        className={`flex-row items-center p-4 mb-3 rounded-2xl border ${
-                            selectedVehicle?.vehicle_type === item.vehicle_type
-                                ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                : 'bg-white border-gray-100'
-                        }`}
-                    >
-                        <View className="w-14 h-14 bg-gray-50 rounded-full items-center justify-center mr-4">
-                           {/* Replace with actual Image component when assets are ready */}
-                           <Text className="text-2xl">{getVehicleIcon(item.vehicle_type)}</Text>
-                        </View>
-                        
-                        <View className="flex-1">
-                            <Text className="text-lg font-JakartaBold capitalize text-gray-900">
-                                {item.vehicle_type}
-                            </Text>
-                            <Text className="text-xs text-gray-500 font-JakartaMedium mt-0.5">
-                                {getVehicleDescription(item.vehicle_type)}
-                            </Text>
-                            <View className="flex-row items-center mt-1">
-                                <Feather name="clock" size={12} color="#777" />
-                                <Text className="text-xs text-gray-500 ml-1">
-                                    {item.duration_minutes} min • {item.distance_km} km
-                                </Text>
-                            </View>
-                        </View>
+          <>
+            {/* Vehicle List */}
+            <FlatList
+              data={fares}
+              renderItem={renderVehicleItem}
+              keyExtractor={(item) => item.vehicle_type}
+              showsVerticalScrollIndicator={false}
+              style={{ maxHeight: 280 }}
+              contentContainerStyle={{ paddingBottom: 10 }}
+            />
 
-                        <View className="items-end">
-                            <Text className="text-lg font-JakartaBold text-gray-900">
-                                ₹{item.total_fare}
-                            </Text>
-                            {selectedVehicle?.vehicle_type === item.vehicle_type && (
-                                <View className="bg-blue-500 rounded-full p-1 mt-1">
-                                    <Feather name="check" size={12} color="#fff" />
-                                </View>
-                            )}
-                        </View>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+            {/* Tip Section */}
+            {selectedVehicle && (
+              <View className="bg-gray-50 rounded-2xl p-4 mt-2">
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-sm font-JakartaSemiBold text-gray-700">
+                    Add Driver Tip
+                  </Text>
+                  <Text className="text-lg font-JakartaBold text-brand-500">
+                    +₹{tipAmount}
+                  </Text>
+                </View>
+                <Slider
+                  style={{ height: 40 }}
+                  minimumValue={0}
+                  maximumValue={200}
+                  step={10}
+                  value={tipAmount}
+                  onValueChange={setTipAmount}
+                  minimumTrackTintColor="#FF9800"
+                  maximumTrackTintColor="#d1d5db"
+                  thumbTintColor="#FF9800"
+                />
+                <View className="flex-row justify-between">
+                  <Text className="text-xs text-gray-400">₹0</Text>
+                  <Text className="text-xs text-gray-400">₹200</Text>
+                </View>
+              </View>
+            )}
+
+            {/* Total & Book Button */}
+            <View className="mt-4">
+              {selectedVehicle && (
+                <View className="flex-row justify-between items-center mb-3 px-1">
+                  <Text className="text-gray-600 font-JakartaMedium">Total Amount</Text>
+                  <Text className="text-2xl font-JakartaBold text-green-600">₹{totalFare}</Text>
+                </View>
+              )}
+              
+              <View className="flex-row gap-3">
+                <TouchableOpacity 
+                  onPress={() => router.back()}
+                  className="flex-1 bg-gray-100 py-4 rounded-xl items-center flex-row justify-center"
+                  disabled={isBooking}
+                >
+                  <Feather name="arrow-left" size={18} color="#333" />
+                  <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={handleBookNow}
+                  disabled={!selectedVehicle || isBooking}
+                  className={`flex-[2] py-4 rounded-xl items-center justify-center flex-row ${
+                    selectedVehicle && !isBooking ? 'bg-brand-500' : 'bg-gray-300'
+                  }`}
+                >
+                  {isBooking ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Feather name="search" size={18} color="#fff" />
+                      <Text className="ml-2 font-JakartaBold text-white">Book Now</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
         )}
-
-      <View className="absolute bottom-0 left-0 right-0 bg-white p-5 border-t border-gray-100">
-        {/* Progress indicator */}
-        <View className="flex-row items-center justify-center mb-4">
-          <View className="w-3 h-3 bg-green-500 rounded-full" />
-          <View className="w-8 h-0.5 bg-green-500 mx-1" />
-          <View className="w-3 h-3 bg-green-500 rounded-full" />
-          <View className="w-8 h-0.5 bg-green-500 mx-1" />
-          <View className="w-3 h-3 bg-blue-500 rounded-full" />
-        </View>
-
-         <View className="flex-row gap-3">
-          <TouchableOpacity 
-            onPress={() => router.back()}
-            className="flex-1 bg-gray-100 py-4 rounded-xl items-center flex-row justify-center"
-          >
-            <Feather name="arrow-left" size={18} color="#333" />
-            <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
-          </TouchableOpacity>
-          
-          <CustomButton
-            title="Confirm & Find Driver"
-            onPress={handleProceed}
-            className="flex-[2]"
-            disabled={!selectedVehicle}
-            bgVariant={selectedVehicle ? "primary" : "secondary"}
-          />
-        </View>
       </View>
     </RideLayout>
   );

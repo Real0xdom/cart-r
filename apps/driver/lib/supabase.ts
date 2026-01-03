@@ -61,19 +61,27 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          vehicle_type: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
           vehicle_number: string;
           vehicle_model: string;
           vehicle_color: string | null;
+          license_number: string | null;
+          license_expiry: string | null;
+          license_image_url: string | null;
+          rc_image_url: string | null;
+          insurance_image_url: string | null;
+          vehicle_image_url: string | null;
           verification_status: 'pending' | 'approved' | 'rejected';
+          rejection_reason: string | null;
           is_online: boolean;
           current_latitude: number | null;
           current_longitude: number | null;
           rating: number;
           total_trips: number;
           total_earnings: number;
+          created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['drivers']['Row'], 'id' | 'rating' | 'total_trips' | 'total_earnings'>;
+        Insert: Omit<Database['public']['Tables']['drivers']['Row'], 'id' | 'rating' | 'total_trips' | 'total_earnings' | 'created_at'>;
         Update: Partial<Database['public']['Tables']['drivers']['Insert']>;
       };
       bookings: {
@@ -88,7 +96,7 @@ export type Database = {
           destination_address: string;
           destination_latitude: number;
           destination_longitude: number;
-          vehicle_type: 'bike' | 'auto' | 'mini' | 'sedan' | 'suv' | 'truck';
+          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
           estimated_distance: number | null;
           estimated_duration: number | null;
           total_fare: number;

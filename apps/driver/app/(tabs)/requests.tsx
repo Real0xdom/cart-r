@@ -6,72 +6,123 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, Booking } from '@/lib/bookings';
 import * as Location from 'expo-location';
 
-const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, onAccept: (id: string) => void, onReject: (id: string) => void }) => (
-    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
-        {/* Increased Fare Badge */}
-        {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
-            <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
-                <Text className="text-white font-JakartaBold text-xs">🔥 Increased Fare</Text>
-                {request.tip_amount && request.tip_amount > 0 && (
-                    <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
-                )}
+// Countdown timer hook for expiration
+const useCountdown = (expiresAt: string | null) => {
+    const [timeLeft, setTimeLeft] = useState<string>('');
+    const [isExpired, setIsExpired] = useState(false);
+
+    useEffect(() => {
+        if (!expiresAt) {
+            setTimeLeft('');
+            return;
+        }
+
+        const updateCountdown = () => {
+            const now = new Date().getTime();
+            const expiry = new Date(expiresAt).getTime();
+            const diff = expiry - now;
+
+            if (diff <= 0) {
+                setTimeLeft('Expired');
+                setIsExpired(true);
+            } else {
+                const mins = Math.floor(diff / 60000);
+                const secs = Math.floor((diff % 60000) / 1000);
+                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
+                setIsExpired(false);
+            }
+        };
+
+        updateCountdown();
+        const interval = setInterval(updateCountdown, 1000);
+        return () => clearInterval(interval);
+    }, [expiresAt]);
+
+    return { timeLeft, isExpired };
+};
+
+const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, onAccept: (id: string) => void, onReject: (id: string) => void }) => {
+    const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
+    
+    // Don't render expired requests
+    if (isExpired) return null;
+    
+    return (
+        <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+            {/* Expiration Timer Badge */}
+            {timeLeft && (
+                <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
+                    parseInt(timeLeft) < 1 ? 'bg-red-500' : 'bg-blue-500'
+                }`}>
+                    <Text className="text-white font-JakartaBold text-xs">⏱ {timeLeft}</Text>
+                </View>
+            )}
+            
+            {/* Increased Fare Badge */}
+            {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
+                <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
+                    <Text className="text-white font-JakartaBold text-xs">🔥 Increased Fare</Text>
+                    {request.tip_amount && request.tip_amount > 0 && (
+                        <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
+                    )}
+                </View>
+            )}
+            
+            <View className="flex-row justify-between items-start mb-4">
+                <View className="flex-1 pr-16">
+                    <Text className="text-gray-400 text-xs mb-1">PICKUP</Text>
+                    <Text className="text-white font-JakartaSemiBold text-base" numberOfLines={2}>
+                        {request.origin_address}
+                    </Text>
+                </View>
+                <View className="bg-green-500/20 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
+                    <Text className="text-green-400 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
+                </View>
             </View>
-        )}
-        
-        <View className="flex-row justify-between items-start mb-4">
-            <View className="flex-1">
-                <Text className="text-gray-400 text-xs mb-1">PICKUP</Text>
+
+            <View className="mb-4">
+                <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
                 <Text className="text-white font-JakartaSemiBold text-base" numberOfLines={2}>
-                    {request.origin_address}
+                    {request.destination_address}
                 </Text>
             </View>
-            <View className="bg-green-500/20 px-3 py-1 rounded-full ml-2">
-                <Text className="text-green-400 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
-            </View>
-        </View>
 
-        <View className="mb-4">
-            <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
-            <Text className="text-white font-JakartaSemiBold text-base" numberOfLines={2}>
-                {request.destination_address}
-            </Text>
-        </View>
+            <View className="flex-row gap-4 mb-4">
+                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
+                    <Text className="text-gray-400 text-xs">Distance</Text>
+                    <Text className="text-white font-JakartaSemiBold">
+                        {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
+                    </Text>
+                </View>
+                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
+                    <Text className="text-gray-400 text-xs">Est. Time</Text>
+                    <Text className="text-white font-JakartaSemiBold">
+                        {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
+                    </Text>
+                </View>
+                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
+                    <Text className="text-gray-400 text-xs">Payment</Text>
+                    <Text className="text-white font-JakartaSemiBold capitalize">{request.payment_method}</Text>
+                </View>
+            </View>
 
-        <View className="flex-row gap-4 mb-4">
-            <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                <Text className="text-gray-400 text-xs">Distance</Text>
-                <Text className="text-white font-JakartaSemiBold">
-                    {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
-                </Text>
-            </View>
-            <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                <Text className="text-gray-400 text-xs">Est. Time</Text>
-                <Text className="text-white font-JakartaSemiBold">
-                    {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
-                </Text>
-            </View>
-            <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                <Text className="text-gray-400 text-xs">Payment</Text>
-                <Text className="text-white font-JakartaSemiBold capitalize">{request.payment_method}</Text>
+            <View className="flex-row gap-3">
+                <TouchableOpacity
+                    onPress={() => onReject(request.id)}
+                    className="flex-1 bg-red-500/20 p-4 rounded-xl"
+                >
+                    <Text className="text-red-400 text-center font-JakartaBold">Decline</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => onAccept(request.id)}
+                    className="flex-1 bg-green-500 p-4 rounded-xl"
+                >
+                    <Text className="text-white text-center font-JakartaBold">Accept</Text>
+                </TouchableOpacity>
             </View>
         </View>
-
-        <View className="flex-row gap-3">
-            <TouchableOpacity
-                onPress={() => onReject(request.id)}
-                className="flex-1 bg-red-500/20 p-4 rounded-xl"
-            >
-                <Text className="text-red-400 text-center font-JakartaBold">Decline</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-                onPress={() => onAccept(request.id)}
-                className="flex-1 bg-green-500 p-4 rounded-xl"
-            >
-                <Text className="text-white text-center font-JakartaBold">Accept</Text>
-            </TouchableOpacity>
-        </View>
-    </View>
-);
+    );
+};
 
 const DriverRequests = () => {
     const { driverProfile, profile } = useAuth();
@@ -81,11 +132,12 @@ const DriverRequests = () => {
     const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
 
     const fetchRequests = async () => {
-        if (!location) return; // Wait for location
+        if (!location || !driverProfile?.vehicle_type) return; // Wait for location and driver profile
         
         const { data, error } = await getAvailableBookings(
             location.latitude,
             location.longitude,
+            driverProfile.vehicle_type, // Only show bookings matching driver's vehicle
             20 // 20km radius
         );
         
@@ -123,17 +175,18 @@ const DriverRequests = () => {
         })();
     }, []);
 
-    // Fetch requests when location is available
+    // Fetch requests when location and driver profile are available
     useEffect(() => {
-        if (location) {
+        if (location && driverProfile?.vehicle_type) {
             fetchRequests();
 
-            // Subscribe to real-time updates
+            // Subscribe to real-time updates - filtered by vehicle type
             const unsubscribe = subscribeToAvailableBookings(
-                (newBooking) => {
+                driverProfile.vehicle_type,
+                (newBooking: Booking) => {
                     setRequests(prev => [newBooking, ...prev]);
                 },
-                (removedBookingId) => {
+                (removedBookingId: string) => {
                     setRequests(prev => prev.filter(b => b.id !== removedBookingId));
                 }
             );
@@ -142,7 +195,7 @@ const DriverRequests = () => {
                 unsubscribe();
             };
         }
-    }, [location]);
+    }, [location, driverProfile?.vehicle_type]);
 
     const handleAccept = async (id: string) => {
         if (!driverProfile?.id) {
