@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Linking,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -218,112 +219,118 @@ const TrackRidePage = () => {
       </SafeAreaView>
 
       {/* Bottom Sheet */}
-      <View className="absolute bottom-0 w-full bg-white rounded-t-[32px] pt-6 pb-8 px-6 h-[50%] shadow-lg">
-        {/* Status Badge */}
-        <View className="items-center mb-4">
-          <View className={`${status.color} px-4 py-2 rounded-full`}>
-            <Text className="text-white font-JakartaSemiBold">{status.text}</Text>
+      <View className="absolute bottom-0 w-full bg-white rounded-t-[32px] shadow-lg h-[50%]">
+        <ScrollView 
+          className="pt-6 pb-8 px-6"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
+          {/* Status Badge */}
+          <View className="items-center mb-4">
+            <View className={`${status.color} px-4 py-2 rounded-full`}>
+              <Text className="text-white font-JakartaSemiBold">{status.text}</Text>
+            </View>
           </View>
-        </View>
 
-        {/* Driver Info */}
-        {booking?.driver && (
-          <View className="bg-gray-50 rounded-2xl p-4 mb-4">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center">
-                <View className="w-14 h-14 bg-gray-200 rounded-full items-center justify-center mr-3">
-                  <Feather name="user" size={24} color="#666" />
-                </View>
-                <View>
-                  <Text className="text-lg font-JakartaBold text-gray-800">
-                    {booking.driver.user?.name || 'Driver'}
-                  </Text>
-                  <View className="flex-row items-center">
-                    <Text className="text-gray-500 text-sm font-JakartaMedium mr-2">
-                      {booking.driver.vehicle_number}
+          {/* Driver Info */}
+          {booking?.driver && (
+            <View className="bg-gray-50 rounded-2xl p-4 mb-4">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <View className="w-14 h-14 bg-gray-200 rounded-full items-center justify-center mr-3">
+                    <Feather name="user" size={24} color="#666" />
+                  </View>
+                  <View>
+                    <Text className="text-lg font-JakartaBold text-gray-800">
+                      {booking.driver.user?.name || 'Driver'}
                     </Text>
-                    <Feather name="star" size={12} color="#f59e0b" />
-                    <Text className="text-gray-500 text-sm ml-1">
-                      {booking.driver.rating}
-                    </Text>
+                    <View className="flex-row items-center">
+                      <Text className="text-gray-500 text-sm font-JakartaMedium mr-2">
+                        {booking.driver.vehicle_number}
+                      </Text>
+                      <Feather name="star" size={12} color="#f59e0b" />
+                      <Text className="text-gray-500 text-sm ml-1">
+                        {booking.driver.rating}
+                      </Text>
+                    </View>
                   </View>
                 </View>
+
+                <TouchableOpacity 
+                  onPress={handleCallDriver}
+                  className="w-12 h-12 bg-green-500 rounded-full items-center justify-center"
+                >
+                  <Feather name="phone" size={20} color="#fff" />
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity 
-                onPress={handleCallDriver}
-                className="w-12 h-12 bg-green-500 rounded-full items-center justify-center"
-              >
-                <Feather name="phone" size={20} color="#fff" />
-              </TouchableOpacity>
             </View>
-          </View>
-        )}
-
-            {/* Trip Info */}
-        <View className="bg-gray-50 rounded-2xl p-4 mb-4 flex-1">
-          <View className="flex-row justify-between mb-3">
-            <View>
-              <Text className="text-xs text-gray-500 font-JakartaMedium">DROP LOCATION</Text>
-              <Text className="text-sm font-JakartaSemiBold text-gray-800" numberOfLines={1}>
-                {destinationAddress || booking?.destination_address}
-              </Text>
-            </View>
-          </View>
-
-          <View className="h-px bg-gray-200 my-2" />
-
-          <View className="flex-row justify-between">
-            <View className="items-center flex-1">
-              <Text className="text-xs text-gray-500">Receiver</Text>
-              <Text className="text-sm font-JakartaSemiBold text-gray-800">
-                {booking?.receiver_name}
-              </Text>
-            </View>
-            <View className="items-center flex-1">
-              <Text className="text-xs text-gray-500">OTP</Text>
-              <Text className="text-lg font-JakartaBold text-blue-600">
-                {booking?.pickup_otp}
-              </Text>
-            </View>
-            <View className="items-center flex-1">
-              <Text className="text-xs text-gray-500">Fare</Text>
-              <Text className="text-sm font-JakartaBold text-green-600">
-                ₹{booking?.driver_payout || booking?.total_fare}
-              </Text>
-            </View>
-          </View>
-
-          {/* Payment Request Banner */}
-          {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
-              For now we rely on status='in_progress' and user check manually via push notification, 
-              or we can add a persistent button here if not paid. */}
-          {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
-             <TouchableOpacity
-                onPress={() => router.push({ pathname: "/pay-booking", params: { bookingId: booking.id } })}
-                className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
-             >
-                <View className="flex-row items-center">
-                    <Feather name="credit-card" size={18} color="#FF9800" />
-                    <Text className="ml-2 text-primary-600 font-JakartaSemiBold">Pay Online</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color="#FF9800" />
-             </TouchableOpacity>
           )}
 
-          {booking?.payment_status === 'paid' && (
-             <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
-                <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
-             </View>
-          )}
+          {/* Trip Info */}
+          <View className="bg-gray-50 rounded-2xl p-4 mb-4">
+            <View className="flex-row justify-between mb-3">
+              <View>
+                <Text className="text-xs text-gray-500 font-JakartaMedium">DROP LOCATION</Text>
+                <Text className="text-sm font-JakartaSemiBold text-gray-800" numberOfLines={1}>
+                  {destinationAddress || booking?.destination_address}
+                </Text>
+              </View>
+            </View>
 
-        </View>
+            <View className="h-px bg-gray-200 my-2" />
 
-        {/* SOS Button */}
-        <TouchableOpacity className="bg-red-500 py-4 rounded-xl flex-row items-center justify-center">
-          <Feather name="alert-triangle" size={20} color="#fff" />
-          <Text className="ml-2 text-white font-JakartaBold">Emergency SOS</Text>
-        </TouchableOpacity>
+            <View className="flex-row justify-between">
+              <View className="items-center flex-1">
+                <Text className="text-xs text-gray-500">Receiver</Text>
+                <Text className="text-sm font-JakartaSemiBold text-gray-800">
+                  {booking?.receiver_name}
+                </Text>
+              </View>
+              <View className="items-center flex-1">
+                <Text className="text-xs text-gray-500">OTP</Text>
+                <Text className="text-lg font-JakartaBold text-blue-600">
+                  {booking?.pickup_otp}
+                </Text>
+              </View>
+              <View className="items-center flex-1">
+                <Text className="text-xs text-gray-500">Fare</Text>
+                <Text className="text-sm font-JakartaBold text-green-600">
+                  ₹{booking?.driver_payout || booking?.total_fare}
+                </Text>
+              </View>
+            </View>
+
+            {/* Payment Request Banner */}
+            {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
+                For now we rely on status='in_progress' and user check manually via push notification, 
+                or we can add a persistent button here if not paid. */}
+            {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
+               <TouchableOpacity
+                  onPress={() => router.push({ pathname: "/pay-booking", params: { bookingId: booking.id } })}
+                  className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
+               >
+                  <View className="flex-row items-center">
+                      <Feather name="credit-card" size={18} color="#FF9800" />
+                      <Text className="ml-2 text-primary-600 font-JakartaSemiBold">Pay Online</Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color="#FF9800" />
+               </TouchableOpacity>
+            )}
+
+            {booking?.payment_status === 'paid' && (
+               <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
+                  <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
+               </View>
+            )}
+
+          </View>
+
+          {/* SOS Button */}
+          <TouchableOpacity className="bg-red-500 py-4 rounded-xl flex-row items-center justify-center">
+            <Feather name="alert-triangle" size={20} color="#fff" />
+            <Text className="ml-2 text-white font-JakartaBold">Emergency SOS</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </View>
 
       {/* Payment Confirmation Modal - shown after trip completion */}

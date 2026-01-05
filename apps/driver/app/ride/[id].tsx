@@ -1,7 +1,7 @@
 // Active Ride Screen
 // Driver's view during an active shipment - connected to Supabase
 
-import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
@@ -282,157 +282,163 @@ const ActiveRide = () => {
             </View>
 
             {/* Bottom Sheet */}
-            <View className="bg-gray-900 rounded-t-3xl p-5 -mt-8">
-                {/* Status Badge */}
-                <View className="items-center mb-4">
-                    <View className={`px-4 py-2 rounded-full ${status.color}`}>
-                        <Text className={`font-JakartaSemiBold ${status.textColor}`}>
-                            {status.text}
-                        </Text>
+            <View className="bg-gray-900 rounded-t-3xl -mt-8 max-h-[50%]">
+                <ScrollView 
+                    className="p-5"
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                >
+                    {/* Status Badge */}
+                    <View className="items-center mb-4">
+                        <View className={`px-4 py-2 rounded-full ${status.color}`}>
+                            <Text className={`font-JakartaSemiBold ${status.textColor}`}>
+                                {status.text}
+                            </Text>
+                        </View>
                     </View>
-                </View>
 
-                {/* Customer/Receiver Info */}
-                <View className="bg-gray-800 rounded-2xl p-4 mb-4">
-                    <View className="flex-row justify-between items-center">
-                        <View className="flex-row items-center">
-                            <View className="w-12 h-12 bg-gray-700 rounded-full items-center justify-center mr-3">
-                                <Feather name="user" size={24} color="#9ca3af" />
+                    {/* Customer/Receiver Info */}
+                    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+                        <View className="flex-row justify-between items-center">
+                            <View className="flex-row items-center">
+                                <View className="w-12 h-12 bg-gray-700 rounded-full items-center justify-center mr-3">
+                                    <Feather name="user" size={24} color="#9ca3af" />
+                                </View>
+                                <View>
+                                    <Text className="text-white font-JakartaBold">
+                                        {isInProgress ? (booking.receiver_name || 'Receiver') : customerName}
+                                    </Text>
+                                    <Text className="text-gray-400 text-sm">
+                                        {isInProgress ? 'Receiver' : 'Customer'}
+                                    </Text>
+                                </View>
                             </View>
-                            <View>
-                                <Text className="text-white font-JakartaBold">
-                                    {isInProgress ? (booking.receiver_name || 'Receiver') : customerName}
+                            <TouchableOpacity
+                                onPress={callCustomer}
+                                className="bg-green-500/20 w-12 h-12 rounded-full items-center justify-center"
+                            >
+                                <Feather name="phone" size={20} color="#22c55e" />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Pickup OTP - shown when arrived */}
+                    {booking.status === 'driver_arrived' && booking.pickup_otp && (
+                        <View className="bg-blue-500/10 rounded-xl p-4 mb-4">
+                            <Text className="text-blue-400 text-sm font-JakartaMedium mb-1">
+                                Ask customer for OTP to start trip
+                            </Text>
+                            <Text className="text-white text-xl font-JakartaBold">
+                                Expected OTP: ****
+                            </Text>
+                        </View>
+                    )}
+
+                    {/* Ride Details */}
+                    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+                        <View className="mb-3">
+                            <Text className="text-gray-400 text-xs mb-1">
+                                {isInProgress ? 'DROP-OFF' : 'PICKUP'}
+                            </Text>
+                            <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
+                                {isInProgress ? booking.destination_address : booking.origin_address}
+                            </Text>
+                        </View>
+
+                        {!isInProgress && (
+                            <View className="mb-3">
+                                <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
+                                <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
+                                    {booking.destination_address}
                                 </Text>
-                                <Text className="text-gray-400 text-sm">
-                                    {isInProgress ? 'Receiver' : 'Customer'}
+                            </View>
+                        )}
+
+                        {/* Receiver contact when in progress */}
+                        {isInProgress && booking.receiver_phone && (
+                            <View className="mb-3">
+                                <Text className="text-gray-400 text-xs mb-1">RECEIVER PHONE</Text>
+                                <Text className="text-white font-JakartaSemiBold">
+                                    +91 {booking.receiver_phone}
+                                </Text>
+                            </View>
+                        )}
+
+                        <View className="flex-row gap-4 mt-3 pt-3 border-t border-gray-700">
+                            <View className="flex-1">
+                                <Text className="text-gray-400 text-xs">Distance</Text>
+                                <Text className="text-white font-JakartaSemiBold">
+                                    {booking.estimated_distance?.toFixed(1) || '0'} km
+                                </Text>
+                            </View>
+                            <View className="flex-1">
+                                <Text className="text-gray-400 text-xs">Est. Time</Text>
+                                <Text className="text-white font-JakartaSemiBold">
+                                    {booking.estimated_duration?.toFixed(0) || '0'} min
+                                </Text>
+                            </View>
+                            <View className="flex-1">
+                                <Text className="text-gray-400 text-xs">Fare</Text>
+                                <Text className="text-green-400 font-JakartaBold">
+                                    ₹{booking.driver_payout || booking.total_fare}
                                 </Text>
                             </View>
                         </View>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View className="flex-row gap-3">
                         <TouchableOpacity
-                            onPress={callCustomer}
-                            className="bg-green-500/20 w-12 h-12 rounded-full items-center justify-center"
+                            onPress={openNavigation}
+                            className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
                         >
-                            <Feather name="phone" size={20} color="#22c55e" />
+                            <Feather name="navigation" size={18} color="#fff" />
+                            <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={handleStatusUpdate}
+                            disabled={isUpdating}
+                            className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
+                        >
+                            {isUpdating ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                                <Text className="text-white text-center font-JakartaBold">
+                                    {getButtonText()}
+                                </Text>
+                            )}
                         </TouchableOpacity>
                     </View>
-                </View>
 
-                {/* Pickup OTP - shown when arrived */}
-                {booking.status === 'driver_arrived' && booking.pickup_otp && (
-                    <View className="bg-blue-500/10 rounded-xl p-4 mb-4">
-                        <Text className="text-blue-400 text-sm font-JakartaMedium mb-1">
-                            Ask customer for OTP to start trip
-                        </Text>
-                        <Text className="text-white text-xl font-JakartaBold">
-                            Expected OTP: ****
-                        </Text>
-                    </View>
-                )}
-
-                {/* Ride Details */}
-                <View className="bg-gray-800 rounded-2xl p-4 mb-4">
-                    <View className="mb-3">
-                        <Text className="text-gray-400 text-xs mb-1">
-                            {isInProgress ? 'DROP-OFF' : 'PICKUP'}
-                        </Text>
-                        <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
-                            {isInProgress ? booking.destination_address : booking.origin_address}
-                        </Text>
-                    </View>
-
-                    {!isInProgress && (
-                        <View className="mb-3">
-                            <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
-                            <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
-                                {booking.destination_address}
-                            </Text>
-                        </View>
-                    )}
-
-                    {/* Receiver contact when in progress */}
-                    {isInProgress && booking.receiver_phone && (
-                        <View className="mb-3">
-                            <Text className="text-gray-400 text-xs mb-1">RECEIVER PHONE</Text>
-                            <Text className="text-white font-JakartaSemiBold">
-                                +91 {booking.receiver_phone}
-                            </Text>
-                        </View>
-                    )}
-
-                    <View className="flex-row gap-4 mt-3 pt-3 border-t border-gray-700">
-                        <View className="flex-1">
-                            <Text className="text-gray-400 text-xs">Distance</Text>
-                            <Text className="text-white font-JakartaSemiBold">
-                                {booking.estimated_distance?.toFixed(1) || '0'} km
-                            </Text>
-                        </View>
-                        <View className="flex-1">
-                            <Text className="text-gray-400 text-xs">Est. Time</Text>
-                            <Text className="text-white font-JakartaSemiBold">
-                                {booking.estimated_duration?.toFixed(0) || '0'} min
-                            </Text>
-                        </View>
-                        <View className="flex-1">
-                            <Text className="text-gray-400 text-xs">Fare</Text>
-                            <Text className="text-green-400 font-JakartaBold">
-                                ₹{booking.driver_payout || booking.total_fare}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
-
-                {/* Action Buttons */}
-                <View className="flex-row gap-3">
-                    <TouchableOpacity
-                        onPress={openNavigation}
-                        className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
-                    >
-                        <Feather name="navigation" size={18} color="#fff" />
-                        <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={handleStatusUpdate}
-                        disabled={isUpdating}
-                        className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
-                    >
-                        {isUpdating ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                            <Text className="text-white text-center font-JakartaBold">
-                                {getButtonText()}
-                            </Text>
-                        )}
-                    </TouchableOpacity>
-                </View>
-
-                {/* Cancel Option - only before pickup */}
-                {booking.status === 'accepted' && (
-                    <TouchableOpacity
-                        onPress={() => {
-                            Alert.alert(
-                                'Cancel Ride',
-                                'Are you sure you want to cancel this ride?',
-                                [
-                                    { text: 'No', style: 'cancel' },
-                                    {
-                                        text: 'Yes, Cancel',
-                                        style: 'destructive',
-                                        onPress: async () => {
-                                            await updateBookingStatus(id, 'cancelled', {
-                                                cancelled_by: 'driver',
-                                                cancellation_reason: 'Cancelled by driver',
-                                            });
-                                            router.replace('/(tabs)/home');
+                    {/* Cancel Option - only before pickup */}
+                    {booking.status === 'accepted' && (
+                        <TouchableOpacity
+                            onPress={() => {
+                                Alert.alert(
+                                    'Cancel Ride',
+                                    'Are you sure you want to cancel this ride?',
+                                    [
+                                        { text: 'No', style: 'cancel' },
+                                        {
+                                            text: 'Yes, Cancel',
+                                            style: 'destructive',
+                                            onPress: async () => {
+                                                await updateBookingStatus(id, 'cancelled', {
+                                                    cancelled_by: 'driver',
+                                                    cancellation_reason: 'Cancelled by driver',
+                                                });
+                                                router.replace('/(tabs)/home');
+                                            },
                                         },
-                                    },
-                                ]
-                            );
-                        }}
-                        className="mt-4"
-                    >
-                        <Text className="text-red-400 text-center">Cancel Ride</Text>
-                    </TouchableOpacity>
-                )}
+                                    ]
+                                );
+                            }}
+                            className="mt-4"
+                        >
+                            <Text className="text-red-400 text-center">Cancel Ride</Text>
+                        </TouchableOpacity>
+                    )}
+                </ScrollView>
             </View>
         </SafeAreaView>
     );

@@ -164,6 +164,8 @@ export async function getCustomerBookings(customerId: string): Promise<{
   error: string | null;
 }> {
   try {
+    console.log('[GET_CUSTOMER_BOOKINGS] Fetching bookings for customer_id:', customerId);
+    
     const { data, error } = await supabase
       .from('bookings')
       .select(`
@@ -174,18 +176,38 @@ export async function getCustomerBookings(customerId: string): Promise<{
           vehicle_model,
           vehicle_color,
           rating,
-          user:users(name, phone, avatar_url)
+          user:users!drivers_user_id_fkey(name, phone, avatar_url)
         )
       `)
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
+    console.log('[GET_CUSTOMER_BOOKINGS] Query result:', {
+      hasData: !!data,
+      dataLength: data?.length || 0,
+      error: error?.message || null,
+      errorCode: error?.code || null,
+      errorDetails: error?.details || null
+    });
+
+    if (data && data.length > 0) {
+      console.log('[GET_CUSTOMER_BOOKINGS] Sample booking:', {
+        id: data[0].id.slice(0, 8),
+        status: data[0].status,
+        customer_id: data[0].customer_id,
+        driver_id: data[0].driver_id,
+        created_at: data[0].created_at
+      });
+    }
+
     if (error) {
+      console.error('[GET_CUSTOMER_BOOKINGS] Supabase error:', error);
       return { data: [], error: error.message };
     }
 
     return { data: data as Booking[], error: null };
   } catch (err: any) {
+    console.error('[GET_CUSTOMER_BOOKINGS] Exception:', err);
     return { data: [], error: err.message };
   }
 }

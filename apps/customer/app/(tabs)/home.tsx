@@ -1,6 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
-import { View, Text, TouchableOpacity, Image, ScrollView, ActivityIndicator, Dimensions } from "react-native";
+import { View, Text, TouchableOpacity, Image, ScrollView, ActivityIndicator, Dimensions, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { images } from "@/constants";
@@ -18,6 +18,7 @@ const Home = () => {
   const [inTransitBooking, setInTransitBooking] = useState<Booking | null>(null);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Load saved location on mount
   useEffect(() => {
@@ -61,29 +62,66 @@ const Home = () => {
 
   const fetchBookings = useCallback(async () => {
     if (!profile?.id) {
+      console.log('[HOME] No profile ID, skipping fetch');
       setLoading(false);
       return;
     }
     
+    console.log('[HOME] Fetching bookings for customer:', profile.id);
+    
     try {
       const { data, error } = await getCustomerBookings(profile.id);
+      
+      console.log('[HOME] Bookings fetch result:', {
+        hasData: !!data,
+        error: error,
+        bookingCount: data?.length || 0
+      });
+      
       if (data && !error) {
-        // Find the first in_progress (in transit) booking
-        const transitBooking = data.find(b => b.status === 'in_progress');
+        console.log('[HOME] All bookings:', data.map(b => ({
+          id: b.id.slice(0, 8),
+          status: b.status,
+          hasDriver: !!b.driver_id
+        })));
+        
+        // Find the first active booking (accepted, driver arrived, or in progress)
+        const transitBooking = data.find(b => 
+          b.status === 'accepted' || 
+          b.status === 'driver_arrived' || 
+          b.status === 'in_progress'
+        );
+        
+        console.log('[HOME] Active booking found:', transitBooking ? {
+          id: transitBooking.id.slice(0, 8),
+          status: transitBooking.status,
+          hasDriver: !!transitBooking.driver_id,
+          driverName: transitBooking.driver?.user?.name
+        } : 'NONE');
+        
         setInTransitBooking(transitBooking || null);
         
         // Get recent completed bookings for the horizontal scroll
         const recentCompleted = data
           .filter(b => b.status === 'completed' || b.status === 'cancelled')
           .slice(0, 5);
+        
+        console.log('[HOME] Recent completed bookings:', recentCompleted.length);
         setRecentBookings(recentCompleted);
       }
     } catch (err) {
-      console.error('Error fetching bookings:', err);
+      console.error('[HOME] Error fetching bookings:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [profile?.id]);
+
+  const onRefresh = useCallback(() => {
+    console.log('[HOME] Manual refresh triggered');
+    setRefreshing(true);
+    fetchBookings();
+  }, [fetchBookings]);
 
   useEffect(() => {
     fetchBookings();
@@ -114,6 +152,14 @@ const Home = () => {
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#FF9800"
+            colors={["#FF9800"]}
+          />
+        }
       >
         {/* Horizontal Banner (Replaces Header) */}
         <View className="w-full items-center">

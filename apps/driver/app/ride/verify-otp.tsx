@@ -1,7 +1,7 @@
 // OTP Verification Screen
 // Driver enters pickup OTP from customer to start the trip
 
-import { View, Text, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
@@ -136,119 +136,115 @@ const VerifyOTP = () => {
             <KeyboardAvoidingView 
                 className="flex-1"
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={0}
             >
-                <View className="flex-1 px-6">
-                    {/* Header */}
-                    <View className="flex-row items-center py-4">
-                        <TouchableOpacity 
-                            onPress={() => router.back()}
-                            className="w-10 h-10 bg-gray-800 rounded-full items-center justify-center mr-4"
-                        >
-                            <Feather name="arrow-left" size={20} color="#fff" />
-                        </TouchableOpacity>
-                        <Text className="text-xl font-JakartaBold text-white">Verify Pickup OTP</Text>
-                    </View>
-
-                    {/* Scrollable Content */}
-                    <ScrollView 
-                        className="flex-1"
-                        contentContainerStyle={{ flexGrow: 1 }}
-                        showsVerticalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
+                {/* Header */}
+                <View className="flex-row items-center py-4 px-6">
+                    <TouchableOpacity 
+                        onPress={() => router.back()}
+                        className="w-10 h-10 bg-gray-800 rounded-full items-center justify-center mr-4"
                     >
-                        <View className="flex-1 items-center pt-8">
-                            {/* Icon */}
-                            <View className="w-24 h-24 bg-green-500/20 rounded-full items-center justify-center mb-6">
-                                <Feather name="key" size={48} color="#22c55e" />
-                            </View>
+                        <Feather name="arrow-left" size={20} color="#fff" />
+                    </TouchableOpacity>
+                    <Text className="text-xl font-JakartaBold text-white">Verify Pickup OTP</Text>
+                </View>
 
-                            {/* Instructions */}
-                            <Text className="text-2xl font-JakartaBold text-white text-center mb-2">
-                                Enter Pickup OTP
-                            </Text>
-                            <Text className="text-gray-400 text-center mb-6 px-4">
-                                Ask the customer for the 4-digit OTP to verify pickup and start the trip
-                            </Text>
+                {/* Scrollable Content */}
+                <ScrollView 
+                    className="flex-1 px-6"
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View className="items-center pt-12">
+                        {/* Icon */}
+                        <View className="w-24 h-24 bg-green-500/20 rounded-full items-center justify-center mb-8">
+                            <Feather name="key" size={48} color="#22c55e" />
+                        </View>
 
-                            {/* Customer Info */}
-                            {booking?.customer && (
-                                <View className="bg-gray-800 rounded-xl p-4 w-full mb-6">
-                                    <View className="flex-row items-center">
-                                        <View className="w-12 h-12 bg-gray-700 rounded-full items-center justify-center mr-3">
-                                            <Feather name="user" size={24} color="#9ca3af" />
-                                        </View>
-                                        <View>
-                                            <Text className="text-white font-JakartaBold">
-                                                {booking.customer.name}
-                                            </Text>
-                                            <Text className="text-gray-400 text-sm">
-                                                Ask for OTP to start trip
-                                            </Text>
-                                        </View>
+                        {/* Instructions */}
+                        <Text className="text-2xl font-JakartaBold text-white text-center mb-2">
+                            Enter Pickup OTP
+                        </Text>
+                        <Text className="text-gray-400 text-center mb-8 px-4">
+                            Ask the customer for the 4-digit OTP to verify pickup and start the trip
+                        </Text>
+
+                        {/* Customer Info */}
+                        {booking?.customer && (
+                            <View className="bg-gray-800 rounded-xl p-4 w-full mb-8">
+                                <View className="flex-row items-center">
+                                    <View className="w-12 h-12 bg-gray-700 rounded-full items-center justify-center mr-3">
+                                        <Feather name="user" size={24} color="#9ca3af" />
+                                    </View>
+                                    <View>
+                                        <Text className="text-white font-JakartaBold">
+                                            {booking.customer.name}
+                                        </Text>
+                                        <Text className="text-gray-400 text-sm">
+                                            Ask for OTP to start trip
+                                        </Text>
                                     </View>
                                 </View>
-                            )}
-
-                            {/* OTP Input */}
-                            <View className="flex-row justify-center gap-4 mb-6">
-                                {otp.map((digit, index) => (
-                                    <TextInput
-                                        key={index}
-                                        ref={inputRefs[index]}
-                                        value={digit}
-                                        onChangeText={(value) => handleOtpChange(value, index)}
-                                        onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                        className={`w-16 h-16 bg-gray-800 rounded-xl text-center text-2xl font-JakartaBold text-white border-2 ${
-                                            error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-700'
-                                        }`}
-                                        keyboardType="number-pad"
-                                        maxLength={1}
-                                        selectTextOnFocus
-                                    />
-                                ))}
                             </View>
+                        )}
 
-                            {/* Error Message */}
-                            {error && (
-                                <View className="flex-row items-center mb-4">
-                                    <Feather name="alert-circle" size={16} color="#ef4444" />
-                                    <Text className="text-red-500 ml-2 font-JakartaMedium">{error}</Text>
-                                </View>
-                            )}
+                        {/* OTP Input */}
+                        <View className="flex-row justify-center gap-4 mb-6">
+                            {otp.map((digit, index) => (
+                                <TextInput
+                                    key={index}
+                                    ref={inputRefs[index]}
+                                    value={digit}
+                                    onChangeText={(value) => handleOtpChange(value, index)}
+                                    onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
+                                    className={`w-16 h-16 bg-gray-800 rounded-xl text-center text-2xl font-JakartaBold text-white border-2 ${
+                                        error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-700'
+                                    }`}
+                                    keyboardType="number-pad"
+                                    maxLength={1}
+                                    selectTextOnFocus
+                                />
+                            ))}
+                        </View>
 
-                            {/* Verify Button */}
-                            <TouchableOpacity
-                                onPress={handleVerify}
-                                disabled={isVerifying || otp.join('').length !== 4}
-                                className={`w-full py-4 rounded-xl flex-row items-center justify-center mb-6 ${
-                                    otp.join('').length === 4 ? 'bg-green-500' : 'bg-gray-700'
-                                }`}
-                            >
-                                {isVerifying ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                ) : (
-                                    <>
-                                        <Feather name="check-circle" size={20} color="#fff" />
-                                        <Text className="ml-2 text-white font-JakartaBold text-lg">
-                                            Verify & Start Trip
-                                        </Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
+                        {/* Error Message */}
+                        {error && (
+                            <View className="flex-row items-center mb-4">
+                                <Feather name="alert-circle" size={16} color="#ef4444" />
+                                <Text className="text-red-500 ml-2 font-JakartaMedium">{error}</Text>
+                            </View>
+                        )}
 
-                            {/* Footer Info */}
-                            <View className="bg-yellow-900/40 border border-yellow-500/30 rounded-xl p-4 mb-4 w-full">
-                                <View className="flex-row items-start">
-                                    <Feather name="info" size={20} color="#eab308" />
-                                    <Text className="ml-3 text-yellow-400 font-JakartaMedium flex-1" style={{ lineHeight: 22 }}>
-                                        The customer has received an OTP via the app. Please ask them to share it to verify pickup.
+                        {/* Verify Button */}
+                        <TouchableOpacity
+                            onPress={handleVerify}
+                            disabled={isVerifying || otp.join('').length !== 4}
+                            className={`w-full py-4 rounded-xl flex-row items-center justify-center ${
+                                otp.join('').length === 4 ? 'bg-green-500' : 'bg-gray-700'
+                            }`}
+                        >
+                            {isVerifying ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                                <>
+                                    <Feather name="check-circle" size={20} color="#fff" />
+                                    <Text className="ml-2 text-white font-JakartaBold text-lg">
+                                        Verify & Start Trip
                                     </Text>
-                                </View>
+                                </>
+                            )}
+                        </TouchableOpacity>
+
+                        {/* Footer Info */}
+                        <View className="bg-yellow-500/10 rounded-xl p-4 mt-6 w-full">
+                            <View className="flex-row items-start">
+                                <Feather name="info" size={18} color="#eab308" />
+                                <Text className="ml-2 text-yellow-500 font-JakartaMedium flex-1">
+                                    The customer has received an OTP via the app. Please ask them to share it to verify pickup.
+                                </Text>
                             </View>
                         </View>
-                    </ScrollView>
-                </View>
+                    </View>
+                </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );

@@ -127,8 +127,8 @@ const WaitingForDriverPage = () => {
         });
         setBooking(data);
         setTipAmount(data.tip_amount || 0);
-        if (data.status === 'accepted' && data.driver) {
-          console.log('[WAITING] Driver already accepted - stopping timer');
+        if ((data.status === 'accepted' || data.status === 'driver_arrived' || data.status === 'in_progress') && data.driver) {
+          console.log(`[WAITING] Driver already ${data.status} - stopping timer`);
           setDriverAccepted(true);
         }
       }
@@ -145,18 +145,19 @@ const WaitingForDriverPage = () => {
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
 
-      if (updatedBooking.status === 'accepted') {
-        console.log('[WAITING] Driver accepted! Stopping timer and fetching full details');
-        setDriverAccepted(true);
+      if (updatedBooking.status === 'accepted' || updatedBooking.status === 'driver_arrived' || updatedBooking.status === 'in_progress') {
+        console.log(`[WAITING] Status changed to ${updatedBooking.status}! Fetching full details`);
         // Fetch full booking with driver details
         getBookingById(bookingId).then(({ data }) => {
-          if (data) {
+          if (data && data.driver) {
             console.log('[WAITING] Full booking with driver loaded');
             console.log('[WAITING] Driver details:', data.driver);
             setBooking(data);
             setCurrentBooking(data);
+            // Only set driverAccepted after we have the full driver object
+            setDriverAccepted(true);
           } else {
-            console.error('[WAITING] Failed to fetch full booking details');
+            console.error('[WAITING] Failed to fetch full booking details or driver data missing');
           }
         });
       }
