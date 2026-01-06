@@ -286,12 +286,26 @@ const TrackRidePage = () => {
                   {booking?.receiver_name}
                 </Text>
               </View>
-              <View className="items-center flex-1">
-                <Text className="text-xs text-gray-500">OTP</Text>
-                <Text className="text-lg font-JakartaBold text-blue-600">
-                  {booking?.pickup_otp}
-                </Text>
-              </View>
+              
+              {/* Show Pickup OTP before trip starts, Delivery OTP during/after trip */}
+              {booking?.status === 'in_progress' || booking?.status === 'completed' ? (
+                <View className="items-center flex-1">
+                  <Text className="text-xs text-gray-500">Delivery OTP</Text>
+                  <Text className="text-lg font-JakartaBold text-orange-600">
+                    {booking?.delivery_otp || '------'}
+                  </Text>
+                  <Text className="text-[10px] text-gray-400 mt-1">Share with receiver</Text>
+                </View>
+              ) : (
+                <View className="items-center flex-1">
+                  <Text className="text-xs text-gray-500">Pickup OTP</Text>
+                  <Text className="text-lg font-JakartaBold text-blue-600">
+                    {booking?.pickup_otp}
+                  </Text>
+                  <Text className="text-[10px] text-gray-400 mt-1">Give to driver</Text>
+                </View>
+              )}
+              
               <View className="items-center flex-1">
                 <Text className="text-xs text-gray-500">Fare</Text>
                 <Text className="text-sm font-JakartaBold text-green-600">

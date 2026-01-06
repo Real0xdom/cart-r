@@ -174,7 +174,7 @@ const RideDetails = () => {
                      {booking.delivery_otp && (
                         <View className="mt-4 bg-gray-50 p-3 rounded-lg flex-row justify-between items-center">
                             <Text className="text-gray-500 text-sm">Delivery OTP</Text>
-                            <Text className="font-JakartaBold text-lg text-gray-800 tracking-widest">{booking.pickup_otp}</Text>
+                            <Text className="font-JakartaBold text-lg text-gray-800 tracking-widest">{booking.delivery_otp}</Text>
                         </View>
                     )}
                 </View>
