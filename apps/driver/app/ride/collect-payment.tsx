@@ -63,8 +63,8 @@ const CollectPayment = () => {
                     // SMS is automatically sent by backend edge function
                     if (data.receiver_phone && rpcData?.otp) {
                         Alert.alert(
-                          '✅ OTP Sent',
-                          `Delivery OTP has been sent automatically to receiver's phone (+91 ${data.receiver_phone}). Ask the receiver for the OTP to complete delivery.`,
+                          '✅ Notification Sent',
+                          `Delivery OTP sent to Customer's App. Ask them to check their notifications.`,
                           [{ text: 'OK' }]
                         );
                     }
@@ -461,17 +461,15 @@ const CollectPayment = () => {
                                             {smsStatus?.status === 'sent' && <Feather name="check-circle" size={16} color="#22c55e" className="mr-2" />}
                                             {smsStatus?.status === 'failed' && <Feather name="alert-circle" size={16} color="#ef4444" className="mr-2" />}
                                             
-                                            <View className="flex-1">
                                                 <Text className={`font-JakartaMedium text-xs ${
                                                     smsStatus?.status === 'sent' ? 'text-green-400' :
                                                     smsStatus?.status === 'failed' ? 'text-red-400' :
                                                     'text-blue-400'
                                                 }`}>
-                                                    {smsStatus?.status === 'sent' ? `OTP Sent to +91 ${booking.receiver_phone}` :
-                                                     smsStatus?.status === 'failed' ? `SMS Failed: ${smsStatus.error?.substring(0, 20)}...` :
-                                                     `Sending OTP to +91 ${booking.receiver_phone}...`}
+                                                    {smsStatus?.status === 'sent' ? `Notification Sent to Customer App` :
+                                                     smsStatus?.status === 'failed' ? `Notification Failed: ${smsStatus.error?.substring(0, 20)}...` :
+                                                     `Sending Notification...`}
                                                 </Text>
-                                            </View>
                                         </View>
                                     </View>
 
@@ -483,7 +481,7 @@ const CollectPayment = () => {
                                             className="mt-2"
                                         >
                                             <Text className="text-blue-400 text-xs text-center font-JakartaBold">
-                                                {isRetryingSms ? 'Retrying...' : 'Tap to Retry SMS'}
+                                                {isRetryingSms ? 'Retrying...' : 'Tap to Retry Notification'}
                                             </Text>
                                         </TouchableOpacity>
                                     )}
@@ -495,7 +493,7 @@ const CollectPayment = () => {
                                         className="mt-4 border-t border-gray-700 pt-2"
                                     >
                                         <Text className="text-gray-500 text-xs text-center font-JakartaMedium">
-                                            Issues receiving SMS? <Text className="text-red-400 font-JakartaBold">Regenerate New OTP</Text>
+                                            Notification not received? <Text className="text-red-400 font-JakartaBold">Regenerate New OTP</Text>
                                         </Text>
                                     </TouchableOpacity>
                                     {/* Monitor Button */}
