@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -220,7 +220,10 @@ const DriverEarnings = () => {
 
                 {/* Withdraw Button - shows if has balance */}
                 {(driverProfile?.total_earnings || 0) > 0 && (
-                    <TouchableOpacity className="mx-5 mt-6 bg-green-500 p-4 rounded-xl">
+                    <TouchableOpacity 
+                        onPress={() => Alert.alert('Coming Soon', 'Withdrawals will be available soon!')}
+                        className="mx-5 mt-6 bg-green-500 p-4 rounded-xl"
+                    >
                         <Text className="text-white text-center font-JakartaBold text-lg">Withdraw to Bank</Text>
                     </TouchableOpacity>
                 )}

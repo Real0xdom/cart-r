@@ -438,6 +438,17 @@ const CollectPayment = () => {
                 {/* Delivery OTP (Required to complete) */}
                 <View className="mb-6">
                     <Text className="text-gray-400 font-JakartaSemiBold mb-3">Delivery Confirmation</Text>
+                    
+                    {/* Instruction for Driver */}
+                    <View className="bg-blue-500/10 p-3 rounded-lg mb-4 border border-blue-500/20">
+                        <View className="flex-row">
+                            <Feather name="info" size={16} color="#3b82f6" style={{ marginTop: 2 }} />
+                            <Text className="text-blue-400 text-sm font-JakartaMedium ml-2 flex-1">
+                                Ask the receiver for the 6-digit Delivery OTP sent to their app/SMS.
+                            </Text>
+                        </View>
+                    </View>
+
                     {showOtpInput ? (
                         <View>
                             <TextInput

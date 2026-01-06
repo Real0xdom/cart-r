@@ -29,7 +29,9 @@ const ExpoSecureStoreAdapter = {
   },
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+import { Database } from './database.types';
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: ExpoSecureStoreAdapter,
     autoRefreshToken: true,
@@ -37,78 +39,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
-
-// Database types (will be generated from schema later)
-export type Database = {
-  public: {
-    Tables: {
-      users: {
-        Row: {
-          id: string;
-          email: string;
-          name: string;
-          phone: string | null;
-          role: 'customer' | 'driver' | 'admin';
-          avatar_url: string | null;
-          is_active: boolean;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: Omit<Database['public']['Tables']['users']['Row'], 'id' | 'created_at' | 'updated_at'>;
-        Update: Partial<Database['public']['Tables']['users']['Insert']>;
-      };
-      drivers: {
-        Row: {
-          id: string;
-          user_id: string;
-          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
-          vehicle_number: string;
-          vehicle_model: string;
-          vehicle_color: string | null;
-          license_number: string | null;
-          license_expiry: string | null;
-          license_image_url: string | null;
-          rc_image_url: string | null;
-          insurance_image_url: string | null;
-          vehicle_image_url: string | null;
-          verification_status: 'pending' | 'approved' | 'rejected';
-          rejection_reason: string | null;
-          is_online: boolean;
-          current_latitude: number | null;
-          current_longitude: number | null;
-          rating: number;
-          total_trips: number;
-          total_earnings: number;
-          created_at: string;
-        };
-        Insert: Omit<Database['public']['Tables']['drivers']['Row'], 'id' | 'rating' | 'total_trips' | 'total_earnings' | 'created_at'>;
-        Update: Partial<Database['public']['Tables']['drivers']['Insert']>;
-      };
-      bookings: {
-        Row: {
-          id: string;
-          booking_number: string;
-          customer_id: string;
-          driver_id: string | null;
-          origin_address: string;
-          origin_latitude: number;
-          origin_longitude: number;
-          destination_address: string;
-          destination_latitude: number;
-          destination_longitude: number;
-          vehicle_type: 'bike' | 'tempo' | 'sedan' | 'truck';
-          estimated_distance: number | null;
-          estimated_duration: number | null;
-          total_fare: number;
-          payment_status: 'pending' | 'paid' | 'refunded';
-          payment_method: 'cash' | 'online';
-          status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
-          pickup_otp: string | null;
-          created_at: string;
-        };
-        Insert: Partial<Database['public']['Tables']['bookings']['Row']>;
-        Update: Partial<Database['public']['Tables']['bookings']['Insert']>;
-      };
-    };
-  };
-};

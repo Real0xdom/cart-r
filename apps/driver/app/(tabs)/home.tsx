@@ -256,7 +256,10 @@ const DriverHome = () => {
                         </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity className="bg-gray-800 p-4 rounded-xl flex-row items-center">
+                    <TouchableOpacity 
+                        onPress={() => Alert.alert('Support', 'Contact us at drivers@cart-r.com')}
+                        className="bg-gray-800 p-4 rounded-xl flex-row items-center"
+                    >
                         <View className="w-12 h-12 bg-orange-500/20 rounded-full items-center justify-center mr-4">
                             <Text className="text-2xl">📞</Text>
                         </View>

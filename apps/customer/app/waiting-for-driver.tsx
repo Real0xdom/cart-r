@@ -328,7 +328,14 @@ const WaitingForDriverPage = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => {/* TODO: Call driver */}}
+              onPress={() => {
+                if (booking?.driver?.user?.phone) {
+                  const Linking = require('react-native').Linking;
+                  Linking.openURL(`tel:${booking.driver.user.phone}`);
+                } else {
+                  Alert.alert('Error', 'Driver phone number not available');
+                }
+              }}
               className="bg-gray-100 py-4 rounded-xl flex-row items-center justify-center"
             >
               <Feather name="phone" size={20} color="#333" />

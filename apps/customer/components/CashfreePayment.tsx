@@ -43,6 +43,12 @@ const CashfreePayment = ({
   const [success, setSuccess] = useState(false);
   const [bookingDetails, setBookingDetails] = useState<any>(null);
 
+  // Generate a unique key when the component mounts
+  // This ensures that if the user presses the button multiple times (accidentally or retry),
+  // we effectively reuse the SAME key for this specific payment session.
+  // Ideally, if the user backs out and comes back, this recycles.
+  const [idempotencyKey] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
   const handleCashPayment = async () => {
     if (!user?.id || !userAddress || !destinationAddress) {
       Alert.alert("Error", "Missing booking information. Please try again.");
@@ -60,9 +66,10 @@ const CashfreePayment = ({
         destinationAddress: destinationAddress,
         destinationLatitude: destinationLatitude!,
         destinationLongitude: destinationLongitude!,
-        vehicleType: vehicleType,
+        vehicleType: vehicleType as any,
         estimatedDistance: estimatedDistance,
         estimatedDuration: estimatedDuration,
+        idempotencyKey: idempotencyKey, // Pass the unique key
       });
 
       if (error || !booking) {
@@ -88,6 +95,7 @@ const CashfreePayment = ({
     setLoading(true);
     try {
       // First create the booking
+      // Reuse the same idempotency key
       const { data: booking, error } = await createBooking({
         customerId: user.id,
         originAddress: userAddress,
@@ -96,9 +104,10 @@ const CashfreePayment = ({
         destinationAddress: destinationAddress,
         destinationLatitude: destinationLatitude!,
         destinationLongitude: destinationLongitude!,
-        vehicleType: vehicleType,
+        vehicleType: vehicleType as any,
         estimatedDistance: estimatedDistance,
         estimatedDuration: estimatedDuration,
+        idempotencyKey: idempotencyKey, 
       });
 
       if (error || !booking) {
@@ -106,12 +115,6 @@ const CashfreePayment = ({
       }
 
       // TODO: Integrate Cashfree SDK for online payment
-      // For now, show success and mark as cash payment
-      // The actual Cashfree integration would involve:
-      // 1. Create order via Supabase Edge Function
-      // 2. Open Cashfree payment page
-      // 3. Handle callback/webhook
-      
       Alert.alert(
         "Online Payment",
         "Cashfree integration coming soon. For now, your booking is placed with cash payment.",

@@ -93,9 +93,9 @@ function generateOTP(): string {
 /**
  * Create a new booking
  */
-export async function createBooking(params: CreateBookingParams): Promise<{ data: Booking | null; error: string | null }> {
+export async function createBooking(params: CreateBookingParams & { idempotencyKey?: string }): Promise<{ data: Booking | null; error: string | null }> {
   try {
-    const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0 } = params;
+    const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0, idempotencyKey } = params;
     
     // Calculate fare
     const totalFare = calculateFare(estimatedDistance, estimatedDuration, vehicleType);
@@ -122,11 +122,26 @@ export async function createBooking(params: CreateBookingParams): Promise<{ data
         status: 'pending',
         payment_status: 'pending',
         payment_method: 'cash',
+        idempotency_key: idempotencyKey,
       })
       .select()
       .single();
     
     if (error) {
+      // Handle Idempotency: If key exists, return the existing booking
+      if (error.code === '23505' && idempotencyKey) { // 23505 is unique_violation
+        console.log('Idempotency hit! Fetching existing booking for key:', idempotencyKey);
+        const { data: existingBooking, error: fetchError } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq('idempotency_key', idempotencyKey)
+            .single();
+            
+        if (existingBooking) {
+            return { data: existingBooking as Booking, error: null };
+        }
+      }
+
       console.error('Error creating booking:', error);
       return { data: null, error: error.message };
     }

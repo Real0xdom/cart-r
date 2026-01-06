@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -96,6 +96,7 @@ const DriverProfile = () => {
                     {menuItems.map((item, index) => (
                         <TouchableOpacity
                             key={index}
+                            onPress={() => Alert.alert('Coming Soon', `${item.title} section is under development.`)}
                             className="flex-row items-center py-4 border-b border-gray-800"
                         >
                             <View className="w-12 h-12 bg-gray-800 rounded-full items-center justify-center mr-4">

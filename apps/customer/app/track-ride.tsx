@@ -294,7 +294,7 @@ const TrackRidePage = () => {
                   <Text className="text-lg font-JakartaBold text-orange-600">
                     {booking?.delivery_otp || '------'}
                   </Text>
-                  <Text className="text-[10px] text-gray-400 mt-1">Share with receiver</Text>
+                  <Text className="text-[10px] text-gray-400 mt-1">Share with Driver to Receive</Text>
                 </View>
               ) : (
                 <View className="items-center flex-1">
@@ -340,7 +340,19 @@ const TrackRidePage = () => {
           </View>
 
           {/* SOS Button */}
-          <TouchableOpacity className="bg-red-500 py-4 rounded-xl flex-row items-center justify-center">
+          <TouchableOpacity 
+            onPress={() => {
+              Alert.alert(
+                "Emergency SOS", 
+                "Are you sure you want to call emergency services?",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Call 112", style: "destructive", onPress: () => Linking.openURL('tel:112') }
+                ]
+              );
+            }}
+            className="bg-red-500 py-4 rounded-xl flex-row items-center justify-center"
+          >
             <Feather name="alert-triangle" size={20} color="#fff" />
             <Text className="ml-2 text-white font-JakartaBold">Emergency SOS</Text>
           </TouchableOpacity>

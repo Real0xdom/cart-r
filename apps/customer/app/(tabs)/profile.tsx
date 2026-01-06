@@ -46,11 +46,56 @@ const ProfileItem = ({ icon, title, onPress }: ProfileItemProps) => (
 const Profile = () => {
   const { profile, signOut } = useAuth();
 
+  /* TEST FUNCTION: SIMULATE IDEMPOTENCY */
+  const handleTestIdempotency = async () => {
+    if (!profile?.id) return Alert.alert("Error", "Login first");
+
+    const key = `TEST-${Date.now()}`;
+    const testBookingParams = {
+        customerId: profile.id,
+        originAddress: "Test Origin",
+        originLatitude: 12.9716,
+        originLongitude: 77.5946,
+        destinationAddress: "Test Dest",
+        destinationLatitude: 12.9716,
+        destinationLongitude: 77.6,
+        vehicleType: "bike" as any,
+        idempotencyKey: key
+    };
+
+    try {
+        Alert.alert("Testing", "Firing 2 identicial requests...");
+        
+        // Fire two requests in parallel
+        const req1 = import("@/lib/bookingUtils").then(m => m.createBooking(testBookingParams));
+        const req2 = import("@/lib/bookingUtils").then(m => m.createBooking(testBookingParams));
+
+        const [res1, res2] = await Promise.all([req1, req2]);
+
+        console.log("Res1:", res1);
+        console.log("Res2:", res2);
+
+        if (res1.data?.id === res2.data?.id) {
+            Alert.alert("Success! ✅", `Idempotency works!\nBoth requests returned Booking ID: ${res1.data?.id}`);
+        } else {
+            Alert.alert("Failed ❌", "Duplicate bookings created!");
+        }
+
+    } catch (e: any) {
+        Alert.alert("Error", e.message);
+    }
+  };
+
+
   const handleLogout = async () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
         {
             text: "Cancel",
             style: "cancel"
+        },
+        {
+            text: "Test Idempotency",
+            onPress: handleTestIdempotency
         },
         {
             text: "Logout",
