@@ -1,0 +1,43 @@
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_GOOGLE_MAPS_API_KEY EXPO_PUBLIC_PLACES_API_KEY EXPO_PUBLIC_DIRECTIONS_API_KEY EXPO_PUBLIC_CASHFREE_APP_ID CASHFREE_SECRET_KEY CASHFREE_ENVIRONMENT EXPO_PUBLIC_GEOAPIFY_API_KEY EXPO_PUBLIC_SERVER_URL
+(node:5024) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+› Using --device Driver_Phone
+› Building app...
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/C:/Users/admin/.gradle/wrapper/dists/gradle-8.8-all/6gdy1pgp427xkqcjbxw3ylt6h/gradle-8.8/lib/native-platform-0.22-milestone-26.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Starting a Gradle Daemon, 1 incompatible Daemon could not be reused, use --status for details
+Configuration on demand is an incubating feature.
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Settings file 'E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\android\settings.gradle' line: 13
+
+* What went wrong:
+Error resolving plugin [id: 'com.facebook.react.settings']
+> 25
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 26s
+Error: E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\android\gradlew.bat app:assembleDebug -x lint -x test --configure-on-demand --build-cache -PreactNativeDevServerPort=8083 -PreactNativeArchitectures=x86_64,arm64-v8a exited with non-zero code: 1
+Error: E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\android\gradlew.bat app:assembleDebug -x lint -x test --configure-on-demand --build-cache -PreactNativeDevServerPort=8083 -PreactNativeArchitectures=x86_64,arm64-v8a exited with non-zero code: 1
+    at ChildProcess.completionListener (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\@expo\spawn-async\build\spawnAsync.js:42:23)
+    at Object.onceWrapper (node:events:634:26)
+    at ChildProcess.emit (node:events:519:28)
+    at cp.emit (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\cross-spawn\lib\enoent.js:34:29)
+    at maybeClose (node:internal/child_process:1104:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:304:5)
+    ...
+    at spawnAsync (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\@expo\spawn-async\build\spawnAsync.js:7:23)
+    at spawnGradleAsync (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\@expo\cli\build\src\start\platforms\android\gradle.js:96:48)
+    at assembleAsync (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\@expo\cli\build\src\start\platforms\android\gradle.js:74:18)
+    at runAndroidAsync (E:\Freelance\Pranav\Cart-R\Repository\cart-r\apps\driver\node_modules\@expo\cli\build\src\run\android\runAndroidAsync.js:45:37)

@@ -160,6 +160,11 @@ const WaitingForDriverPage = () => {
             console.error('[WAITING] Failed to fetch full booking details or driver data missing');
           }
         });
+      } else if (updatedBooking.status === 'pending') {
+          console.log('[WAITING] Status reverted to pending (driver cancelled). Resetting search.');
+          setDriverAccepted(false);
+          // Optional: Reset timer if you want a fresh 3 minutes, or keep it running.
+          // For now, let's just show searching state.
       }
     });
 

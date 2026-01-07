@@ -1,0 +1,5 @@
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_GOOGLE_MAPS_API_KEY EXPO_PUBLIC_PLACES_API_KEY EXPO_PUBLIC_DIRECTIONS_API_KEY EXPO_PUBLIC_CASHFREE_APP_ID CASHFREE_SECRET_KEY CASHFREE_ENVIRONMENT EXPO_PUBLIC_GEOAPIFY_API_KEY EXPO_PUBLIC_SERVER_URL
+(node:3628) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+CommandError: Could not find device with name: emulator-5556

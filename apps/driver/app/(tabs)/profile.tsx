@@ -1,9 +1,36 @@
-import { View, Text, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { syncDriverStats } from '@/lib/bookings';
 
 const DriverProfile = () => {
-    const { profile, driverProfile, signOut } = useAuth();
+    const { profile, driverProfile, signOut, refreshProfile } = useAuth();
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    // Auto-sync stats if they appear to be missing (e.g. 0 trips but we suspect they have some)
+    // Or just run it once on mount to be safe since the trigger might have missed old data
+    useEffect(() => {
+        const syncStats = async () => {
+            if (driverProfile?.id && !isSyncing) {
+                // If we have 0 trips, it's worth checking if that's real or a sync error
+                if (!driverProfile.total_trips || driverProfile.total_trips === 0) {
+                    setIsSyncing(true);
+                    try {
+                        await syncDriverStats(driverProfile.id);
+                        await refreshProfile();
+                    } catch (e) {
+                        console.error('Failed to sync stats', e);
+                    } finally {
+                        setIsSyncing(false);
+                    }
+                }
+            }
+        };
+        
+        syncStats();
+    }, [driverProfile?.id]);
 
     // Calculate experience from created_at
     const getExperience = () => {
@@ -17,13 +44,13 @@ const DriverProfile = () => {
     };
 
     const menuItems = [
-        { icon: '🚗', title: 'Vehicle Details', subtitle: `${driverProfile?.vehicle_model || 'Not set'} • ${driverProfile?.vehicle_number || ''}` },
-        { icon: '📄', title: 'Documents', subtitle: 'License, RC, Insurance' },
-        { icon: '💳', title: 'Bank Account', subtitle: 'Payout settings' },
-        { icon: '⭐', title: 'Ratings & Reviews', subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} rating` },
-        { icon: '🔔', title: 'Notifications', subtitle: 'Manage alerts' },
-        { icon: '❓', title: 'Help & Support', subtitle: 'Get assistance' },
-        { icon: '📜', title: 'Terms & Policies', subtitle: 'Legal information' },
+        { icon: '🚗', title: 'Vehicle Details', subtitle: `${driverProfile?.vehicle_model || 'Not set'} • ${driverProfile?.vehicle_number || ''}`, route: '/profile/vehicle' },
+        { icon: '📄', title: 'Documents', subtitle: 'License, RC, Insurance', route: '/profile/documents' },
+        { icon: '💳', title: 'Bank Account', subtitle: 'Payout settings', route: '/profile/bank' },
+        { icon: '⭐', title: 'Ratings & Reviews', subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} rating`, route: '/profile/reviews' },
+        { icon: '🔔', title: 'Notifications', subtitle: 'Manage alerts', route: '/profile/notifications' },
+        { icon: '❓', title: 'Help & Support', subtitle: 'Get assistance', route: '/profile/support' },
+        { icon: '📜', title: 'Terms & Policies', subtitle: 'Legal information', route: '' },
     ];
 
     // Verification status badge
@@ -96,7 +123,13 @@ const DriverProfile = () => {
                     {menuItems.map((item, index) => (
                         <TouchableOpacity
                             key={index}
-                            onPress={() => Alert.alert('Coming Soon', `${item.title} section is under development.`)}
+                            onPress={() => {
+                                if (item.route) {
+                                    router.push(item.route as any);
+                                } else {
+                                    Alert.alert('Coming Soon', `${item.title} section is under development.`);
+                                }
+                            }}
                             className="flex-row items-center py-4 border-b border-gray-800"
                         >
                             <View className="w-12 h-12 bg-gray-800 rounded-full items-center justify-center mr-4">

@@ -41,22 +41,39 @@ const RideDetails = () => {
             Alert.alert('Rate Trip', 'Please select a star rating');
             return;
         }
+
+        if (!booking?.driver_id) {
+            Alert.alert('Error', 'Cannot rate a trip without a driver');
+            return;
+        }
         
         setIsSubmittingRating(true);
         try {
-            // Update booking with rating (assuming we add these columns, strictly speaking we should have a reviews table)
-            // For MVP, lets assume we update driver rating aggregate or insert into a 'reviews' table
-            // Simplified: console log for now as schema might not have it
-            
-            // To make this real:
-            // 1. Insert into reviews table
-            // 2. Update driver average rating
-            
-            // Placeholder for now
-            Alert.alert('Thank you!', 'Your feedback helps us improve.');
-            
-        } catch (err) {
-            console.error(err);
+            const { error } = await supabase
+                .from('ratings')
+                .insert({
+                    booking_id: booking.id,
+                    from_user_id: booking.customer_id,
+                    to_user_id: booking.driver!.user!.id || booking.driver!.id, // Fallback if join structure differs
+                    rating: rating,
+                    review: review,
+                    is_from_customer: true
+                });
+
+            if (error) {
+                // Handle duplicate rating case nicely
+                if (error.code === '23505') { // Unique violation
+                    Alert.alert('Already Rated', 'You have already rated this trip.');
+                } else {
+                    throw error;
+                }
+            } else {
+                Alert.alert('Thank you!', 'Your feedback helps us improve.');
+                router.back();
+            }
+        } catch (err: any) {
+            console.error('Rating error:', err);
+            Alert.alert('Error', 'Failed to submit rating. Please try again.');
         } finally {
             setIsSubmittingRating(false);
         }

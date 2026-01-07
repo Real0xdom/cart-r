@@ -10,7 +10,8 @@ import {
   BarChart3, 
   LogOut,
   ChevronRight,
-  User
+  User,
+  Bell
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/bookings', label: 'Bookings', icon: Package },
   { href: '/drivers', label: 'Drivers', icon: Truck },
   { href: '/users', label: 'Users', icon: Users },
+  { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];
 

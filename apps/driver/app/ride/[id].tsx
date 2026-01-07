@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { getBookingById, updateBookingStatus, subscribeToBooking, Booking } from '@/lib/bookings';
+import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
 
 const ActiveRide = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -410,8 +410,8 @@ const ActiveRide = () => {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Cancel Option - only before pickup */}
-                    {booking.status === 'accepted' && (
+                    {/* Cancel Option - before trip start */}
+                    {(booking.status === 'accepted' || booking.status === 'driver_arrived') && (
                         <TouchableOpacity
                             onPress={() => {
                                 Alert.alert(
@@ -423,11 +423,17 @@ const ActiveRide = () => {
                                             text: 'Yes, Cancel',
                                             style: 'destructive',
                                             onPress: async () => {
-                                                await updateBookingStatus(id, 'cancelled', {
-                                                    cancelled_by: 'driver',
-                                                    cancellation_reason: 'Cancelled by driver',
-                                                });
-                                                router.replace('/(tabs)/home');
+                                                if (!booking.driver_id) {
+                                                    Alert.alert('Error', 'Driver info missing');
+                                                    return;
+                                                }
+                                                const { success, error } = await cancelBookingByDriver(id, booking.driver_id, 'Cancelled by driver');
+                                                
+                                                if (success) {
+                                                    router.replace('/(tabs)/home');
+                                                } else {
+                                                    Alert.alert('Error', error || 'Failed to cancel ride');
+                                                }
                                             },
                                         },
                                     ]

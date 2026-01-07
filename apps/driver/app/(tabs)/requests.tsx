@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useCallback, useEffect } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, Booking } from '@/lib/bookings';
+import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, Booking } from '@/lib/bookings';
 import * as Location from 'expo-location';
 
 // Countdown timer hook for expiration
@@ -240,10 +240,33 @@ const DriverRequests = () => {
         }
     };
 
-    const handleReject = (id: string) => {
-        // Just remove from local list for now
-        setRequests(prev => prev.filter(r => r.id !== id));
-    };
+    const handleReject = async (id: string) => {
+          Alert.alert(
+              "Decline Request",
+              "Are you sure you want to decline this request? You won't see it again.",
+              [
+                  { text: "Cancel", style: "cancel" },
+                  { 
+                      text: "Decline", 
+                      style: "destructive",
+                      onPress: async () => {
+                          // Optimistically remove from list
+                          setRequests(prev => prev.filter(r => r.id !== id));
+                          
+                        // Call API to persist decline
+                        const { success, error } = await declineBooking(id);
+                          
+                          if (!success) {
+                              console.error('[HANDLE REJECT] Failed to decline:', error);
+                              // Ideally we would show it again or show toast, but for now just log
+                          } else {
+                              console.log('[HANDLE REJECT] Booking declined successfully');
+                          }
+                      }
+                  }
+              ]
+          );
+      };
 
     if (loading && !requests.length) {
         return (

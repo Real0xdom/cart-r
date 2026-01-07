@@ -302,86 +302,118 @@ export function subscribeToBooking(
   };
 }
 
-/**
- * Get available bookings for drivers (pending bookings nearby, not expired, matching vehicle type)
- */
 export async function getAvailableBookings(
-  driverLatitude: number,
-  driverLongitude: number,
-  driverVehicleType: string,
-  radiusKm: number = 10
-): Promise<{ data: Booking[]; error: string | null }> {
-  try {
-    console.log('[getAvailableBookings] Called with:', {
-      driverLatitude,
-      driverLongitude,
-      driverVehicleType,
-      radiusKm
-    });
-    
-    // Fetch pending bookings matching driver's vehicle type
-    // Only show bookings that match the driver's registered vehicle
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('status', 'pending')
-      .eq('vehicle_type', driverVehicleType) // Filter by driver's vehicle type
-      .is('driver_id', null)
-      .is('cancelled_at', null)
-      .order('created_at', { ascending: false })
-      .limit(30);
-    
-    console.log('[getAvailableBookings] Database query result:', {
-      count: data?.length || 0,
-      error: error?.message || null
-    });
-    
-    if (error) {
-      console.error('[getAvailableBookings] Database error:', error);
-      return { data: [], error: error.message };
-    }
-    
-    console.log('[getAvailableBookings] Raw bookings from DB:', JSON.stringify(data, null, 2));
-    
-    const now = new Date();
-    
-    // Client-side filtering for distance and expiration
-    const filtered = (data || []).filter((booking: any) => {
-      // Filter out expired bookings
-      if (booking.expires_at && new Date(booking.expires_at) < now) {
-        console.log(`[getAvailableBookings] Filtered out expired booking: ${booking.id}`);
-        return false;
-      }
-      
-      // Filter by distance
-      const distance = calculateDistance(
+    driverLatitude: number,
+    driverLongitude: number,
+    driverVehicleType: string,
+    radiusKm: number = 20
+  ): Promise<{ data: Booking[]; error: string | null }> {
+    try {
+      console.log('[getAvailableBookings] Fetching bookings client-side (fallback)', {
         driverLatitude,
         driverLongitude,
-        booking.origin_latitude,
-        booking.origin_longitude
-      );
+        driverVehicleType,
+        radiusKm
+      });
       
-      console.log(`[getAvailableBookings] Booking ${booking.id}: distance = ${distance.toFixed(2)}km (limit: ${radiusKm}km)`);
+      // 1. Get current driver ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { data: [], error: 'Not authenticated' };
+  
+      const { data: driverData } = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+        
+      if (!driverData) return { data: [], error: 'Driver profile not found' };
+      const driverId = driverData.id;
+  
+      // 2. Fetch driver's rejections
+      const { data: rejections } = await supabase
+        .from('driver_rejections')
+        .select('booking_id')
+        .eq('driver_id', driverId);
       
-      if (distance > radiusKm) {
-        console.log(`[getAvailableBookings] Filtered out - too far: ${booking.id}`);
-        return false;
+      const rejectedBookingIds = new Set((rejections || []).map(r => r.booking_id));
+      
+      // 3. Fetch all pending bookings for vehicle type
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('status', 'pending')
+        .eq('vehicle_type', driverVehicleType)
+        .is('driver_id', null)
+        .is('cancelled_at', null)
+        .order('created_at', { ascending: false })
+        .limit(50);
+  
+      if (error) {
+        console.error('[getAvailableBookings] DB error:', error);
+        return { data: [], error: error.message };
       }
       
-      return true;
-    });
-    
-    console.log('[getAvailableBookings] After filtering:', {
-      total: data?.length || 0,
-      filtered: filtered.length
-    });
-    
-    return { data: filtered as Booking[], error: null };
-  } catch (err: any) {
-    console.error('[getAvailableBookings] Exception:', err);
-    return { data: [], error: err.message };
+      const now = new Date();
+      
+      // 4. Filter by distance, expiration, and rejection
+      const filtered = (data || []).filter((booking: any) => {
+        // Exclude rejected bookings
+        if (rejectedBookingIds.has(booking.id)) {
+          return false;
+        }
+  
+        // Filter out expired bookings
+        if (booking.expires_at && new Date(booking.expires_at) < now) {
+          return false;
+        }
+        
+        // Filter by distance
+        const distance = calculateDistance(
+          driverLatitude,
+          driverLongitude,
+          booking.origin_latitude,
+          booking.origin_longitude
+        );
+        
+        if (distance > radiusKm) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`[getAvailableBookings] Found ${filtered.length} bookings after filtering`);
+      return { data: filtered as Booking[], error: null };
+    } catch (err: any) {
+      console.error('[getAvailableBookings] Exception:', err);
+      return { data: [], error: err.message };
+    }
   }
-}
+  
+  /**
+   * Decline a booking (prevents it from showing up again)
+   */
+  export async function declineBooking(bookingId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      const { data, error } = await supabase.rpc('decline_booking', {
+        p_booking_id: bookingId
+      });
+  
+      if (error) {
+        console.error('RPC Error declining booking:', error);
+        return { success: false, error: error.message };
+      }
+  
+      const result = data as { success: boolean; message?: string };
+      if (!result.success) {
+        return { success: false, error: result.message || 'Failed to decline booking' };
+      }
+  
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
 
 /**
  * Accept a booking (for drivers) - uses atomic database function for race condition protection
@@ -547,12 +579,30 @@ export async function completeTrip(
  */
 export async function cancelBookingByDriver(
   bookingId: string,
+  driverId: string,
   reason: string
 ): Promise<{ success: boolean; error: string | null }> {
-  return updateBookingStatus(bookingId, 'cancelled', {
-    cancelled_by: 'driver',
-    cancellation_reason: reason,
-  });
+  try {
+    const { data, error } = await supabase.rpc('cancel_booking_by_driver', {
+      p_booking_id: bookingId,
+      p_driver_id: driverId,
+      p_reason: reason
+    });
+
+    if (error) {
+      console.error('RPC Error cancelling booking:', error);
+      return { success: false, error: error.message };
+    }
+
+    const result = data as { success: boolean; error?: string };
+    if (!result.success) {
+      return { success: false, error: result.error || 'Failed to cancel booking' };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }
 
 /**
@@ -607,6 +657,56 @@ export async function getDriverCompletedTrips(
     return { data: data as Booking[], error: null };
   } catch (err: any) {
     return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Sync driver stats (trips and earnings) from bookings table
+ * Call this to self-heal if the database trigger fails or data is out of sync
+ */
+export async function syncDriverStats(driverId: string): Promise<{ success: boolean; error: string | null }> {
+  try {
+    // 1. Calculate stats from bookings
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('total_fare, driver_payout')
+      .eq('driver_id', driverId)
+      .eq('status', 'completed');
+
+    if (error) {
+      console.error('Error fetching booking stats:', error);
+      return { success: false, error: error.message };
+    }
+
+    const bookings = data || [];
+    const totalTrips = bookings.length;
+    const totalEarnings = bookings.reduce((sum, booking) => {
+      // Use driver_payout if available, otherwise total_fare as fallback
+      const earnings = booking.driver_payout ?? booking.total_fare ?? 0;
+      return sum + earnings;
+    }, 0);
+
+    console.log(`[syncDriverStats] Calculated: ${totalTrips} trips, ₹${totalEarnings} earnings`);
+
+    // 2. Update driver profile
+    const { error: updateError } = await supabase
+      .from('drivers')
+      .update({
+        total_trips: totalTrips,
+        total_earnings: totalEarnings,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', driverId);
+
+    if (updateError) {
+      console.error('Error updating driver stats:', updateError);
+      return { success: false, error: updateError.message };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    console.error('Exception in syncDriverStats:', err);
+    return { success: false, error: err.message };
   }
 }
 
