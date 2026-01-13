@@ -1,6 +1,8 @@
 -- Migration: 023_fix_rpc_text_types.sql
 -- Purpose: Fix return type mismatch - use TEXT instead of VARCHAR for address columns
+-- Purpose: Fix return type mismatch - use TEXT instead of VARCHAR for address columns
 
+DROP FUNCTION IF EXISTS get_available_bookings_v2(DECIMAL, DECIMAL, VARCHAR, DECIMAL);
 CREATE OR REPLACE FUNCTION get_available_bookings_v2(
   p_latitude DECIMAL,
   p_longitude DECIMAL,

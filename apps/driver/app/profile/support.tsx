@@ -38,6 +38,10 @@ export default function Support() {
             </TouchableOpacity>
             
             <TouchableOpacity 
+                onPress={() => {
+                     const { router } = require('expo-router');
+                     router.push('/profile/faq');
+                }}
                 className="bg-gray-800 p-5 rounded-2xl flex-row items-center"
             >
                  <View className="w-12 h-12 bg-purple-500/20 rounded-full items-center justify-center mr-4">

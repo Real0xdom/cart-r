@@ -11,6 +11,7 @@ import {
   Linking,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -44,6 +45,15 @@ const TrackRidePage = () => {
     // Fetch latest booking data
     getBookingById(bookingId).then(({ data }) => {
       if (data) {
+        // If booking is still pending (finding driver), redirect back to waiting screen
+        if (data.status === 'pending' || !data.driver_id) {
+            router.replace({
+              pathname: "/waiting-for-driver",
+              params: { bookingId }
+            });
+            return;
+        }
+
         setBooking(data);
         setCurrentBooking(data);
         setIsLoading(false);
@@ -59,6 +69,12 @@ const TrackRidePage = () => {
       if (updatedBooking.status === 'completed') {
         setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
         setShowPaymentConfirmation(true);
+      } else if (updatedBooking.status === 'pending') {
+        // Driver cancelled - redirect back to waiting screen to find new driver
+        router.replace({
+          pathname: "/waiting-for-driver",
+          params: { bookingId }
+        });
       }
     });
 

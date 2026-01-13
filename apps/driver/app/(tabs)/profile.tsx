@@ -50,7 +50,7 @@ const DriverProfile = () => {
         { icon: '⭐', title: 'Ratings & Reviews', subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} rating`, route: '/profile/reviews' },
         { icon: '🔔', title: 'Notifications', subtitle: 'Manage alerts', route: '/profile/notifications' },
         { icon: '❓', title: 'Help & Support', subtitle: 'Get assistance', route: '/profile/support' },
-        { icon: '📜', title: 'Terms & Policies', subtitle: 'Legal information', route: '' },
+        { icon: '📜', title: 'Terms & Policies', subtitle: 'Legal information', route: '/profile/terms' },
     ];
 
     // Verification status badge

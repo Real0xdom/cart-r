@@ -1,3 +1,12 @@
+-- Create table for tracking driver rejections if it doesn't exist
+CREATE TABLE IF NOT EXISTS driver_rejections (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+    driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(booking_id, driver_id)
+);
+
 -- Function to handle driver cancellation and re-queue booking
 CREATE OR REPLACE FUNCTION cancel_booking_by_driver(p_booking_id UUID, p_driver_id UUID, p_reason TEXT DEFAULT 'Cancelled by driver')
 RETURNS JSONB AS $$

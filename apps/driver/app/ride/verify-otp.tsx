@@ -196,8 +196,8 @@ const VerifyOTP = () => {
                                     value={digit}
                                     onChangeText={(value) => handleOtpChange(value, index)}
                                     onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                    className={`w-16 h-16 bg-gray-800 rounded-xl text-center text-2xl font-JakartaBold text-white border-2 ${
-                                        error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-700'
+                                    className={`w-16 h-16 bg-white rounded-xl text-center text-2xl font-JakartaBold text-black border-2 ${
+                                        error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-200'
                                     }`}
                                     keyboardType="number-pad"
                                     maxLength={1}

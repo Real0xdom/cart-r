@@ -163,8 +163,9 @@ const WaitingForDriverPage = () => {
       } else if (updatedBooking.status === 'pending') {
           console.log('[WAITING] Status reverted to pending (driver cancelled). Resetting search.');
           setDriverAccepted(false);
-          // Optional: Reset timer if you want a fresh 3 minutes, or keep it running.
-          // For now, let's just show searching state.
+          // Reset timer for fresh search
+          setShowTimeout(false);
+          setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
       }
     });
 
@@ -260,16 +261,16 @@ const WaitingForDriverPage = () => {
 
   // Determine snap points based on state
   const getSnapPoints = () => {
-    if (driverAccepted) return ["40%", "70%"];
-    if (showTimeout) return ["50%", "80%"];
-    return ["35%", "60%"];
+    if (driverAccepted) return ["40%", "85%"];
+    if (showTimeout) return ["50%", "85%"];
+    return ["50%", "85%"];
   };
 
   return (
     <RideLayout 
       title={driverAccepted ? "Driver Found!" : showTimeout ? "No Drivers Found" : "Finding Driver..."}
       snapPoints={getSnapPoints()}
-      useView={true}
+      useView={false}
     >
       <View className="flex-1">
         {/* Driver Accepted State */}
