@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { Search, RefreshCw, User, Users } from 'lucide-react';
+import { Search, RefreshCw, User, Users, ShieldAlert, CheckCircle, Ban } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 interface User {
   id: string;
@@ -13,6 +14,7 @@ interface User {
   avatar_url: string | null;
   role: string;
   created_at: string;
+  is_active: boolean;
   booking_count?: number;
 }
 
@@ -41,6 +43,33 @@ export default function UsersPage() {
       console.error('Error:', error);
     }
     setLoading(false);
+  }
+
+  async function toggleUserStatus(userId: string, currentStatus: boolean, role: string) {
+    if (role === 'admin') {
+      toast.error('Cannot block admin users');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to ${currentStatus ? 'block' : 'unblock'} this user?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ is_active: !currentStatus })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      toast.success(`User ${currentStatus ? 'blocked' : 'unblocked'} successfully`);
+      
+      // Optimistic update
+      setUsers(users.map(u => 
+        u.id === userId ? { ...u, is_active: !currentStatus } : u
+      ));
+    } catch (error: any) {
+      toast.error('Failed to update status: ' + error.message);
+    }
   }
 
   const filteredUsers = users.filter(u =>
@@ -101,7 +130,9 @@ export default function UsersPage() {
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
+                    <th className="px-8 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -141,12 +172,36 @@ export default function UsersPage() {
                           {user.role || 'customer'}
                         </span>
                       </td>
+                      <td className="px-8 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                          user.is_active 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {user.is_active ? 'Active' : 'Blocked'}
+                        </span>
+                      </td>
                       <td className="px-8 py-4 text-xs font-medium text-gray-500">
                         {new Date(user.created_at).toLocaleDateString('en-IN', {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric',
                         })}
+                      </td>
+                      <td className="px-8 py-4 text-right">
+                        {user.role !== 'admin' && (
+                          <button
+                            onClick={() => toggleUserStatus(user.id, user.is_active ?? true, user.role)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              user.is_active 
+                                ? 'text-red-500 hover:bg-red-50' 
+                                : 'text-green-500 hover:bg-green-50'
+                            }`}
+                            title={user.is_active ? 'Block User' : 'Unblock User'}
+                          >
+                            {user.is_active ? <Ban size={18} /> : <CheckCircle size={18} />}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

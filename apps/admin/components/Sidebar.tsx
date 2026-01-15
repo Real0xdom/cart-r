@@ -2,16 +2,18 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Package, 
-  Truck, 
-  Users, 
-  BarChart3, 
+import {
+  LayoutDashboard,
+  Package,
+  Truck,
+  Users,
+  BarChart3,
   LogOut,
   ChevronRight,
   User,
-  Bell
+  Bell,
+  Settings,
+  MessageSquare
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -30,6 +32,8 @@ const navItems = [
   { href: '/users', label: 'Users', icon: Users },
   { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/support', label: 'Support', icon: MessageSquare },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar({ currentPath }: SidebarProps) {
@@ -78,9 +82,9 @@ export default function Sidebar({ currentPath }: SidebarProps) {
     <div className="fixed left-0 top-0 h-full w-72 bg-white border-r border-gray-100 p-6 flex flex-col shadow-sm z-50">
       {/* Brand */}
       <div className="flex flex-col items-center mb-10 px-2">
-        <img 
-          src="/cartr-logo.png" 
-          alt="CARTR" 
+        <img
+          src="/cartr-logo.png"
+          alt="CARTR"
           className="h-14 w-auto object-contain mb-2"
         />
         <p className="text-[10px] text-orange-600 font-bold tracking-widest uppercase text-center">
@@ -92,22 +96,21 @@ export default function Sidebar({ currentPath }: SidebarProps) {
       <nav className="space-y-1.5 flex-1 relative">
         <div className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Menu</div>
         {navItems.map((item) => {
-          const isActive = activePath === item.href || 
+          const isActive = activePath === item.href ||
             (item.href !== '/' && activePath.startsWith(item.href));
           const Icon = item.icon;
-          
+
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative ${
-                isActive 
-                  ? 'bg-orange-50 text-orange-600 font-semibold' 
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative ${isActive
+                ? 'bg-orange-50 text-orange-600 font-semibold'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
             >
-              <Icon 
-                size={20} 
+              <Icon
+                size={20}
                 className={`transition-transform duration-200 ${isActive ? 'text-orange-500' : 'text-gray-400 group-hover:text-gray-600'}`}
                 strokeWidth={isActive ? 2.5 : 2}
               />
