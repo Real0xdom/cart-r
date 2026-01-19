@@ -86,6 +86,20 @@ const ActiveRide = () => {
         console.log('[ACTIVE RIDE] Subscribing to booking updates');
         const unsubscribe = subscribeToBooking(id, (updatedBooking) => {
             console.log('[ACTIVE RIDE] Received booking update:', updatedBooking.status);
+            
+            // Customer cancelled the ride
+            if (updatedBooking.status === 'cancelled') {
+                Alert.alert(
+                    'Ride Cancelled',
+                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
+                    [{
+                        text: 'OK',
+                        onPress: () => router.replace('/(tabs)/home')
+                    }]
+                );
+                return;
+            }
+            
             setBooking(updatedBooking);
         });
 

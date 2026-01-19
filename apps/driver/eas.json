@@ -22,7 +22,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "preview"
+        "EXPO_PUBLIC_ENV": "preview",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
       }
     },
     "production": {

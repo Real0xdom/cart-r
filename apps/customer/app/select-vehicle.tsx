@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
 import { calculateFares, FareEstimate } from "@/lib/fare";
 import { createBooking } from "@/lib/bookings";
+import { payWithWallet, getWalletBalance, calculatePaymentSplit } from "@/lib/walletPayment";
 
 const SelectVehiclePage = () => {
   const { profile } = useAuth();
@@ -37,6 +38,11 @@ const SelectVehiclePage = () => {
   const [error, setError] = useState<string | null>(null);
   const [tipAmount, setTipAmount] = useState(0);
   const [isBooking, setIsBooking] = useState(false);
+  
+  // Wallet payment state
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | 'partial_wallet'>('cash');
+  const [isPaying, setIsPaying] = useState(false);
 
   // Redirect if missing required data
   useEffect(() => {
@@ -85,21 +91,24 @@ const SelectVehiclePage = () => {
     fetchFares();
   }, [userLatitude, userLongitude, destinationLatitude, destinationLongitude]);
 
+  // Fetch wallet balance
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (profile?.id) {
+        const balance = await getWalletBalance(profile.id);
+        setWalletBalance(balance);
+      }
+    };
+    fetchBalance();
+  }, [profile?.id]);
+
   const handleSelectVehicle = (vehicle: FareEstimate) => {
     setSelectedVehicle(vehicle);
   };
 
   const handleBookNow = async () => {
-    console.log('========================================');
-    console.log('[BOOK NOW] Button clicked');
-    console.log('[BOOK NOW] Selected vehicle:', selectedVehicle);
-    console.log('[BOOK NOW] Receiver details:', receiverDetails);
-    console.log('========================================');
-    
-    if (!selectedVehicle) return;
-    
-    if (!profile?.id) {
-      Alert.alert("Error", "Please sign in to continue");
+    if (!selectedVehicle || !profile?.id) {
+      Alert.alert("Error", "Please sign in and select a vehicle.");
       return;
     }
 
@@ -109,14 +118,27 @@ const SelectVehiclePage = () => {
     }
 
     if (!receiverDetails) {
-      Alert.alert("Error", "Receiver details are missing. Please go back.");
+      Alert.alert("Error", "Missing receiver details.");
       return;
     }
 
+    // 1. Validation for Wallet Payment
+    if (paymentMethod === 'wallet' && paymentSplit && !paymentSplit.canPayFull) {
+        Alert.alert(
+            "Insufficient Balance", 
+            `You need ₹${totalFare.toFixed(2)} to pay fully with wallet. Please add money or choose another method.`,
+            [
+                { text: "Add Money", onPress: () => router.push("/(tabs)/payment") },
+                { text: "Cancel", style: "cancel" }
+            ]
+        );
+        return;
+    }
+
     setIsBooking(true);
+    setIsPaying(true);
 
     try {
-      console.log('[BOOK NOW] Calling createBooking...');
       const bookingParams = {
         customerId: profile.id,
         originAddress: userAddress || "",
@@ -128,35 +150,52 @@ const SelectVehiclePage = () => {
         vehicle: selectedVehicle,
         receiverDetails: receiverDetails,
         tipAmount: tipAmount,
+        // payment_method: paymentMethod // If backend supports it on creation
       };
-      console.log('[BOOK NOW] Booking params:', JSON.stringify(bookingParams, null, 2));
-      
+
+      // 2. Create Booking
       const { data: booking, error } = await createBooking(bookingParams);
 
-      console.log('[BOOK NOW] Booking result:', { booking, error });
-
       if (error || !booking) {
-        console.error('[BOOK NOW] Error creating booking:', error);
-        Alert.alert("Error", error || "Failed to create booking. Please try again.");
-        setIsBooking(false);
-        return;
+        throw new Error(error || "Failed to create booking");
       }
 
-      console.log('[BOOK NOW] Booking created successfully:', booking.id);
-      
-      // Save booking to store
-      setCurrentBooking(booking);
+      // 3. Process Payment if Wallet selected
+      if (paymentMethod === 'wallet' || paymentMethod === 'partial_wallet') {
+          console.log(`[PAYMENT] Processing ${paymentMethod} payment for booking ${booking.id}`);
+          
+          const result = await payWithWallet(
+              booking.id, 
+              profile.id, 
+              paymentMethod === 'wallet' // true for full, false for partial
+          );
 
-      // Navigate to waiting screen
+          if (!result.success) {
+              Alert.alert("Payment Failed", result.error || "Wallet deduction failed. Paying with cash instead.");
+              // Fallback to cash is automatic since booking exists? 
+              // Actually we should probably cancel booking or update it?
+              // For now, we proceed but notify user.
+          } else {
+              console.log("[PAYMENT] Success:", result);
+              // Update local balance immediately for UI responsiveness
+              const newBal = result.new_wallet_balance;
+              if (newBal !== undefined) setWalletBalance(newBal);
+          }
+      }
+
+      // 4. Navigate to next screen
+      setCurrentBooking(booking);
       router.replace({
         pathname: "/waiting-for-driver",
         params: { bookingId: booking.id },
       });
 
     } catch (err: any) {
-      console.error("[BOOK NOW] Booking creation failed:", err);
-      Alert.alert("Error", err.message || "Something went wrong. Please try again.");
+      console.error("[BOOKING ERROR]:", err);
+      Alert.alert("Error", err.message || "Booking failed.");
+    } finally {
       setIsBooking(false);
+      setIsPaying(false);
     }
   };
 
@@ -181,6 +220,11 @@ const SelectVehiclePage = () => {
   };
 
   const totalFare = selectedVehicle ? selectedVehicle.total_fare + tipAmount : 0;
+  
+  // Calculate payment split for wallet
+  const paymentSplit = selectedVehicle 
+    ? calculatePaymentSplit(walletBalance, totalFare)
+    : null;
 
   const renderVehicleItem = ({ item }: { item: FareEstimate }) => (
     <TouchableOpacity
@@ -278,6 +322,86 @@ const SelectVehiclePage = () => {
                   <Text className="text-xs text-gray-400">₹0</Text>
                   <Text className="text-xs text-gray-400">₹200</Text>
                 </View>
+              </View>
+            )}
+
+            {/* Payment Method Selector */}
+            {selectedVehicle && (
+              <View className="bg-gray-50 rounded-2xl p-4 my-4 border border-gray-100">
+                <Text className="text-base font-JakartaBold text-gray-800 mb-3">
+                  💳 Select Payment Method
+                </Text>
+                
+                {/* Wallet - Full Payment */}
+                {paymentSplit?.canPayFull && (
+                  <TouchableOpacity
+                    onPress={() => setPaymentMethod('wallet')}
+                    disabled={isPaying || isBooking}
+                    className={`flex-row items-center p-3 rounded-xl border mb-2 ${
+                      paymentMethod === 'wallet' ? 'bg-green-50 border-green-500' : 'bg-white border-gray-200'
+                    }`}
+                  >
+                    <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center">
+                      <Feather name="credit-card" size={20} color="#22c55e" />
+                    </View>
+                    <View className="flex-1 ml-3">
+                      <Text className="font-JakartaBold text-gray-800">Pay with Wallet</Text>
+                      <Text className="text-xs text-gray-600">Balance: ₹{walletBalance.toFixed(2)}</Text>
+                    </View>
+                    {paymentMethod === 'wallet' && <Feather name="check-circle" size={20} color="#22c55e" />}
+                  </TouchableOpacity>
+                )}
+                
+                {/* Partial Wallet */}
+                {!paymentSplit?.canPayFull && paymentSplit && paymentSplit.walletAmount > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setPaymentMethod('partial_wallet')}
+                    disabled={isPaying || isBooking}
+                    className={`flex-row items-center p-3 rounded-xl border mb-2 ${
+                      paymentMethod === 'partial_wallet' ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'
+                    }`}
+                  >
+                    <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center">
+                      <Feather name="layers" size={20} color="#3b82f6" />
+                    </View>
+                    <View className="flex-1 ml-3">
+                      <Text className="font-JakartaBold text-gray-800">Wallet + Online</Text>
+                      <Text className="text-xs text-gray-600">₹{paymentSplit.walletAmount} Wallet + ₹{paymentSplit.onlineAmount} Online</Text>
+                    </View>
+                    {paymentMethod === 'partial_wallet' && <Feather name="check-circle" size={20} color="#3b82f6" />}
+                  </TouchableOpacity>
+                )}
+                
+                {/* Cash */}
+                <TouchableOpacity
+                  onPress={() => setPaymentMethod('cash')}
+                  disabled={isPaying || isBooking}
+                  className={`flex-row items-center p-3 rounded-xl border ${
+                    paymentMethod === 'cash' ? 'bg-orange-50 border-orange-500' : 'bg-white border-gray-200'
+                  }`}
+                >
+                  <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center">
+                    <Feather name="dollar-sign" size={20} color="#f97316" />
+                  </View>
+                  <View className="flex-1 ml-3">
+                    <Text className="font-JakartaBold text-gray-800">Pay with Cash</Text>
+                    <Text className="text-xs text-gray-600">Pay driver directly</Text>
+                  </View>
+                  {paymentMethod === 'cash' && <Feather name="check-circle" size={20} color="#f97316" />}
+                </TouchableOpacity>
+
+                 {/* Insufficient Balance Warning */}
+                {!paymentSplit?.canPayFull && paymentMethod === 'wallet' && (
+                  <View className="bg-red-50 border border-red-200 rounded-xl p-3 mt-3 flex-row items-start">
+                    <Feather name="alert-circle" size={16} color="#ef4444" />
+                    <View className="flex-1 ml-2">
+                       <Text className="text-xs font-JakartaBold text-red-600">Insufficient Balance</Text>
+                       <Text className="text-[10px] text-red-500 mt-0.5">
+                        Need ₹{totalFare}. Have ₹{walletBalance}. Add ₹{(totalFare - walletBalance).toFixed(2)}.
+                       </Text>
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 

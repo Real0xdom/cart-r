@@ -36,6 +36,10 @@ export const useLocationStore = create<LocationStore>((set) => ({
     // if driver is selected and now new location is set, clear the selected driver
     const { selectedDriver, clearSelectedDriver } = useDriverStore.getState();
     if (selectedDriver) clearSelectedDriver();
+    
+    // Clear selected vehicle to force fare recalculation
+    const { selectedVehicle, clearSelectedVehicle } = useRideStore.getState();
+    if (selectedVehicle) clearSelectedVehicle();
   },
 
   setDestinationLocation: ({
@@ -56,6 +60,10 @@ export const useLocationStore = create<LocationStore>((set) => ({
     // if driver is selected and now new location is set, clear the selected driver
     const { selectedDriver, clearSelectedDriver } = useDriverStore.getState();
     if (selectedDriver) clearSelectedDriver();
+    
+    // Clear selected vehicle to force fare recalculation
+    const { selectedVehicle, clearSelectedVehicle } = useRideStore.getState();
+    if (selectedVehicle) clearSelectedVehicle();
   },
 }));
 

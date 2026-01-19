@@ -1,0 +1,538 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.calculateFare = calculateFare;
+exports.createBooking = createBooking;
+exports.getCustomerBookings = getCustomerBookings;
+exports.getBookingById = getBookingById;
+exports.updateBookingStatus = updateBookingStatus;
+exports.subscribeToBooking = subscribeToBooking;
+exports.getAvailableBookings = getAvailableBookings;
+exports.declineBooking = declineBooking;
+exports.acceptBooking = acceptBooking;
+exports.subscribeToAvailableBookings = subscribeToAvailableBookings;
+exports.markDriverArrived = markDriverArrived;
+exports.verifyPickupOTPAndStartTrip = verifyPickupOTPAndStartTrip;
+exports.completeTrip = completeTrip;
+exports.cancelBookingByDriver = cancelBookingByDriver;
+exports.getDriverActiveBooking = getDriverActiveBooking;
+exports.getDriverCompletedTrips = getDriverCompletedTrips;
+exports.syncDriverStats = syncDriverStats;
+const supabase_1 = require("./supabase");
+// Fare configuration per vehicle type (in INR)
+const FARE_CONFIG = {
+    bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
+    tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
+    sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
+    truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
+};
+/**
+ * Calculate fare based on distance, duration, and vehicle type
+ */
+function calculateFare(distanceKm, durationMinutes, vehicleType) {
+    const config = FARE_CONFIG[vehicleType];
+    const distanceFare = distanceKm * config.perKmRate;
+    const timeFare = durationMinutes * config.perMinRate;
+    const totalFare = config.baseFare + distanceFare + timeFare;
+    return Math.max(Math.round(totalFare), config.minimumFare);
+}
+/**
+ * Generate a unique booking number with nanosecond precision and randomness
+ * Format: CARTR-{timestamp}-{nano}-{random} = ~30 characters
+ */
+function generateBookingNumber() {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    // Add sub-millisecond precision using performance.now()
+    const nano = Math.floor((performance.now() % 1) * 1000000).toString(36).toUpperCase();
+    // Add random component for extra uniqueness
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `CARTR-${timestamp}${nano}${random}`;
+}
+/**
+ * Generate a 4-digit OTP for pickup verification
+ */
+function generateOTP() {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+}
+/**
+ * Create a new booking
+ */
+async function createBooking(params) {
+    try {
+        const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0 } = params;
+        // Calculate fare
+        const totalFare = calculateFare(estimatedDistance, estimatedDuration, vehicleType);
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .insert({
+            booking_number: generateBookingNumber(),
+            customer_id: customerId,
+            origin_address: params.originAddress,
+            origin_latitude: params.originLatitude,
+            origin_longitude: params.originLongitude,
+            destination_address: params.destinationAddress,
+            destination_latitude: params.destinationLatitude,
+            destination_longitude: params.destinationLongitude,
+            vehicle_type: vehicleType,
+            estimated_distance: estimatedDistance,
+            estimated_duration: estimatedDuration,
+            total_fare: totalFare,
+            base_fare: FARE_CONFIG[vehicleType].baseFare,
+            distance_fare: estimatedDistance * FARE_CONFIG[vehicleType].perKmRate,
+            time_fare: estimatedDuration * FARE_CONFIG[vehicleType].perMinRate,
+            pickup_otp: generateOTP(),
+            status: 'pending',
+            payment_status: 'pending',
+            payment_method: 'cash',
+        })
+            .select()
+            .single();
+        if (error) {
+            console.error('Error creating booking:', error);
+            return { data: null, error: error.message };
+        }
+        return { data: data, error: null };
+    }
+    catch (err) {
+        console.error('Booking creation failed:', err);
+        return { data: null, error: err.message || 'Failed to create booking' };
+    }
+}
+/**
+ * Fetch customer's bookings
+ */
+async function getCustomerBookings(customerId) {
+    try {
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select(`
+        *,
+        driver:drivers(
+          id,
+          vehicle_number,
+          vehicle_model,
+          rating,
+          user:users(name, phone, avatar_url)
+        )
+      `)
+            .eq('customer_id', customerId)
+            .order('created_at', { ascending: false });
+        if (error) {
+            return { data: [], error: error.message };
+        }
+        return { data: data, error: null };
+    }
+    catch (err) {
+        return { data: [], error: err.message };
+    }
+}
+/**
+ * Get a single booking by ID
+ */
+async function getBookingById(bookingId) {
+    try {
+        console.log('[getBookingById] Fetching booking:', bookingId);
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select(`
+        *,
+        driver:drivers(
+          id,
+          vehicle_number,
+          vehicle_model,
+          rating,
+          user:users!drivers_user_id_fkey(name, phone, avatar_url)
+        )
+      `)
+            .eq('id', bookingId)
+            .single();
+        console.log('[getBookingById] Query result:', {
+            hasData: !!data,
+            error: (error === null || error === void 0 ? void 0 : error.message) || null,
+            bookingId
+        });
+        if (error) {
+            console.error('[getBookingById] Database error:', error);
+            return { data: null, error: error.message };
+        }
+        console.log('[getBookingById] Booking data:', JSON.stringify(data, null, 2));
+        return { data: data, error: null };
+    }
+    catch (err) {
+        console.error('[getBookingById] Exception:', err);
+        return { data: null, error: err.message };
+    }
+}
+/**
+ * Update booking status
+ */
+async function updateBookingStatus(bookingId, status, additionalData) {
+    try {
+        const updateData = { status, updated_at: new Date().toISOString() };
+        // Add timestamps based on status
+        if (status === 'accepted')
+            updateData.accepted_at = new Date().toISOString();
+        if (status === 'driver_arrived')
+            updateData.driver_arrived_at = new Date().toISOString();
+        if (status === 'in_progress')
+            updateData.started_at = new Date().toISOString();
+        if (status === 'completed')
+            updateData.completed_at = new Date().toISOString();
+        if (status === 'cancelled')
+            updateData.cancelled_at = new Date().toISOString();
+        if (additionalData) {
+            Object.assign(updateData, additionalData);
+        }
+        const { error } = await supabase_1.supabase
+            .from('bookings')
+            .update(updateData)
+            .eq('id', bookingId);
+        if (error) {
+            return { success: false, error: error.message };
+        }
+        return { success: true, error: null };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Subscribe to booking updates (real-time)
+ */
+function subscribeToBooking(bookingId, onUpdate) {
+    const subscription = supabase_1.supabase
+        .channel(`booking-${bookingId}`)
+        .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `id=eq.${bookingId}`,
+    }, (payload) => {
+        onUpdate(payload.new);
+    })
+        .subscribe();
+    return () => {
+        subscription.unsubscribe();
+    };
+}
+async function getAvailableBookings(driverLatitude, driverLongitude, driverVehicleType, radiusKm = 20) {
+    try {
+        console.log('[getAvailableBookings] Fetching bookings client-side (fallback)', {
+            driverLatitude,
+            driverLongitude,
+            driverVehicleType,
+            radiusKm
+        });
+        // 1. Get current driver ID
+        const { data: { user } } = await supabase_1.supabase.auth.getUser();
+        if (!user)
+            return { data: [], error: 'Not authenticated' };
+        const { data: driverData } = await supabase_1.supabase
+            .from('drivers')
+            .select('id')
+            .eq('user_id', user.id)
+            .single();
+        if (!driverData)
+            return { data: [], error: 'Driver profile not found' };
+        const driverId = driverData.id;
+        // 2. Fetch driver's rejections
+        const { data: rejections } = await supabase_1.supabase
+            .from('driver_rejections')
+            .select('booking_id')
+            .eq('driver_id', driverId);
+        const rejectedBookingIds = new Set((rejections || []).map(r => r.booking_id));
+        // 3. Fetch all pending bookings for vehicle type
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select('*')
+            .eq('status', 'pending')
+            .eq('vehicle_type', driverVehicleType)
+            .is('driver_id', null)
+            .is('cancelled_at', null)
+            .order('created_at', { ascending: false })
+            .limit(50);
+        if (error) {
+            console.error('[getAvailableBookings] DB error:', error);
+            return { data: [], error: error.message };
+        }
+        const now = new Date();
+        // 4. Filter by distance, expiration, and rejection
+        const filtered = (data || []).filter((booking) => {
+            // Exclude rejected bookings
+            if (rejectedBookingIds.has(booking.id)) {
+                return false;
+            }
+            // Filter out expired bookings
+            if (booking.expires_at && new Date(booking.expires_at) < now) {
+                return false;
+            }
+            // Filter by distance
+            const distance = calculateDistance(driverLatitude, driverLongitude, booking.origin_latitude, booking.origin_longitude);
+            if (distance > radiusKm) {
+                return false;
+            }
+            return true;
+        });
+        console.log(`[getAvailableBookings] Found ${filtered.length} bookings after filtering`);
+        return { data: filtered, error: null };
+    }
+    catch (err) {
+        console.error('[getAvailableBookings] Exception:', err);
+        return { data: [], error: err.message };
+    }
+}
+/**
+ * Decline a booking (prevents it from showing up again)
+ */
+async function declineBooking(bookingId) {
+    try {
+        const { data, error } = await supabase_1.supabase.rpc('decline_booking', {
+            p_booking_id: bookingId
+        });
+        if (error) {
+            console.error('RPC Error declining booking:', error);
+            return { success: false, error: error.message };
+        }
+        const result = data;
+        if (!result.success) {
+            return { success: false, error: result.message || 'Failed to decline booking' };
+        }
+        return { success: true, error: null };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Accept a booking (for drivers) - uses atomic database function for race condition protection
+ */
+async function acceptBooking(bookingId, driverId) {
+    try {
+        // Use atomic database function for proper race condition handling
+        const { data, error } = await supabase_1.supabase.rpc('accept_booking_atomic', {
+            p_booking_id: bookingId,
+            p_driver_id: driverId,
+        });
+        if (error) {
+            console.error('RPC Error accepting booking:', error);
+            return { success: false, error: error.message };
+        }
+        // Parse the result from the RPC function
+        const result = data;
+        if (!result.success) {
+            return { success: false, error: result.message };
+        }
+        return { success: true, error: null };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Subscribe to available bookings for drivers (real-time) - filtered by vehicle type
+ */
+function subscribeToAvailableBookings(driverVehicleType, onInsert, onDelete) {
+    const subscription = supabase_1.supabase
+        .channel('available-bookings')
+        .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'bookings',
+    }, (payload) => {
+        // Only show bookings matching driver's vehicle type
+        if (payload.new.status === 'pending' && !payload.new.driver_id && payload.new.vehicle_type === driverVehicleType) {
+            onInsert(payload.new);
+        }
+    })
+        .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+    }, (payload) => {
+        // If booking was accepted or cancelled, remove from available list
+        if (payload.new.status !== 'pending' || payload.new.driver_id) {
+            onDelete(payload.new.id);
+        }
+    })
+        .subscribe();
+    return () => {
+        subscription.unsubscribe();
+    };
+}
+// Helper: Calculate distance between two coordinates (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+function toRad(deg) {
+    return deg * (Math.PI / 180);
+}
+// =====================================================
+// DRIVER WORKFLOW FUNCTIONS
+// =====================================================
+/**
+ * Mark driver as arrived at pickup location
+ */
+async function markDriverArrived(bookingId) {
+    return updateBookingStatus(bookingId, 'driver_arrived');
+}
+/**
+ * Verify pickup OTP and start the trip
+ */
+async function verifyPickupOTPAndStartTrip(bookingId, enteredOTP) {
+    try {
+        // Fetch booking to verify OTP
+        const { data: booking, error: fetchError } = await getBookingById(bookingId);
+        if (fetchError || !booking) {
+            return { success: false, error: fetchError || 'Booking not found' };
+        }
+        // Verify OTP
+        if (booking.pickup_otp !== enteredOTP) {
+            return { success: false, error: 'Invalid OTP' };
+        }
+        // Start the trip
+        return updateBookingStatus(bookingId, 'in_progress');
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Complete trip with payment confirmation
+ */
+async function completeTrip(bookingId, paymentMethod = 'cash', deliveryOTPVerified = false) {
+    try {
+        const additionalData = {
+            payment_status: 'paid',
+            payment_method: paymentMethod,
+            delivery_confirmed_at: new Date().toISOString(),
+        };
+        if (deliveryOTPVerified) {
+            additionalData.delivery_otp_verified = true;
+        }
+        return updateBookingStatus(bookingId, 'completed', additionalData);
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Cancel booking by driver
+ */
+async function cancelBookingByDriver(bookingId, driverId, reason) {
+    try {
+        const { data, error } = await supabase_1.supabase.rpc('cancel_booking_by_driver', {
+            p_booking_id: bookingId,
+            p_driver_id: driverId,
+            p_reason: reason
+        });
+        if (error) {
+            console.error('RPC Error cancelling booking:', error);
+            return { success: false, error: error.message };
+        }
+        const result = data;
+        if (!result.success) {
+            return { success: false, error: result.error || 'Failed to cancel booking' };
+        }
+        return { success: true, error: null };
+    }
+    catch (err) {
+        return { success: false, error: err.message };
+    }
+}
+/**
+ * Get driver's active booking (if any)
+ */
+async function getDriverActiveBooking(driverId) {
+    try {
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+            .eq('driver_id', driverId)
+            .in('status', ['accepted', 'driver_arrived', 'in_progress'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) {
+            return { data: null, error: error.message };
+        }
+        return { data: data, error: null };
+    }
+    catch (err) {
+        return { data: null, error: err.message };
+    }
+}
+/**
+ * Get driver's completed trips
+ */
+async function getDriverCompletedTrips(driverId, limit = 20) {
+    try {
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select('*')
+            .eq('driver_id', driverId)
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: false })
+            .limit(limit);
+        if (error) {
+            return { data: [], error: error.message };
+        }
+        return { data: data, error: null };
+    }
+    catch (err) {
+        return { data: [], error: err.message };
+    }
+}
+/**
+ * Sync driver stats (trips and earnings) from bookings table
+ * Call this to self-heal if the database trigger fails or data is out of sync
+ */
+async function syncDriverStats(driverId) {
+    try {
+        // 1. Calculate stats from bookings
+        const { data, error } = await supabase_1.supabase
+            .from('bookings')
+            .select('total_fare, driver_payout')
+            .eq('driver_id', driverId)
+            .eq('status', 'completed');
+        if (error) {
+            console.error('Error fetching booking stats:', error);
+            return { success: false, error: error.message };
+        }
+        const bookings = data || [];
+        const totalTrips = bookings.length;
+        const totalEarnings = bookings.reduce((sum, booking) => {
+            var _a, _b;
+            // Use driver_payout if available, otherwise total_fare as fallback
+            const earnings = (_b = (_a = booking.driver_payout) !== null && _a !== void 0 ? _a : booking.total_fare) !== null && _b !== void 0 ? _b : 0;
+            return sum + earnings;
+        }, 0);
+        console.log(`[syncDriverStats] Calculated: ${totalTrips} trips, ₹${totalEarnings} earnings`);
+        // 2. Update driver profile
+        const { error: updateError } = await supabase_1.supabase
+            .from('drivers')
+            .update({
+            total_trips: totalTrips,
+            total_earnings: totalEarnings,
+            updated_at: new Date().toISOString()
+        })
+            .eq('id', driverId);
+        if (updateError) {
+            console.error('Error updating driver stats:', updateError);
+            return { success: false, error: updateError.message };
+        }
+        return { success: true, error: null };
+    }
+    catch (err) {
+        console.error('Exception in syncDriverStats:', err);
+        return { success: false, error: err.message };
+    }
+}

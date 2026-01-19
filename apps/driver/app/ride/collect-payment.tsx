@@ -85,6 +85,19 @@ const CollectPayment = () => {
         
         // Listen for payment updates (e.g. if sender pays via app)
         const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
+            // Customer cancelled the ride
+            if (updatedBooking.status === 'cancelled') {
+                Alert.alert(
+                    'Ride Cancelled',
+                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
+                    [{
+                        text: 'OK',
+                        onPress: () => router.replace('/(tabs)/home')
+                    }]
+                );
+                return;
+            }
+            
             setBooking(updatedBooking);
             if (updatedBooking.payment_status === 'paid') {
                  Alert.alert('Payment Received! 💰', 'The payment has been confirmed online.');
@@ -252,15 +265,20 @@ const CollectPayment = () => {
         
         setIsProcessing(true);
         try {
+            const total = calculateTotal(booking);
+            const outstanding = booking.payment_status === 'partial_paid' 
+                 ? total - (booking.wallet_amount_used || 0) 
+                 : total;
+
             // Send notification to customer
              const { error } = await supabase.rpc('send_notification_to_user', {
                 p_user_id: booking.customer_id,
                 p_title: 'Payment Requested',
-                p_body: `Your driver requested payment of ₹${calculateTotal(booking)} for your booking.`,
+                p_body: `Your driver requested payment of ₹${outstanding} for your booking.`,
                 p_data: { 
                     booking_id: booking.id, 
                     type: 'payment_request',
-                    amount: calculateTotal(booking)
+                    amount: outstanding
                 }
             });
             
@@ -339,7 +357,14 @@ const CollectPayment = () => {
     }
 
     const fare = calculateTotal(booking);
-    const isPaid = booking.payment_status === 'paid';
+    // Updated to support new wallet statuses
+    const isPaid = booking.payment_status === 'paid' || booking.payment_status === 'completed';
+    const isPartial = booking.payment_status === 'partial_paid';
+    
+    // Calculate outstanding amount to collect
+    const amountToCollect = isPartial 
+        ? (fare - (booking.wallet_amount_used || 0)) 
+        : fare;
 
     return (
         <SafeAreaView className="flex-1 bg-gray-900">
@@ -357,8 +382,21 @@ const CollectPayment = () => {
 
                 {/* Amount Card */}
                 <View className="bg-green-500/10 rounded-3xl p-8 items-center mb-6 border border-green-500/20">
-                    <Text className="text-gray-400 font-JakartaMedium mb-2">Total Amount</Text>
-                    <Text className="text-5xl font-JakartaBold text-green-400">₹{fare}</Text>
+                    <Text className="text-gray-400 font-JakartaMedium mb-2">
+                        {isPaid ? 'Total Amount' : 'Amount to Collect'}
+                    </Text>
+                    <Text className="text-5xl font-JakartaBold text-green-400">
+                        ₹{isPaid ? fare : amountToCollect}
+                    </Text>
+                    
+                    {/* Partial Payment breakdown */}
+                    {isPartial && (
+                         <View className="mt-2 bg-blue-500/20 px-3 py-1 rounded-lg">
+                            <Text className="text-blue-300 text-xs font-JakartaMedium">
+                                Paid via Wallet: ₹{booking.wallet_amount_used}
+                            </Text>
+                         </View>
+                    )}
                     
                     {isPaid ? (
                          <View className="bg-green-500 px-4 py-1 rounded-full mt-4">
@@ -366,7 +404,9 @@ const CollectPayment = () => {
                          </View>
                     ) : (
                         <View className="bg-yellow-500/20 px-4 py-1 rounded-full mt-4">
-                             <Text className="text-yellow-500 font-bold">PENDING</Text>
+                             <Text className="text-yellow-500 font-bold">
+                                {isPartial ? `PARTIALLY PAID (Collect ₹${amountToCollect})` : 'PENDING'}
+                             </Text>
                          </View>
                     )}
                 </View>

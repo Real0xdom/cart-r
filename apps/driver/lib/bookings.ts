@@ -52,6 +52,8 @@ export interface Booking {
   started_at?: string;
   completed_at?: string;
   cancelled_at?: string;
+  cancelled_by?: string;
+  cancellation_reason?: string;
   expires_at?: string;
   delivery_confirmed_at?: string;
   // Driver info (populated via join)

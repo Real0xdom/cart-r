@@ -16,9 +16,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
-import { subscribeToBooking, subscribeToDriverLocation, getBookingById } from "@/lib/bookings";
+import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
+import CancelRideModal from "@/components/CancelRideModal";
 import type { Booking } from "@/types/type";
+import { useAuth } from "@/contexts/AuthContext";
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -33,7 +35,10 @@ const TrackRidePage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
   const [completedBookingAmount, setCompletedBookingAmount] = useState(0);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const mapRef = useRef<MapView>(null);
+  const { user } = useAuth();
 
   // Fetch booking and set up subscriptions
   useEffect(() => {
@@ -75,6 +80,13 @@ const TrackRidePage = () => {
           pathname: "/waiting-for-driver",
           params: { bookingId }
         });
+      } else if (updatedBooking.status === 'cancelled') {
+        // Ride was cancelled (by customer or driver) - go back home
+        Alert.alert(
+          'Ride Cancelled',
+          updatedBooking.cancellation_reason || 'This ride has been cancelled',
+          [{ text: 'OK', onPress: () => router.replace("/(tabs)/home") }]
+        );
       }
     });
 
@@ -116,6 +128,42 @@ const TrackRidePage = () => {
       Linking.openURL(`tel:${booking.driver.user.phone}`);
     }
   };
+
+  // Handle ride cancellation
+  const handleCancelRide = async (reason: string) => {
+    if (!bookingId || !user?.id) return;
+
+    setIsCancelling(true);
+    try {
+      const { success, error } = await cancelBooking(bookingId, user.id, reason);
+      
+      if (success) {
+        setShowCancelModal(false);
+        Alert.alert(
+          'Ride Cancelled',
+          'Your ride has been cancelled successfully.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setCurrentBooking(null);
+                router.replace("/(tabs)/home");
+              }
+            }
+          ]
+        );
+      } else {
+        setIsCancelling(false);
+        Alert.alert('Error', error || 'Failed to cancel ride');
+      }
+    } catch (err) {
+      setIsCancelling(false);
+      Alert.alert('Error', 'An unexpected error occurred');
+    }
+  };
+
+  // Check if customer can cancel (only before driver arrives and enters OTP)
+  const canCustomerCancel = booking?.status === 'accepted';
 
   // Get status message
   const getStatusMessage = () => {
@@ -355,6 +403,17 @@ const TrackRidePage = () => {
 
           </View>
 
+          {/* Cancel Ride Button - Only show before driver arrives */}
+          {canCustomerCancel && (
+            <TouchableOpacity 
+              onPress={() => setShowCancelModal(true)}
+              className="bg-gray-100 py-4 rounded-xl flex-row items-center justify-center mb-3"
+            >
+              <Feather name="x-circle" size={20} color="#ef4444" />
+              <Text className="ml-2 text-red-500 font-JakartaBold">Cancel Ride</Text>
+            </TouchableOpacity>
+          )}
+
           {/* SOS Button */}
           <TouchableOpacity 
             onPress={() => {
@@ -388,6 +447,14 @@ const TrackRidePage = () => {
           setShowPaymentConfirmation(false);
           router.replace("/(tabs)/home");
         }}
+      />
+
+      {/* Cancel Ride Modal */}
+      <CancelRideModal
+        visible={showCancelModal}
+        isLoading={isCancelling}
+        onCancel={() => setShowCancelModal(false)}
+        onConfirm={handleCancelRide}
       />
     </View>
   );

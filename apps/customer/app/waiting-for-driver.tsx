@@ -213,6 +213,20 @@ const WaitingForDriverPage = () => {
     });
   }, [bookingId]);
 
+  // Auto-redirect to track-ride when driver is assigned
+  useEffect(() => {
+    if (driverAccepted && booking?.driver && bookingId) {
+      console.log('[WAITING] Driver assigned! Auto-redirecting to track-ride screen');
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        router.replace({
+          pathname: "/track-ride",
+          params: { bookingId },
+        });
+      }, 500);
+    }
+  }, [driverAccepted, booking?.driver, bookingId]);
+
   // Handle retry with increased price
   const handleRetrySearch = useCallback(async () => {
     if (!bookingId) return;

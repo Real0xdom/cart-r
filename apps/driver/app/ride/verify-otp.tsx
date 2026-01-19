@@ -7,7 +7,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { getBookingById, updateBookingStatus } from '@/lib/bookings';
+import { getBookingById, updateBookingStatus, subscribeToBooking } from '@/lib/bookings';
 import type { Booking } from '@/lib/bookings';
 
 const VerifyOTP = () => {
@@ -45,6 +45,25 @@ const VerifyOTP = () => {
         };
 
         fetchBooking();
+        
+        // Subscribe to booking updates (for cancellation)
+        const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
+            // Customer cancelled the ride
+            if (updatedBooking.status === 'cancelled') {
+                Alert.alert(
+                    'Ride Cancelled',
+                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
+                    [{
+                        text: 'OK',
+                        onPress: () => router.replace('/(tabs)/home')
+                    }]
+                );
+                return;
+            }
+            setBooking(updatedBooking);
+        });
+        
+        return () => unsubscribe();
     }, [bookingId]);
 
     // Handle OTP input
@@ -187,7 +206,6 @@ const VerifyOTP = () => {
                             </View>
                         )}
 
-                        {/* OTP Input */}
                         <View className="flex-row justify-center gap-4 mb-6">
                             {otp.map((digit, index) => (
                                 <TextInput
@@ -196,9 +214,10 @@ const VerifyOTP = () => {
                                     value={digit}
                                     onChangeText={(value) => handleOtpChange(value, index)}
                                     onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                    className={`w-16 h-16 bg-white rounded-xl text-center text-2xl font-JakartaBold text-black border-2 ${
+                                    className={`w-16 h-16 bg-white rounded-xl text-center text-2xl font-JakartaBold border-2 ${
                                         error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-200'
                                     }`}
+                                    style={{ color: '#000000' }}
                                     keyboardType="number-pad"
                                     maxLength={1}
                                     selectTextOnFocus

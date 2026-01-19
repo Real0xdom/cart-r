@@ -241,6 +241,39 @@ const Payment = () => {
       return;
     }
 
+    // Prevent multiple clicks by checking loading state
+    if (loading) {
+      console.log("[PAYMENT] Already processing, ignoring duplicate click");
+      return;
+    }
+
+    // Generate idempotency key - unique per user+amount+time window
+    // Time window: 60 seconds (prevents duplicate within 1 minute)
+    // This allows user to add same amount again after 1 minute if they want
+    const timestamp = Math.floor(Date.now() / 60000); // Round to minute
+    const idempotencyKey = `wallet-${user?.id || 'unknown'}-${value}-${timestamp}`;
+    
+    console.log("[PAYMENT] Idempotency Key:", idempotencyKey);
+
+    // Check if we already have a pending order with this exact key
+    const { data: existingOrder, error: checkError } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('user_id', user?.id)
+      .eq('amount', value)
+      .eq('status', 'pending')
+      .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Last 60 seconds
+      .maybeSingle();
+
+    if (existingOrder) {
+      console.log("[PAYMENT] Found recent pending transaction, preventing duplicate");
+      Alert.alert(
+        "Payment in Progress",
+        "You already have a pending payment for this amount. Please complete or wait for the previous transaction to finish."
+      );
+      return;
+    }
+
     setLoading(true);
     
     try {
@@ -259,7 +292,8 @@ const Payment = () => {
           customer_phone: profile?.phone || user?.phone || "9999999999",
           customer_name: profile?.name || "CartR User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
-          return_url: callbackUrl
+          return_url: callbackUrl,
+          idempotency_key: idempotencyKey // Send to backend
         }
       });
 
@@ -509,6 +543,7 @@ const Payment = () => {
                     <CustomButton 
                         title="Add Money"
                         onPress={startPayment}
+                        disabled={loading || !amount || parseFloat(amount) <= 0}
                         className="w-full bg-brand-500 mb-4"
                         textVariant="primary"
                     />

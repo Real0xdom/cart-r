@@ -180,8 +180,11 @@ declare interface Booking {
   tip_amount: number;
   fare_multiplier: number;
   driver_payout: number;
-  payment_status: 'pending' | 'paid' | 'refunded';
-  payment_method: 'cash' | 'online';
+  payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid' | 'completed';
+  payment_method: 'cash' | 'online' | 'wallet' | 'partial_wallet' | 'wallet_plus_online';
+  wallet_amount_used?: number;
+  payment_session_id?: string | null;
+  online_payment_order_id?: string | null;
   status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
   pickup_otp: string | null;
   delivery_otp: string | null;
@@ -192,6 +195,9 @@ declare interface Booking {
   accepted_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancellation_reason: string | null;
   driver?: {
     id: string;
     vehicle_number: string;
