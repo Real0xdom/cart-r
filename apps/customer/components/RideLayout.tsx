@@ -113,6 +113,9 @@ const RideLayout = ({
                 flex: 1,
                 padding: 20,
               }}
+              contentContainerStyle={{
+                paddingBottom: 100,
+              }}
             >
               {children}
             </BottomSheetScrollView>

@@ -637,6 +637,33 @@ export async function getDriverActiveBooking(
 }
 
 /**
+ * Get all driver's active bookings (plural)
+ */
+export async function getDriverActiveBookings(
+  driverId: string
+): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .in('status', ['accepted', 'driver_arrived', 'in_progress'])
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      return { data: [], error: error.message };
+    }
+    
+    return { data: data as Booking[], error: null };
+  } catch (err: any) {
+    return { data: [], error: err.message };
+  }
+}
+
+/**
  * Get driver's completed trips
  */
 export async function getDriverCompletedTrips(

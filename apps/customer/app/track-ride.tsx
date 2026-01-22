@@ -14,7 +14,7 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
@@ -61,6 +61,21 @@ const TrackRidePage = () => {
 
         setBooking(data);
         setCurrentBooking(data);
+        
+        // Set initial driver location if available
+        if (data.driver?.current_latitude && data.driver?.current_longitude) {
+          console.log('[TRACK-RIDE] Setting initial driver location:', {
+            lat: data.driver.current_latitude,
+            lng: data.driver.current_longitude
+          });
+          setDriverLocation({
+            latitude: parseFloat(data.driver.current_latitude),
+            longitude: parseFloat(data.driver.current_longitude),
+          });
+        } else {
+          console.log('[TRACK-RIDE] No driver location in booking data');
+        }
+        
         setIsLoading(false);
       }
     });
@@ -95,14 +110,25 @@ const TrackRidePage = () => {
 
   // Subscribe to driver location when we have driver info
   useEffect(() => {
-    if (!booking?.driver_id) return;
+    if (!booking?.driver_id) {
+      console.log('[TRACK-RIDE] No driver_id, skipping location subscription');
+      return;
+    }
 
+    console.log('[TRACK-RIDE] Subscribing to driver location for driver_id:', booking.driver_id);
+    
     const unsubscribeLocation = subscribeToDriverLocation(
       booking.driver_id,
-      setDriverLocation
+      (location) => {
+        console.log('[TRACK-RIDE] Driver location update received:', location);
+        setDriverLocation(location);
+      }
     );
 
-    return () => unsubscribeLocation();
+    return () => {
+      console.log('[TRACK-RIDE] Unsubscribing from driver location');
+      unsubscribeLocation();
+    };
   }, [booking?.driver_id]);
 
   // Fit map to show driver and destination
@@ -194,11 +220,11 @@ const TrackRidePage = () => {
   return (
     <View className="flex-1 bg-white">
       {/* Map with driver tracking */}
-      <View className="absolute inset-0 h-[55%]">
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '55%' }}>
         {booking ? (
           <MapView
             ref={mapRef}
-            style={{ flex: 1 }}
+            style={{ width: '100%', height: '100%' }}
             provider={PROVIDER_GOOGLE}
             initialRegion={{
               latitude: booking.origin_latitude,
@@ -210,15 +236,32 @@ const TrackRidePage = () => {
             showsMyLocationButton={false}
           >
             {/* Driver marker */}
-            {driverLocation && (
+            {driverLocation ? (
               <Marker
                 coordinate={driverLocation}
                 anchor={{ x: 0.5, y: 0.5 }}
+                title="Driver"
+                description="En route"
+                tracksViewChanges={false}
               >
-                <View style={{ backgroundColor: '#3b82f6', padding: 8, borderRadius: 20, borderWidth: 2, borderColor: 'white' }}>
-                  <Text style={{ fontSize: 18 }}>🚗</Text>
+                <View style={{ 
+                  backgroundColor: '#FF9800', 
+                  padding: 10, 
+                  borderRadius: 25, 
+                  borderWidth: 3, 
+                  borderColor: 'white',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 3.84,
+                  elevation: 5
+                }}>
+                  <MaterialIcons name="local-shipping" size={24} color="white" />
                 </View>
               </Marker>
+            ) : (
+              console.log('[TRACK-RIDE] Driver location is null, marker not rendered'),
+              null
             )}
 
             {/* Pickup marker */}
@@ -265,8 +308,8 @@ const TrackRidePage = () => {
       </View>
 
       {/* Header */}
-      <SafeAreaView className="z-10 bg-transparent pointer-events-box-none">
-        <View className="flex-row items-center justify-between px-5 pt-2">
+      <SafeAreaView style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }} pointerEvents="box-none">
+        <View className="flex-row items-center justify-between px-5 pt-2" pointerEvents="box-none">
           <TouchableOpacity 
             onPress={() => router.back()}
             className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-sm"
@@ -287,7 +330,7 @@ const TrackRidePage = () => {
         <ScrollView 
           className="pt-6 pb-8 px-6"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 20 }}
+          contentContainerStyle={{ paddingBottom: 100 }}
         >
           {/* Status Badge */}
           <View className="items-center mb-4">

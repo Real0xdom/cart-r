@@ -75,7 +75,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "0bc2f79e-c11f-42ad-80c6-e3fa2d9e09b8"
+      "projectId": "a51e67e2-edf8-465c-ba70-6f09a8eb54c7"
     }
   }
 });

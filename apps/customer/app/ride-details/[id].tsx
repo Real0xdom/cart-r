@@ -103,7 +103,7 @@ const RideDetails = () => {
                 <Text className="text-xl font-JakartaBold">Trip Details</Text>
             </View>
 
-            <ScrollView className="flex-1 px-5 pt-4">
+            <ScrollView className="flex-1 px-5 pt-4" contentContainerStyle={{ paddingBottom: 100 }}>
                 
                 {/* Status Card */}
                 <View className="bg-white p-5 rounded-2xl mb-4 shadow-sm">

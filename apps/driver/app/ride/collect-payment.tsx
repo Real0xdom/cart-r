@@ -368,7 +368,7 @@ const CollectPayment = () => {
 
     return (
         <SafeAreaView className="flex-1 bg-gray-900">
-            <ScrollView className="flex-1 px-6">
+            <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Header */}
                 <View className="flex-row items-center py-4">
                     <TouchableOpacity 

@@ -267,14 +267,10 @@ const SelectVehiclePage = () => {
   return (
     <RideLayout 
       title="Select Vehicle" 
-      snapPoints={["50%", "85%"]}
-      useView={true}
+      snapPoints={["50%", "90%"]}
+      useView={false}
     >
-      <ScrollView 
-        className="flex-1"
-        showsVerticalScrollIndicator={true}
-        bounces={true}
-      >
+
         {loading ? (
           <View className="items-center justify-center py-10">
             <ActivityIndicator size="large" color="#FF9800" />
@@ -325,85 +321,7 @@ const SelectVehiclePage = () => {
               </View>
             )}
 
-            {/* Payment Method Selector */}
-            {selectedVehicle && (
-              <View className="bg-gray-50 rounded-2xl p-4 my-4 border border-gray-100">
-                <Text className="text-base font-JakartaBold text-gray-800 mb-3">
-                  💳 Select Payment Method
-                </Text>
-                
-                {/* Wallet - Full Payment */}
-                {paymentSplit?.canPayFull && (
-                  <TouchableOpacity
-                    onPress={() => setPaymentMethod('wallet')}
-                    disabled={isPaying || isBooking}
-                    className={`flex-row items-center p-3 rounded-xl border mb-2 ${
-                      paymentMethod === 'wallet' ? 'bg-green-50 border-green-500' : 'bg-white border-gray-200'
-                    }`}
-                  >
-                    <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center">
-                      <Feather name="credit-card" size={20} color="#22c55e" />
-                    </View>
-                    <View className="flex-1 ml-3">
-                      <Text className="font-JakartaBold text-gray-800">Pay with Wallet</Text>
-                      <Text className="text-xs text-gray-600">Balance: ₹{walletBalance.toFixed(2)}</Text>
-                    </View>
-                    {paymentMethod === 'wallet' && <Feather name="check-circle" size={20} color="#22c55e" />}
-                  </TouchableOpacity>
-                )}
-                
-                {/* Partial Wallet */}
-                {!paymentSplit?.canPayFull && paymentSplit && paymentSplit.walletAmount > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setPaymentMethod('partial_wallet')}
-                    disabled={isPaying || isBooking}
-                    className={`flex-row items-center p-3 rounded-xl border mb-2 ${
-                      paymentMethod === 'partial_wallet' ? 'bg-blue-50 border-blue-500' : 'bg-white border-gray-200'
-                    }`}
-                  >
-                    <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center">
-                      <Feather name="layers" size={20} color="#3b82f6" />
-                    </View>
-                    <View className="flex-1 ml-3">
-                      <Text className="font-JakartaBold text-gray-800">Wallet + Online</Text>
-                      <Text className="text-xs text-gray-600">₹{paymentSplit.walletAmount} Wallet + ₹{paymentSplit.onlineAmount} Online</Text>
-                    </View>
-                    {paymentMethod === 'partial_wallet' && <Feather name="check-circle" size={20} color="#3b82f6" />}
-                  </TouchableOpacity>
-                )}
-                
-                {/* Cash */}
-                <TouchableOpacity
-                  onPress={() => setPaymentMethod('cash')}
-                  disabled={isPaying || isBooking}
-                  className={`flex-row items-center p-3 rounded-xl border ${
-                    paymentMethod === 'cash' ? 'bg-orange-50 border-orange-500' : 'bg-white border-gray-200'
-                  }`}
-                >
-                  <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center">
-                    <Feather name="dollar-sign" size={20} color="#f97316" />
-                  </View>
-                  <View className="flex-1 ml-3">
-                    <Text className="font-JakartaBold text-gray-800">Pay with Cash</Text>
-                    <Text className="text-xs text-gray-600">Pay driver directly</Text>
-                  </View>
-                  {paymentMethod === 'cash' && <Feather name="check-circle" size={20} color="#f97316" />}
-                </TouchableOpacity>
 
-                 {/* Insufficient Balance Warning */}
-                {!paymentSplit?.canPayFull && paymentMethod === 'wallet' && (
-                  <View className="bg-red-50 border border-red-200 rounded-xl p-3 mt-3 flex-row items-start">
-                    <Feather name="alert-circle" size={16} color="#ef4444" />
-                    <View className="flex-1 ml-2">
-                       <Text className="text-xs font-JakartaBold text-red-600">Insufficient Balance</Text>
-                       <Text className="text-[10px] text-red-500 mt-0.5">
-                        Need ₹{totalFare}. Have ₹{walletBalance}. Add ₹{(totalFare - walletBalance).toFixed(2)}.
-                       </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
 
             {/* Total & Book Button */}
             <View className="mt-4">
@@ -444,7 +362,7 @@ const SelectVehiclePage = () => {
             </View>
           </>
         )}
-      </ScrollView>
+
     </RideLayout>
   );
 };

@@ -1,16 +1,18 @@
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndicator } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions } from '@/lib/location';
-import { getDriverActiveBooking, getDriverCompletedTrips, Booking } from '@/lib/bookings';
+import { getDriverActiveBookings, getDriverCompletedTrips, Booking } from '@/lib/bookings';
 
 const DriverHome = () => {
     const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
     const [isOnline, setIsOnline] = useState(driverProfile?.is_online || false);
     const [isTogglingStatus, setIsTogglingStatus] = useState(false);
-    const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
+    const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
+    const [isRidesExpanded, setIsRidesExpanded] = useState(true);
     const [todayStats, setTodayStats] = useState({ earnings: 0, trips: 0 });
     const [isLoadingStats, setIsLoadingStats] = useState(true);
 
@@ -23,10 +25,10 @@ const DriverHome = () => {
         if (!driverProfile?.id) return;
 
         const fetchData = async () => {
-            // Check for active booking
-            const { data: activeRide } = await getDriverActiveBooking(driverProfile.id);
-            if (activeRide) {
-                setActiveBooking(activeRide);
+            // Check for active bookings (all of them)
+            const { data: activeRides } = await getDriverActiveBookings(driverProfile.id);
+            if (activeRides) {
+                setActiveBookings(activeRides);
             }
 
             // Fetch today's stats
@@ -124,9 +126,20 @@ const DriverHome = () => {
         }
     };
 
-    const navigateToActiveRide = () => {
-        if (activeBooking) {
-            router.push(`/ride/${activeBooking.id}` as any);
+    const navigateToRide = (bookingId: string) => {
+        router.push(`/ride/${bookingId}` as any);
+    };
+
+    const getStatusBadge = (status: Booking['status']) => {
+        switch (status) {
+            case 'accepted':
+                return { text: 'Head to pickup', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
+            case 'driver_arrived':
+                return { text: 'Verify OTP', color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
+            case 'in_progress':
+                return { text: 'Trip in progress', color: 'bg-green-500/20', textColor: 'text-green-400' };
+            default:
+                return { text: 'Unknown', color: 'bg-gray-500/20', textColor: 'text-gray-400' };
         }
     };
 
@@ -149,25 +162,77 @@ const DriverHome = () => {
                     </TouchableOpacity>
                 </View>
 
-                {/* Active Ride Banner */}
-                {activeBooking && (
-                    <TouchableOpacity 
-                        onPress={navigateToActiveRide}
-                        className="bg-blue-500 rounded-2xl p-4 mb-6 flex-row items-center"
-                    >
-                        <View className="w-12 h-12 bg-blue-400 rounded-full items-center justify-center mr-4">
-                            <Text className="text-2xl">🚗</Text>
-                        </View>
-                        <View className="flex-1">
-                            <Text className="text-white font-JakartaBold text-lg">Active Ride</Text>
-                            <Text className="text-blue-100 text-sm" numberOfLines={1}>
-                                {activeBooking.status === 'accepted' && 'Head to pickup →'}
-                                {activeBooking.status === 'driver_arrived' && 'Verify OTP to start →'}
-                                {activeBooking.status === 'in_progress' && 'Trip in progress →'}
+                {/* Active Rides List */}
+                {activeBookings.length > 0 && (
+                    <View className="mb-6">
+                        {/* Expandable Header */}
+                        <TouchableOpacity
+                            onPress={() => setIsRidesExpanded(!isRidesExpanded)}
+                            className="flex-row justify-between items-center mb-3"
+                        >
+                            <Text className="text-white text-lg font-JakartaBold">
+                                Active Rides ({activeBookings.length})
                             </Text>
-                        </View>
-                        <Text className="text-white text-2xl">›</Text>
-                    </TouchableOpacity>
+                            <Feather
+                                name={isRidesExpanded ? "chevron-up" : "chevron-down"}
+                                size={24}
+                                color="#9ca3af"
+                            />
+                        </TouchableOpacity>
+
+                        {/* Ride Cards - Only show when expanded */}
+                        {isRidesExpanded && activeBookings.map((booking) => {
+                            const statusBadge = getStatusBadge(booking.status);
+                            return (
+                                <TouchableOpacity
+                                    key={booking.id}
+                                    onPress={() => navigateToRide(booking.id)}
+                                    className="bg-gray-800 rounded-2xl p-4 mb-3 border border-gray-700"
+                                >
+                                    {/* Status Badge */}
+                                    <View className="mb-3">
+                                        <View className={`self-start px-3 py-1 rounded-full ${statusBadge.color}`}>
+                                            <Text className={`text-xs font-JakartaSemiBold ${statusBadge.textColor}`}>
+                                                {statusBadge.text}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Customer Info */}
+                                    <View className="flex-row items-center mb-3">
+                                        <View className="w-10 h-10 bg-gray-700 rounded-full items-center justify-center mr-3">
+                                            <Text className="text-lg">👤</Text>
+                                        </View>
+                                        <View className="flex-1">
+                                            <Text className="text-white font-JakartaSemiBold">
+                                                {booking.customer?.name || 'Customer'}
+                                            </Text>
+                                            <Text className="text-gray-400 text-xs">
+                                                {booking.booking_number}
+                                            </Text>
+                                        </View>
+                                        <Text className="text-gray-400 text-xl">›</Text>
+                                    </View>
+
+                                    {/* Destination */}
+                                    <View className="mb-2">
+                                        <Text className="text-gray-400 text-xs mb-1">DESTINATION</Text>
+                                        <Text className="text-white text-sm" numberOfLines={1}>
+                                            {booking.destination_address}
+                                        </Text>
+                                    </View>
+
+                                    {/* Fare */}
+                                    <View className="flex-row justify-between items-center pt-2 border-t border-gray-700">
+                                        <Text className="text-gray-400 text-xs">Fare</Text>
+                                        <Text className="text-green-400 font-JakartaBold">
+                                            ₹{booking.driver_payout || booking.total_fare}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                 )}
 
                 {/* Online Status Card */}
