@@ -1,8 +1,8 @@
 // Driver App - Notification Setup
-// Configures Android notification channels for high-priority ride requests
+// Configures Android notification channels (High Priority + Wake Lock)
 
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Platform, Alert, Linking } from 'react-native';
 
 // Notification channel for ride requests (Android)
 export const RIDE_REQUESTS_CHANNEL = 'ride-requests';
@@ -53,19 +53,31 @@ export async function setupNotificationChannels() {
 
 /**
  * Request notification permissions
+ * @param openSettingsIfDenied If true, prompt user to open settings if permission is denied
  */
-export async function requestNotificationPermissions(): Promise<boolean> {
+export async function requestNotificationPermissions(openSettingsIfDenied = false): Promise<boolean> {
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
     }
 
     if (finalStatus !== 'granted') {
       console.log('Notification permissions not granted');
+      
+      if (openSettingsIfDenied) {
+          Alert.alert(
+              'Notifications Required',
+              'To receive ride requests, please enable notifications in your phone settings.',
+              [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => Linking.openSettings() }
+              ]
+          );
+      }
       return false;
     }
 
@@ -86,7 +98,7 @@ export async function getExpoPushToken(): Promise<string | null> {
 
     // Get push token - must provide projectId for dev builds
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: 'c7204baf-bff3-41dd-930f-daf97fb3d0dc', // EAS projectId from app.json
+      projectId: 'bc38d8b8-1b48-4959-88eb-4d67e640842c', // EAS projectId from app.json
     });
 
     console.log('📱 Got push token:', tokenData.data);

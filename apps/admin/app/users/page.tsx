@@ -24,14 +24,17 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+     const timer = setTimeout(() => {
+        fetchUsers();
+     }, 500);
+     return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   async function fetchUsers() {
     setLoading(true);
     try {
-      // Use API route to fetch users (server-side with service role key bypasses RLS)
-      const response = await fetch('/api/users');
+      // Use API route to fetch users with search query
+      const response = await fetch(`/api/users?search=${searchTerm}`);
       
       if (!response.ok) {
         console.error('API error:', response.status);
@@ -72,12 +75,8 @@ export default function UsersPage() {
     }
   }
 
-  const filteredUsers = users.filter(u =>
-    searchTerm === '' ||
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.phone?.includes(searchTerm)
-  );
+  // Uses server-side filtered data directly
+  const filteredUsers = users;
 
   return (
     <div className="min-h-screen bg-[var(--color-brand-cream)] font-sans">
@@ -89,7 +88,7 @@ export default function UsersPage() {
         <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-1">Users</h1>
-            <p className="text-gray-500 text-sm">{users.length} registered users</p>
+            <p className="text-gray-500 text-sm">{users.length} registered users found</p>
           </div>
           <button 
             onClick={fetchUsers}

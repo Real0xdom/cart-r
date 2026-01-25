@@ -8,6 +8,11 @@
     "driver": "cd apps/driver && npx expo start"
   },
   "dependencies": {
-    "node-fetch": "^2.7.0"
+    "@supabase/supabase-js": "^2.91.1",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.17.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

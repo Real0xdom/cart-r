@@ -28,7 +28,8 @@ export async function createPaymentOrder(
   customerName: string,
   customerEmail: string,
   customerPhone: string,
-  amount: number
+  amount: number,
+  idempotencyKey?: string
 ): Promise<{ data: PaymentOrder | null; error: string | null }> {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -47,6 +48,7 @@ export async function createPaymentOrder(
         customer_email: customerEmail,
         customer_phone: customerPhone,
         amount,
+        idempotency_key: idempotencyKey,
       }),
     });
 

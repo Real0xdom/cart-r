@@ -4,6 +4,7 @@ import RideLayout from "@/components/RideLayout";
 import { useDriverStore, useRideStore } from "@/store";
 import { router } from "expo-router";
 import { FlatList, Text, View } from "react-native";
+import { useState } from "react";
 
 // Mock drivers for demo
 const mockDrivers = [
@@ -56,15 +57,29 @@ const mockDrivers = [
 const ConfirmRide = () => {
   const { drivers: storeDrivers, selectedDriver, setSelectedDriver } = useDriverStore();
   const { selectedVehicle } = useRideStore();
+  const [isNavigating, setIsNavigating] = useState(false);
   
   // Use store drivers if available, otherwise use mock data
   // In a real app, we would fetch drivers matching the vehicle type here
   const drivers = (storeDrivers && storeDrivers.length > 0 ? storeDrivers : mockDrivers).map(d => ({
     ...d,
     // Override price with selected vehicle price (simulating all drivers offering the standard rate)
-    price: selectedVehicle?.total_fare.toString() || d.price || '0',
+    price: selectedVehicle?.total_fare.toString() || (d as any).price || '0',
     time: selectedVehicle?.duration_minutes || 5, // Use estimated duration
-  }));
+  } as any));
+
+  const handleSelectRide = () => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    // Tiny delay to show visual feedback if needed, but mainly to lock
+    router.push("/book-ride");
+    // We don't need to reset isNavigating because we're moving away. 
+    // If user comes back, component re-mounts (or we can use useFocusEffect to reset, 
+    // but in stack nav, coming back usually preserves state. 
+    // However, for "push", safer to timeout reset just in case nav fails or is cancelled? 
+    // Expo Router push usually succeeds. 
+    setTimeout(() => setIsNavigating(false), 1000); 
+  };
 
   return (
     <RideLayout title="Choose a driver" snapPoints={["65%", "85%"]} useView={true}>
@@ -90,7 +105,8 @@ const ConfirmRide = () => {
           <View className="mx-5 mt-10">
             <CustomButton
               title="Select Ride"
-              onPress={() => router.push("/book-ride")}
+              onPress={handleSelectRide}
+              disabled={isNavigating}
             />
           </View>
         )}

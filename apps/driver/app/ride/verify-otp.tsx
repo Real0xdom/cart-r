@@ -208,20 +208,46 @@ const VerifyOTP = () => {
 
                         <View className="flex-row justify-center gap-4 mb-6">
                             {otp.map((digit, index) => (
-                                <TextInput
+                                <View
                                     key={index}
-                                    ref={inputRefs[index]}
-                                    value={digit}
-                                    onChangeText={(value) => handleOtpChange(value, index)}
-                                    onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                    className={`w-16 h-16 bg-white rounded-xl text-center text-2xl font-JakartaBold border-2 ${
-                                        error ? 'border-red-500' : digit ? 'border-green-500' : 'border-gray-200'
-                                    }`}
-                                    style={{ color: '#000000' }}
-                                    keyboardType="number-pad"
-                                    maxLength={1}
-                                    selectTextOnFocus
-                                />
+                                    style={{
+                                        width: 64,
+                                        height: 64,
+                                        backgroundColor: '#000000', // Box Background
+                                        borderWidth: 2,
+                                        borderColor: error ? '#ef4444' : digit ? '#22c55e' : '#e5e7eb',
+                                        borderRadius: 12,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        zIndex: 10,
+                                        elevation: 5
+                                    }}
+                                >
+                                    <TextInput
+                                        ref={inputRefs[index]}
+                                        value={digit}
+                                        onChangeText={(value) => {
+                                            console.log(`[VerifyOTP] Input ${index} changed:`, value);
+                                            handleOtpChange(value, index);
+                                        }}
+                                        onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            color: '#ffffff', // Input Text Color
+                                            fontSize: 24,
+                                            fontWeight: 'bold',
+                                            textAlign: 'center',
+                                            backgroundColor: 'transparent' // Transparent to show View bg
+                                        }}
+                                        selectionColor="#ffffff"
+                                        cursorColor="#ffffff"
+                                        keyboardType="number-pad"
+                                        maxLength={1}
+                                        selectTextOnFocus
+                                        placeholderTextColor="#6b7280"
+                                    />
+                                </View>
                             ))}
                         </View>
 

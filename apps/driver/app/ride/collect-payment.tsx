@@ -130,7 +130,24 @@ const CollectPayment = () => {
 
             if (data) {
                 console.log(`[SMS Poll] Status: ${data.status}, Error: ${data.error_message}`);
-                setSmsStatus({ status: data.status, error: data.error_message });
+                
+                let effectiveStatus = data.status;
+                let effectiveError = data.error_message;
+
+                // SUPPRESS/HIDE "Customer does not have token" error
+                // This happens when customer is not logged in / no push token.
+                // We treat this as "sent" (or soft success) so driver isn't alarmed.
+                if (effectiveError && (
+                    effectiveError.includes('Customer does not have') || 
+                    effectiveError.includes('Push Token') ||
+                    effectiveError.includes('token')
+                )) {
+                    effectiveStatus = 'sent';
+                    effectiveError = undefined;
+                    console.log('[SMS Poll] Suppressing Push Token error, showing SENT to UI.');
+                }
+
+                setSmsStatus({ status: effectiveStatus, error: effectiveError });
                 
                 // FALLBACK: If stuck in pending for > 6 seconds (2 polls), wake up the edge function directly
                 if (data.status === 'pending' && attempts > 2) {
@@ -179,7 +196,7 @@ const CollectPayment = () => {
 
     // Retry sending SMS manually (triggers edge function via RPC if needed, or re-queues)
     const handleRetrySms = async () => {
-        if (!booking) return;
+        if (!booking || isRetryingSms) return;
         setIsRetryingSms(true);
         
         try {
@@ -194,11 +211,11 @@ const CollectPayment = () => {
                 });
 
             if (error) throw error;
-            Alert.alert('Retrying', 'SMS has been re-queued for sending.');
+            Alert.alert('Retrying', 'Notification has been re-queued for sending.');
             setSmsStatus({ status: 'pending' }); // Reset UI
             
         } catch (err: any) {
-            Alert.alert('Error', 'Failed to retry SMS: ' + err.message);
+            Alert.alert('Error', 'Failed to retry Notification: ' + err.message);
         } finally {
             setIsRetryingSms(false);
         }
@@ -206,11 +223,11 @@ const CollectPayment = () => {
 
     // Regenerate OTP (Hard Reset)
     const handleRegenerateOtp = async () => {
-        if (!booking) return;
+        if (!booking || isRetryingSms) return;
         
         Alert.alert(
             'Regenerate OTP?',
-            'This will create a NEW OTP and send a NEW SMS. The old OTP will be invalid.',
+            'This will create a NEW OTP and send a NEW Notification. The old OTP will be invalid.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -261,7 +278,7 @@ const CollectPayment = () => {
 
     // Trigger push notification to sender
     const requestOnlinePayment = async () => {
-        if (!booking || !booking.customer) return;
+        if (!booking || !booking.customer || isProcessing) return;
         
         setIsProcessing(true);
         try {
@@ -307,6 +324,7 @@ const CollectPayment = () => {
             if (!verifyDeliveryOtp()) return;
         }
 
+        if (isProcessing) return;
         setIsProcessing(true);
 
         try {
@@ -435,31 +453,14 @@ const CollectPayment = () => {
                     {/* Method Selection based on Payer */}
                     {payer === 'receiver' ? (
                         <View>
-                             <TouchableOpacity
-                                onPress={() => setPaymentMethod('cash')}
-                                className={`w-full p-4 rounded-xl flex-row items-center justify-center bg-green-600 mb-3`}
-                            >
-                                <Feather name="dollar-sign" size={20} color="#fff" />
-                                <Text className="ml-2 font-JakartaBold text-white">
-                                    Collect Cash from Receiver
-                                </Text>
-                            </TouchableOpacity>
+ 
                             <Text className="text-gray-500 text-center text-xs">
                                 Confirm once you have received ₹{fare} cash or via your personal UPI QR.
                             </Text>
                         </View>
                     ) : (
                          <View className="gap-3">
-                            <TouchableOpacity
-                                onPress={requestOnlinePayment}
-                                disabled={paymentRequested}
-                                className={`w-full p-4 rounded-xl flex-row items-center justify-center ${paymentRequested ? 'bg-gray-700' : 'bg-blue-600'}`}
-                            >
-                                {isProcessing ? <ActivityIndicator color="#fff" /> : <Feather name="smartphone" size={20} color="#fff" />}
-                                <Text className="ml-2 font-JakartaBold text-white">
-                                    {paymentRequested ? 'Request Sent' : 'Request Payment from Sender'}
-                                </Text>
-                            </TouchableOpacity>
+
                             
                             <TouchableOpacity
                                 onPress={() => setPaymentMethod('cash')}
@@ -484,7 +485,7 @@ const CollectPayment = () => {
                         <View className="flex-row">
                             <Feather name="info" size={16} color="#3b82f6" style={{ marginTop: 2 }} />
                             <Text className="text-blue-400 text-sm font-JakartaMedium ml-2 flex-1">
-                                Ask the receiver for the 6-digit Delivery OTP sent to their app/SMS.
+                                Ask the receiver or customer for the 6-digit Delivery OTP sent to their app.
                             </Text>
                         </View>
                     </View>
@@ -553,7 +554,7 @@ const CollectPayment = () => {
                                         className="mt-4 pt-2 border-t border-gray-700 items-center"
                                     >
                                         <Text className="text-gray-400 text-xs flex-row items-center">
-                                            <Feather name="activity" size={12} color="gray" /> Open SMS Monitor
+                                            <Feather name="activity" size={12} color="gray" /> Open Notification Monitor
                                         </Text>
                                     </TouchableOpacity>
                                 </View>

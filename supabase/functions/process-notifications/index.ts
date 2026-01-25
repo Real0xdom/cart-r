@@ -25,6 +25,7 @@ interface ExpoPushMessage {
   sound?: string
   priority?: string
   channelId?: string
+  ttl?: number
 }
 
 serve(async (req) => {
@@ -74,6 +75,9 @@ serve(async (req) => {
         continue
       }
 
+      const isRideRequest = notification.notification_type === 'ride_request';
+      const channelId = isRideRequest ? 'ride-requests' : (notification.notification_type === 'booking_update' ? 'booking-updates' : 'default');
+
       messages.push({
         to: pushToken,
         title: notification.title,
@@ -81,7 +85,8 @@ serve(async (req) => {
         data: notification.data || {},
         sound: 'default',
         priority: 'high',
-        channelId: notification.notification_type === 'booking_update' ? 'booking-updates' : 'default',
+        channelId: channelId,
+        ttl: 0, // Zero TTL for immediate high-priority delivery
       })
 
       notificationIds.push(notification.id)

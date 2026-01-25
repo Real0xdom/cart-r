@@ -2,7 +2,8 @@
 // Global state for showing ride request notifications on any screen
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { acceptBooking, declineBooking, subscribeToAvailableBookings, Booking } from '@/lib/bookings';
+import { acceptBooking, declineBooking, subscribeToAvailableBookings, getBookingById, Booking } from '@/lib/bookings';
+import { RIDE_REQUESTS_CHANNEL } from '@/lib/notifications';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
@@ -54,6 +55,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
             body: `₹${newBooking.driver_payout || newBooking.total_fare} • ${newBooking.origin_address.substring(0, 50)}...`,
             data: { bookingId: newBooking.id },
             sound: true,
+            channelId: RIDE_REQUESTS_CHANNEL, // Ensure high priority channel
           },
           trigger: null, // Immediate
         });
@@ -72,6 +74,41 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       unsubscribe();
     };
   }, [driverProfile?.vehicle_type, driverProfile?.is_online]);
+
+  // Handle notification taps
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data;
+      const bookingId = data?.bookingId;
+      
+      console.log('[NOTIFICATION CONTEXT] Notification tapped:', bookingId);
+      
+      if (bookingId) {
+        // If we already have this notification showing, just bring app to foreground (default behavior)
+        if (currentNotification?.id === bookingId) {
+          return;
+        }
+
+        // Fetch booking details
+        try {
+          const { data: booking, error } = await getBookingById(bookingId);
+          
+          if (booking && !error) {
+            console.log('[NOTIFICATION CONTEXT] Opening booking from notification');
+            showNotification(booking);
+          } else {
+            console.error('[NOTIFICATION CONTEXT] Failed to fetch booking from notification:', error);
+          }
+        } catch (err) {
+          console.error('[NOTIFICATION CONTEXT] Error handling notification tap:', err);
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [currentNotification]);
 
   const showNotification = (booking: Booking) => {
     setCurrentNotification(booking);

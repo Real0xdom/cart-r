@@ -50,6 +50,8 @@ const CashfreePayment = ({
   const [idempotencyKey] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   const handleCashPayment = async () => {
+    if (loading) return;
+
     if (!user?.id || !userAddress || !destinationAddress) {
       Alert.alert("Error", "Missing booking information. Please try again.");
       return;
@@ -87,6 +89,8 @@ const CashfreePayment = ({
   };
 
   const handleOnlinePayment = async () => {
+    if (loading) return;
+
     if (!user?.id || !userAddress || !destinationAddress) {
       Alert.alert("Error", "Missing booking information. Please try again.");
       return;

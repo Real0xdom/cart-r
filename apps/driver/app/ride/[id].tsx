@@ -1,7 +1,7 @@
 // Active Ride Screen
 // Driver's view during an active shipment - connected to Supabase
 
-import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
@@ -17,36 +17,89 @@ const ActiveRide = () => {
     const [isUpdating, setIsUpdating] = useState(false);
     const [driverLocation, setDriverLocation] = useState<{latitude: number, longitude: number} | null>(null);
     const mapRef = useRef<MapView>(null);
+    const appState = useRef(AppState.currentState);
 
-    // Get driver's current location
+    // Get driver's current location with AppState management
     useEffect(() => {
         let subscription: Location.LocationSubscription | null = null;
+        let isWatching = false;
         
-        (async () => {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status === 'granted') {
-                // Get initial location
+        const startWatching = async () => {
+            if (isWatching) return;
+
+            try {
+                // Check permissions first without triggering a dialog
+                const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
+                
+                // Only request if not determined or denied (though usually we shouldn't request in background)
+                if (existingStatus !== 'granted') {
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status !== 'granted') return;
+                }
+
+                isWatching = true;
+
+                // Get immediate location first
                 const location = await Location.getCurrentPositionAsync({});
                 setDriverLocation({
                     latitude: location.coords.latitude,
                     longitude: location.coords.longitude
                 });
-                
-                // Watch location updates
+
+                // Start watcher
                 subscription = await Location.watchPositionAsync(
                     { accuracy: Location.Accuracy.High, distanceInterval: 10 },
-                    (location) => {
+                    (loc) => {
                         setDriverLocation({
-                            latitude: location.coords.latitude,
-                            longitude: location.coords.longitude
+                            latitude: loc.coords.latitude,
+                            longitude: loc.coords.longitude
                         });
                     }
                 );
+            } catch (e) {
+                console.error('[ActiveRide] Location error:', e);
+                isWatching = false;
             }
-        })();
-        
+        };
+
+        const stopWatching = () => {
+            if (subscription) {
+                subscription.remove();
+                subscription = null;
+            }
+            isWatching = false;
+        };
+
+        // Initial start if active
+        if (AppState.currentState === 'active') {
+            startWatching();
+        }
+
+        // Listen for AppState changes
+        const subscriptionState = AppState.addEventListener('change', nextAppState => {
+            if (
+                appState.current.match(/inactive|background/) &&
+                nextAppState === 'active'
+            ) {
+                console.log('App has come to the foreground! checking location watcher...');
+                // Don't restart aggressively, just ensure we are watching
+                if (!isWatching) {
+                     startWatching();
+                }
+            } else if (nextAppState.match(/inactive|background/)) {
+                 // On Android, background service should handle this. 
+                 // For now, we only stop if we want to save battery, but for a driver app we often want it running.
+                 // However, let's keep the user's logic but make it robust.
+                 console.log('App going to background. Stopping location watcher (relying on background service).');
+                 stopWatching();
+            }
+
+            appState.current = nextAppState;
+        });
+
         return () => {
-            subscription?.remove();
+            stopWatching();
+            subscriptionState.remove();
         };
     }, []);
 
@@ -304,9 +357,14 @@ const ActiveRide = () => {
                 >
                     {/* Status Badge */}
                     <View className="items-center mb-4">
-                        <View className={`px-4 py-2 rounded-full ${status.color}`}>
+                        <View className={`px-4 py-2 rounded-full ${status.color} mb-2`}>
                             <Text className={`font-JakartaSemiBold ${status.textColor}`}>
                                 {status.text}
+                            </Text>
+                        </View>
+                        <View className="bg-gray-800 px-3 py-1 rounded-full border border-gray-700">
+                            <Text className="text-xs font-JakartaBold text-gray-400">
+                                Ride ID: #{id?.slice(-6).toUpperCase()}
                             </Text>
                         </View>
                     </View>

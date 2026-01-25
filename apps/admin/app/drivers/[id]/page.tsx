@@ -63,6 +63,8 @@ export default function DriverDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editData, setEditData] = useState({ vehicle_number: '', vehicle_model: '', vehicle_type: '' });
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
   const [verificationHistory, setVerificationHistory] = useState<VerificationHistoryEntry[]>([]);
@@ -91,6 +93,11 @@ export default function DriverDetailPage() {
       console.log('Driver data from API:', driverData);
       
       setDriver(driverData);
+      setEditData({
+         vehicle_number: driverData.vehicle_number || '',
+         vehicle_model: driverData.vehicle_model || '',
+         vehicle_type: driverData.vehicle_type || 'Mini'
+      });
     } catch (err) {
       console.error('Error:', err);
     }
@@ -109,6 +116,30 @@ export default function DriverDetailPage() {
       console.error('Error fetching history:', err);
     }
     setHistoryLoading(false);
+  }
+
+  async function handleSaveDetails() {
+    if (!driver) return;
+    setActionLoading(true);
+    try {
+       const response = await fetch('/api/drivers', {
+         method: 'PATCH',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+            id: driver.id,
+            ...editData
+         })
+       });
+
+       if (!response.ok) throw new Error("Failed to update driver details");
+
+       toast.success("Driver details updated successfully");
+       setShowEditModal(false);
+       fetchDriver(driver.id);
+    } catch(err: any) {
+       toast.error(err.message);
+    }
+    setActionLoading(false);
   }
 
   async function approveDriver() {
@@ -312,9 +343,9 @@ export default function DriverDetailPage() {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            {driver.verification_status === 'pending' && (
-              <div className="mt-6 space-y-3">
+      {/* Action Buttons */}
+            <div className="mt-6 space-y-3">
+              {driver.verification_status === 'pending' && (
                 <button
                   onClick={approveDriver}
                   disabled={actionLoading}
@@ -322,15 +353,22 @@ export default function DriverDetailPage() {
                 >
                   {actionLoading ? 'Processing...' : '✓ Approve Driver'}
                 </button>
-                <button
-                  onClick={() => setShowRejectModal(true)}
-                  disabled={actionLoading}
-                  className="w-full bg-red-100 text-red-600 py-3 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50"
-                >
-                  ✕ Reject Application
-                </button>
-              </div>
-            )}
+              )}
+              
+              {/* Reject / Suspend Button */}
+              {driver.verification_status !== 'rejected' && (
+                  <button
+                    onClick={() => {
+                        setRejectionReason('');
+                        setShowRejectModal(true);
+                    }}
+                    disabled={actionLoading}
+                    className="w-full bg-red-100 text-red-600 py-3 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50"
+                  >
+                    {driver.verification_status === 'approved' ? '⚠ Suspend Driver' : '✕ Reject Application'}
+                  </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -374,7 +412,15 @@ export default function DriverDetailPage() {
             <>
               {/* Vehicle Info */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Vehicle Information</h3>
+                <div className="flex justify-between items-center mb-4">
+                     <h3 className="text-lg font-semibold text-gray-800">Vehicle Information</h3>
+                     <button 
+                        onClick={() => setShowEditModal(true)}
+                        className="text-orange-600 text-sm font-medium hover:underline"
+                     >
+                        Edit Details
+                     </button>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
                     <p className="text-gray-500 text-sm">Vehicle Type</p>
@@ -551,12 +597,12 @@ export default function DriverDetailPage() {
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Reject Application</h3>
-            <p className="text-gray-500 mb-4">Please provide a reason for rejection:</p>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">{driver.verification_status === 'approved' ? 'Suspend Driver' : 'Reject Application'}</h3>
+            <p className="text-gray-500 mb-4">Please provide a reason for {driver.verification_status === 'approved' ? 'suspension' : 'rejection'}:</p>
             <textarea
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="e.g., Blurry document images, expired license, etc."
+              placeholder="e.g., Blurry document images, unsafe driving report, etc."
               className="w-full p-3 border border-gray-200 rounded-lg mb-4 h-32 resize-none"
             />
             <div className="flex gap-3">
@@ -571,7 +617,67 @@ export default function DriverDetailPage() {
                 disabled={actionLoading}
                 className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {actionLoading ? 'Rejecting...' : 'Reject'}
+                {actionLoading ? 'Processing...' : (driver.verification_status === 'approved' ? 'Suspend' : 'Reject')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Details Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Edit Driver Details</h3>
+            
+            <div className="space-y-4">
+                <div>
+                   <label className="text-xs font-semibold text-gray-500 uppercase">Vehicle Type</label>
+                   <select 
+                     value={editData.vehicle_type}
+                     onChange={(e) => setEditData({...editData, vehicle_type: e.target.value})}
+                     className="w-full p-3 border border-gray-200 rounded-lg bg-white"
+                   >
+                     <option value="Mini">Mini</option>
+                     <option value="Sedan">Sedan</option>
+                     <option value="SUV">SUV</option>
+                     <option value="Auto">Auto</option>
+                     <option value="Bike">Bike</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="text-xs font-semibold text-gray-500 uppercase">Vehicle Number</label>
+                   <input 
+                     type="text"
+                     value={editData.vehicle_number}
+                     onChange={(e) => setEditData({...editData, vehicle_number: e.target.value})}
+                     className="w-full p-3 border border-gray-200 rounded-lg"
+                   />
+                </div>
+                <div>
+                   <label className="text-xs font-semibold text-gray-500 uppercase">Vehicle Model</label>
+                   <input 
+                     type="text"
+                     value={editData.vehicle_model}
+                     onChange={(e) => setEditData({...editData, vehicle_model: e.target.value})}
+                     className="w-full p-3 border border-gray-200 rounded-lg"
+                   />
+                </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="flex-1 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveDetails}
+                disabled={actionLoading}
+                className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {actionLoading ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>

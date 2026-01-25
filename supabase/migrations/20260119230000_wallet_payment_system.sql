@@ -49,14 +49,14 @@ BEGIN
   
   -- ===== STEP 3: Check if already paid =====
   -- Idempotency check
-  IF v_booking.payment_status = 'completed' THEN
+  IF v_booking.payment_status = 'paid' THEN
     RETURN json_build_object(
       'success', false, 
       'error', 'Already paid',
       'payment_method', v_booking.payment_method
     );
   END IF;
-  
+
   v_total_amount := v_booking.total_fare;
   
   -- ===== STEP 4: Get user balance with row lock =====
@@ -130,18 +130,18 @@ BEGIN
   ELSE
     v_new_balance := v_user_balance;
   END IF;
-  
+
   -- ===== STEP 7: Update booking payment status =====
   IF v_remaining_amount = 0 THEN
     -- Fully paid from wallet
     UPDATE bookings
     SET 
-      payment_status = 'completed',
+      payment_status = 'paid',
       payment_method = 'wallet',
       completed_at = NOW()
     WHERE id = p_booking_id;
   ELSE
-    -- Partial payment - mark as partial_wallet
+    -- Partial payment - mark as partial_paid
     UPDATE bookings
     SET 
       payment_status = 'partial_paid',
@@ -159,11 +159,11 @@ BEGIN
     'new_wallet_balance', v_new_balance,
     'fully_paid', (v_remaining_amount = 0),
     'booking_status', CASE 
-      WHEN v_remaining_amount = 0 THEN 'completed'
+      WHEN v_remaining_amount = 0 THEN 'paid'
       ELSE 'partial_paid'
     END
   );
-  
+
 EXCEPTION
   WHEN lock_not_available THEN
     RETURN json_build_object(
@@ -209,7 +209,7 @@ BEGIN
   -- Mark as fully paid
   UPDATE bookings
   SET 
-    payment_status = 'completed',
+    payment_status = 'paid',
     payment_method = 'wallet_plus_online',
     online_payment_order_id = p_payment_order_id,
     completed_at = NOW()
@@ -255,10 +255,9 @@ END $$;
 
 -- Update payment_method enum to include new types
 -- =====================================================
--- Note: This must be run carefully in production
--- ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'wallet';
--- ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'partial_wallet';
--- ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'wallet_plus_online';
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'wallet';
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'partial_wallet';
+ALTER TYPE payment_method ADD VALUE IF NOT EXISTS 'wallet_plus_online';
 
 -- Create indexes for performance
 -- =====================================================

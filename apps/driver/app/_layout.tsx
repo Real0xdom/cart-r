@@ -9,6 +9,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { RideNotificationProvider, useRideNotification } from "@/contexts/RideNotificationContext";
 import RideNotification from "@/components/RideNotification";
 
+import { setupNotificationChannels, requestNotificationPermissions } from "@/lib/notifications";
+
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
@@ -46,6 +48,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded) {
+      // Setup notification channels
+      setupNotificationChannels();
+      // Check and request permissions
+      requestNotificationPermissions(true);
       SplashScreen.hideAsync();
     }
   }, [loaded]);

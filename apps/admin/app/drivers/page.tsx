@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
-import { RefreshCw, Bell, Users, Truck, Star, ArrowRight } from 'lucide-react';
+import { RefreshCw, Bell, Users, Truck, Star, ArrowRight, Search } from 'lucide-react';
 
 interface Driver {
   id: string;
@@ -27,15 +27,20 @@ export default function DriversPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'resubmissions'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
+  // Debounce search
   useEffect(() => {
-    fetchDrivers();
-  }, [filter]);
+    const timer = setTimeout(() => {
+      fetchDrivers();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [filter, searchTerm]);
 
   async function fetchDrivers() {
     setLoading(true);
     try {
-      const response = await fetch(`/api/drivers?filter=${filter}`);
+      const response = await fetch(`/api/drivers?filter=${filter}&search=${searchTerm}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -78,24 +83,43 @@ export default function DriversPage() {
                 <Bell size={16} /> {pendingCount} pending verification{pendingCount > 1 ? 's' : ''}
               </span>
             )}
+             <button 
+                onClick={fetchDrivers}
+                className="px-5 py-2.5 bg-orange-500 text-white rounded-xl font-semibold shadow-md shadow-orange-500/20 hover:bg-orange-600 transition-all flex items-center gap-2"
+              >
+                <RefreshCw size={16} /> Refresh
+              </button>
           </div>
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 mb-8">
-          {['all', 'pending', 'approved', 'rejected', 'resubmissions'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilter(status as any)}
-              className={`px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm ${
-                filter === status
-                  ? 'bg-orange-500 text-white shadow-orange-500/20'
-                  : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
-              }`}
-            >
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
-          ))}
+        {/* Search & Filters */}
+        <div className="flex flex-col md:flex-row gap-4 mb-8">
+            <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 p-1.5 flex items-center">
+                <Search size={20} className="text-gray-400 ml-3" />
+                <input
+                    type="text"
+                    placeholder="Search by name, phone, email, or vehicle number..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="flex-1 p-3 bg-transparent focus:outline-none text-gray-800"
+                />
+            </div>
+            
+            <div className="flex bg-white rounded-xl shadow-sm border border-gray-100 p-1.5 gap-1">
+              {['all', 'pending', 'approved', 'rejected', 'resubmissions'].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setFilter(status as any)}
+                  className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                    filter === status
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                </button>
+              ))}
+            </div>
         </div>
 
         {/* Drivers Table */}
@@ -107,7 +131,7 @@ export default function DriversPage() {
             </div>
           ) : drivers.length === 0 ? (
             <div className="p-12 text-center text-gray-500 bg-gray-50/50">
-              No drivers found with {filter} status
+              No drivers found matching your criteria.
             </div>
           ) : (
             <div className="overflow-x-auto">

@@ -107,6 +107,8 @@ const SelectVehiclePage = () => {
   };
 
   const handleBookNow = async () => {
+    if (isBooking) return;
+
     if (!selectedVehicle || !profile?.id) {
       Alert.alert("Error", "Please sign in and select a vehicle.");
       return;

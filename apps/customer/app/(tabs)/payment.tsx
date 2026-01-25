@@ -247,6 +247,8 @@ const Payment = () => {
       return;
     }
 
+    setLoading(true);
+
     // Generate idempotency key - unique per user+amount+time window
     // Time window: 60 seconds (prevents duplicate within 1 minute)
     // This allows user to add same amount again after 1 minute if they want
@@ -267,14 +269,13 @@ const Payment = () => {
 
     if (existingOrder) {
       console.log("[PAYMENT] Found recent pending transaction, preventing duplicate");
+      setLoading(false);
       Alert.alert(
         "Payment in Progress",
         "You already have a pending payment for this amount. Please complete or wait for the previous transaction to finish."
       );
       return;
     }
-
-    setLoading(true);
     
     try {
       // 1. Create Order Session via Backend

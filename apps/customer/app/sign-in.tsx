@@ -47,6 +47,12 @@ const CustomerSignIn = () => {
         try {
             console.log('[SignIn] Checking if user exists for phone:', formattedPhone);
             
+            if (!supabase) {
+                console.error('[SignIn] Supabase client is undefined!');
+                Alert.alert('System Error', 'Database connection not initialized');
+                return false;
+            }
+
             // Use RPC function that bypasses RLS
             const { data, error } = await supabase.rpc('check_phone_exists', {
                 phone_number: formattedPhone
@@ -56,12 +62,14 @@ const CustomerSignIn = () => {
 
             if (error) {
                 console.error('Error checking user:', error);
+                Alert.alert('Database Error', 'Failed to check phone number: ' + error.message);
                 return false;
             }
 
             return data === true;
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error in checkUserExists:', err);
+            Alert.alert('Debug Error', 'Crash in checkUserExists: ' + (err.message || JSON.stringify(err)));
             return false;
         }
     };

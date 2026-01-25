@@ -39,6 +39,7 @@ const TrackRidePage = () => {
   const [isCancelling, setIsCancelling] = useState(false);
   const mapRef = useRef<MapView>(null);
   const { user } = useAuth();
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // Fetch booking and set up subscriptions
   useEffect(() => {
@@ -63,14 +64,15 @@ const TrackRidePage = () => {
         setCurrentBooking(data);
         
         // Set initial driver location if available
-        if (data.driver?.current_latitude && data.driver?.current_longitude) {
+        // Set initial driver location if available
+        if ((data.driver as any)?.current_latitude && (data.driver as any)?.current_longitude) {
           console.log('[TRACK-RIDE] Setting initial driver location:', {
-            lat: data.driver.current_latitude,
-            lng: data.driver.current_longitude
+            lat: (data.driver as any).current_latitude,
+            lng: (data.driver as any).current_longitude
           });
           setDriverLocation({
-            latitude: parseFloat(data.driver.current_latitude),
-            longitude: parseFloat(data.driver.current_longitude),
+            latitude: parseFloat((data.driver as any).current_latitude),
+            longitude: parseFloat((data.driver as any).current_longitude),
           });
         } else {
           console.log('[TRACK-RIDE] No driver location in booking data');
@@ -334,8 +336,13 @@ const TrackRidePage = () => {
         >
           {/* Status Badge */}
           <View className="items-center mb-4">
-            <View className={`${status.color} px-4 py-2 rounded-full`}>
+            <View className={`${status.color} px-4 py-2 rounded-full mb-2`}>
               <Text className="text-white font-JakartaSemiBold">{status.text}</Text>
+            </View>
+            <View className="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
+                <Text className="text-xs font-JakartaBold text-gray-500">
+                    Ride ID: #{bookingId?.slice(-6).toUpperCase()}
+                </Text>
             </View>
           </View>
 
@@ -427,7 +434,14 @@ const TrackRidePage = () => {
                 or we can add a persistent button here if not paid. */}
             {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
                <TouchableOpacity
-                  onPress={() => router.push({ pathname: "/pay-booking", params: { bookingId: booking.id } })}
+                  onPress={() => {
+                      if (isNavigating) return;
+                      setIsNavigating(true);
+                      router.push({ pathname: "/pay-booking", params: { bookingId: booking.id } });
+                      // Reset after delay to allow navigation to happen
+                      setTimeout(() => setIsNavigating(false), 2000);
+                  }}
+                  disabled={isNavigating}
                   className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
                >
                   <View className="flex-row items-center">

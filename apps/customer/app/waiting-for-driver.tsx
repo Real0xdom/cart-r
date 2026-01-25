@@ -229,7 +229,7 @@ const WaitingForDriverPage = () => {
 
   // Handle retry with increased price
   const handleRetrySearch = useCallback(async () => {
-    if (!bookingId) return;
+    if (!bookingId || isRetrying) return;
 
     setIsRetrying(true);
 
@@ -287,6 +287,15 @@ const WaitingForDriverPage = () => {
       useView={false}
     >
       <View className="flex-1">
+        {/* Ride ID Badge */}
+        <View className="items-center mb-2">
+            <View className="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
+                <Text className="text-xs font-JakartaBold text-gray-500">
+                    Ride ID: #{bookingId?.slice(-6).toUpperCase()}
+                </Text>
+            </View>
+        </View>
+
         {/* Driver Accepted State */}
         {driverAccepted && booking?.driver ? (
           <View>
