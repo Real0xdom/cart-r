@@ -8,6 +8,7 @@ import { router } from "expo-router";
 import { useState, useCallback, useEffect } from "react";
 import { Text, View, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { isLocationSupported } from "@/lib/serviceArea";
 
 const FindRide = () => {
   const {
@@ -26,6 +27,7 @@ const FindRide = () => {
     setFetchingLocation(true);
     try {
       await getCurrentLocation();
+      // Note: Location validation happens in useEffect when userLatitude/userLongitude changes
     } catch (error) {
       console.error("Error fetching current location:", error);
     } finally {
@@ -51,10 +53,33 @@ const FindRide = () => {
 
   const handleNext = () => {
     if (userAddress && destinationAddress) {
-      // Go to step 2: receiver details
+      // Service area already validated - proceed to receiver details
       router.push("/receiver-details");
     }
   };
+
+  // Validate service area when user location changes
+  useEffect(() => {
+    const validateServiceArea = async () => {
+      if (!userAddress) return; // No location selected yet
+
+      const { userLatitude, userLongitude } = useLocationStore.getState();
+      if (!userLatitude || !userLongitude) return;
+
+      console.log('[FIND RIDE] Checking service area for:', userAddress);
+      const result = await isLocationSupported(userLatitude, userLongitude);
+
+      if (!result.supported && !result.error) {
+        // Location is not supported - show friendly message
+        console.log('[FIND RIDE] Location not supported, redirecting to notification screen');
+        router.replace('/service-not-available');
+      } else if (result.supported) {
+        console.log('[FIND RIDE] Location is supported:', result.area?.name);
+      }
+    };
+
+    validateServiceArea();
+  }, [userAddress]); // Check whenever pickup address changes
 
   const isLoading = isLoadingLocation || fetchingLocation;
   const canProceed = userAddress && destinationAddress;
@@ -165,6 +190,16 @@ const FindRide = () => {
         bgVariant={canProceed ? "primary" : "secondary"}
         disabled={!canProceed}
       />
+
+      {/* Optional: Show service area info */}
+      <View className="mt-4 p-3 bg-green-50 rounded-xl border border-green-100">
+        <View className="flex-row items-center">
+          <Feather name="check-circle" size={16} color="#4CAF50" />
+          <Text className="ml-2 text-xs text-green-700 font-JakartaMedium">
+            Location validated for service availability
+          </Text>
+        </View>
+      </View>
     </RideLayout>
   );
 };

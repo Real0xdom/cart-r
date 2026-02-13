@@ -20,6 +20,7 @@ import CustomButton from "@/components/CustomButton";
 import { images } from "@/constants";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { TermsCheckbox } from "@/components/TermsCheckbox";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,6 +34,9 @@ const CustomerSignIn = () => {
     const [loading, setLoading] = useState(false);
     const [checkingUser, setCheckingUser] = useState(false);
     const [formattedPhoneNumber, setFormattedPhoneNumber] = useState("");
+    const [showTermsModal, setShowTermsModal] = useState(false);
+    const [termsAccepted, setTermsAccepted] = useState(false);
+    const [userId, setUserId] = useState<string | null>(null);
 
     const phoneInputRef = useRef<TextInput>(null);
     const otpInputRef = useRef<TextInput>(null);
@@ -126,10 +130,74 @@ const CustomerSignIn = () => {
             if (error) {
                 Alert.alert("Error", error.message);
             } else {
-                router.replace("/(tabs)/home");
+                // Check if user has accepted latest terms
+                const { data: sessionData } = await supabase.auth.getSession();
+                if (sessionData?.session?.user) {
+                    const userId = sessionData.session.user.id;
+                    setUserId(userId);
+
+                    const { data: hasAccepted, error: termsError } = await supabase.rpc(
+                        'has_accepted_latest_terms',
+                        {
+                            p_user_id: userId,
+                            p_terms_version: 'v1.0'
+                        }
+                    );
+
+                    if (termsError) {
+                        console.error('Error checking terms acceptance:', termsError);
+                        // Continue anyway, don't block user
+                        router.replace("/(tabs)/home");
+                    } else if (!hasAccepted) {
+                        // Show terms modal - block user until accepted
+                        setShowTermsModal(true);
+                    } else {
+                        // Terms already accepted
+                        router.replace("/(tabs)/home");
+                    }
+                } else {
+                    router.replace("/(tabs)/home");
+                }
             }
         } catch (err: any) {
             Alert.alert("Error", err.message || "Invalid OTP");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Accept terms for existing user
+    const onAcceptTerms = async () => {
+        if (!termsAccepted) {
+            return Alert.alert("Error", "Please accept the Terms & Conditions to continue");
+        }
+
+        if (!userId) {
+            return Alert.alert("Error", "User session not found");
+        }
+
+        setLoading(true);
+
+        try {
+            const { error } = await supabase.rpc('record_terms_acceptance', {
+                p_user_id: userId,
+                p_terms_version: 'v1.0',
+                p_ip_address: null,
+                p_user_agent: null,
+                p_device_info: null
+            });
+
+            if (error) {
+                console.error('Error recording terms acceptance:', error);
+                Alert.alert("Error", "Failed to record terms acceptance. Please try again.");
+                setLoading(false);
+                return;
+            }
+
+            // Success - navigate to home
+            router.replace("/(tabs)/home");
+        } catch (err: any) {
+            Alert.alert("Error", err.message || "Failed to accept terms");
         } finally {
             setLoading(false);
         }

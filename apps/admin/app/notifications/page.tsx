@@ -521,8 +521,7 @@ export default function NotificationsPage() {
                                             }`}>
                                                 <div className="flex gap-3">
                                                     <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
-                                                        <img src="/logo.png" alt="App" className="w-6 h-6 opacity-80" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                                                        <span className="text-white font-bold text-xs" style={{ display: 'none' }}>CR</span>
+                                                        <Bell className="text-white" size={20} />
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex justify-between items-start">

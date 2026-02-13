@@ -10,6 +10,8 @@ interface PaymentConfirmationModalProps {
   visible: boolean;
   bookingId: string;
   amount: number;
+  driverName?: string;
+  driverId?: string;
   onConfirm: () => void;
   onSkip: () => void;
 }

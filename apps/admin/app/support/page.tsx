@@ -42,7 +42,7 @@ export default function SupportPage() {
         .from('support_tickets')
         .select(`
           *,
-          user:users(name, email, role)
+          user:users!support_tickets_user_id_fkey(name, email, role)
         `)
         .order('created_at', { ascending: false });
 

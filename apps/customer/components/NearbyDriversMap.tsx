@@ -1,9 +1,10 @@
 // Nearby Drivers Map Component for Customer App Home
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, ActivityIndicator, Animated } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { findNearbyDrivers, estimateETA } from '@/lib/tracking';
+import { getActiveVehicleTypes, getVehicleIcon, VehicleType } from '@/lib/vehicleTypes';
 
 const { width, height } = Dimensions.get('window');
 const ASPECT_RATIO = width / height;
@@ -27,12 +28,7 @@ interface NearbyDriversMapProps {
   onRegionChange?: (region: Region) => void;
 }
 
-const vehicleEmojis: Record<string, string> = {
-  bike: '🏍️',
-  tempo: '🛺',
-  sedan: '🚗',
-  truck: '🚚',
-};
+
 
 const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
   vehicleTypeFilter,
@@ -44,6 +40,26 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
   const [nearbyDrivers, setNearbyDrivers] = useState<NearbyDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Vehicle specifications from database
+  const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+  
+  // Animation refs for each driver marker
+  const driverAnimations = useRef<Record<string, {
+    pulse: Animated.Value;
+    opacity: Animated.Value;
+  }>>({});
+
+  // Fetch vehicle specifications from database
+  useEffect(() => {
+    const fetchVehicleSpecs = async () => {
+      const { data, error } = await getActiveVehicleTypes();
+      if (data && !error) {
+        setVehicleSpecs(data);
+      }
+    };
+    fetchVehicleSpecs();
+  }, []);
 
   // Get user location and nearby drivers on mount
   useEffect(() => {
@@ -104,6 +120,49 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
     }
   };
 
+  // Initialize animations for new drivers
+  useEffect(() => {
+    nearbyDrivers.forEach(driver => {
+      if (!driverAnimations.current[driver.id]) {
+        // Create new animation values
+        const pulse = new Animated.Value(1);
+        const opacity = new Animated.Value(0);
+        
+        driverAnimations.current[driver.id] = { pulse, opacity };
+        
+        // Fade in
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+        
+        // Start pulse animation
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(pulse, {
+              toValue: 1.2,
+              duration: 1500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulse, {
+              toValue: 1,
+              duration: 1500,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+      }
+    });
+    
+    // Clean up animations for drivers that are no longer nearby
+    Object.keys(driverAnimations.current).forEach(driverId => {
+      if (!nearbyDrivers.find(d => d.id === driverId)) {
+        delete driverAnimations.current[driverId];
+      }
+    });
+  }, [nearbyDrivers]);
+
   // Refresh drivers every 30 seconds
   useEffect(() => {
     if (!userLocation) return;
@@ -158,23 +217,39 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
         onRegionChangeComplete={handleRegionChange}
         customMapStyle={darkMapStyle}
       >
-        {/* Nearby Driver Markers */}
-        {nearbyDrivers.map((driver) => (
-          <Marker
-            key={driver.id}
-            coordinate={{
-              latitude: driver.latitude,
-              longitude: driver.longitude,
-            }}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.driverMarker}>
-              <Text style={styles.driverEmoji}>
-                {vehicleEmojis[driver.vehicle_type] || '🚗'}
-              </Text>
-            </View>
-          </Marker>
-        ))}
+        {/* Nearby Driver Markers - Now Animated */}
+        {nearbyDrivers.map((driver) => {
+          const animation = driverAnimations.current[driver.id];
+          const vehicleIcon = getVehicleIcon(driver.vehicle_type, vehicleSpecs);
+          
+          return (
+            <Marker
+              key={driver.id}
+              coordinate={{
+                latitude: driver.latitude,
+                longitude: driver.longitude,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false} // Improve performance
+            >
+              {animation && (
+                <Animated.View 
+                  style={[
+                    styles.driverMarker,
+                    {
+                      transform: [{ scale: animation.pulse }],
+                      opacity: animation.opacity,
+                    }
+                  ]}
+                >
+                  <Text style={styles.driverEmoji}>
+                    {vehicleIcon}
+                  </Text>
+                </Animated.View>
+              )}
+            </Marker>
+          );
+        })}
       </MapView>
 
       {/* Drivers Count Badge */}

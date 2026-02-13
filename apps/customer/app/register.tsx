@@ -16,6 +16,7 @@ import { Feather, MaterialIcons } from "@expo/vector-icons";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { TermsCheckbox } from "@/components/TermsCheckbox";
 
 const RegisterScreen = () => {
     const params = useLocalSearchParams<{ phone: string }>();
@@ -26,6 +27,7 @@ const RegisterScreen = () => {
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [email, setEmail] = useState("");
+    const [termsAccepted, setTermsAccepted] = useState(false);
     const [whatsappUpdates, setWhatsappUpdates] = useState(true);
     const [otp, setOtp] = useState("");
     const [step, setStep] = useState<'register' | 'otp'>('register');
@@ -37,7 +39,8 @@ const RegisterScreen = () => {
         return firstName.trim().length > 0 && 
                lastName.trim().length > 0 && 
                email.trim().length > 0 &&
-               email.includes('@');
+               email.includes('@') &&
+               termsAccepted; // Must accept terms
     };
 
     const onRegisterPress = async () => {
@@ -126,6 +129,27 @@ const RegisterScreen = () => {
                     }
                 }
 
+                // Record terms acceptance
+                try {
+                    const { error: termsError } = await supabase.rpc('record_terms_acceptance', {
+                        p_user_id: data.user.id,
+                        p_terms_version: 'v1.0',
+                        p_ip_address: null, // IP tracking optional
+                        p_user_agent: null, // User agent optional  
+                        p_device_info: null // Device info optional
+                    });
+
+                    if (termsError) {
+                        console.error('Error recording terms acceptance:', termsError);
+                        // Don't block signup if this fails, just log it
+                    } else {
+                        console.log('Terms acceptance recorded successfully');
+                    }
+                } catch (termsErr: any) {
+                    console.error('Exception recording terms:', termsErr);
+                    // Non-blocking
+                }
+
                 // Success - navigate directly to home (no alert)
                 router.replace("/(tabs)/home");
             }
@@ -200,6 +224,13 @@ const RegisterScreen = () => {
                         autoCapitalize="none"
                     />
                 </View>
+
+                {/* Terms & Conditions Checkbox */}
+                <TermsCheckbox
+                    checked={termsAccepted}
+                    onCheckedChange={setTermsAccepted}
+                    className="mb-4"
+                />
 
                 {/* WhatsApp Updates Checkbox */}
                 <TouchableOpacity 

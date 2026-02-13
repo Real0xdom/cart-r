@@ -19,6 +19,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
+import { WaitingTimer } from "@/components/WaitingTimer";
 import type { Booking } from "@/types/type";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -378,6 +379,15 @@ const TrackRidePage = () => {
                 </TouchableOpacity>
               </View>
             </View>
+          )}
+
+          {/* Waiting Timer - show when driver has arrived */}
+          {booking?.status === 'driver_arrived' && booking?.driver_arrived_at && (
+            <WaitingTimer
+              driverArrivedAt={booking.driver_arrived_at}
+              freeWaitingMinutes={booking.free_waiting_time_minutes || 5}
+              waitingChargePerMinute={booking.waiting_charge_per_minute || 2}
+            />
           )}
 
           {/* Trip Info */}

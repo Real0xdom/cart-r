@@ -4,6 +4,7 @@ import { useLocationStore, useRideStore, useBookingStore } from "@/store";
 import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
+import { getActiveVehicleTypes, getVehicleIcon, getVehicleDescription, VehicleType } from "@/lib/vehicleTypes";
 import { 
   Text, 
   View, 
@@ -18,6 +19,8 @@ import Slider from "@react-native-community/slider";
 import { calculateFares, FareEstimate } from "@/lib/fare";
 import { createBooking } from "@/lib/bookings";
 import { payWithWallet, getWalletBalance, calculatePaymentSplit } from "@/lib/walletPayment";
+import { AddonSelector, AddonService } from "@/components/AddonSelector";
+import { getApplicableAddons, calculateAddonCharges, addAddonToBooking } from "@/lib/addonUtils";
 
 const SelectVehiclePage = () => {
   const { profile } = useAuth();
@@ -39,6 +42,13 @@ const SelectVehiclePage = () => {
   const [tipAmount, setTipAmount] = useState(0);
   const [isBooking, setIsBooking] = useState(false);
   
+  // Vehicle specifications from database
+  const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+  
+  // Addon services
+  const [availableAddons, setAvailableAddons] = useState<AddonService[]>([]);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  
   // Wallet payment state
   const [walletBalance, setWalletBalance] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | 'partial_wallet'>('cash');
@@ -55,6 +65,20 @@ const SelectVehiclePage = () => {
       return;
     }
   }, [userAddress, destinationAddress, receiverDetails]);
+
+  // Fetch vehicle specifications from database
+  useEffect(() => {
+    const fetchVehicleSpecs = async () => {
+      const { data, error } = await getActiveVehicleTypes();
+      if (data && !error) {
+        setVehicleSpecs(data);
+        console.log('[SELECT VEHICLE] Loaded vehicle specs from database:', data.length);
+      } else {
+        console.error('[SELECT VEHICLE] Failed to load vehicle specs:', error);
+      }
+    };
+    fetchVehicleSpecs();
+  }, []);
 
   useEffect(() => {
     const fetchFares = async () => {
@@ -93,14 +117,36 @@ const SelectVehiclePage = () => {
 
   // Fetch wallet balance
   useEffect(() => {
-    const fetchBalance = async () => {
+    const fetchWallet = async () => {
       if (profile?.id) {
         const balance = await getWalletBalance(profile.id);
         setWalletBalance(balance);
       }
     };
-    fetchBalance();
-  }, [profile?.id]);
+    fetchWallet();
+  }, [profile]);
+
+  // Fetch addons when vehicle is selected
+  useEffect(() => {
+    const fetchAddonsForVehicle = async () => {
+      if (!selectedVehicle) {
+        setAvailableAddons([]);
+        setSelectedAddonIds([]);
+        return;
+      }
+
+      const { data, error } = await getApplicableAddons(selectedVehicle.vehicle_type);
+      if (data && !error) {
+        setAvailableAddons(data);
+        console.log('[SELECT VEHICLE] Loaded addons for', selectedVehicle.vehicle_type, ':', data.length);
+      } else {
+        console.error('[SELECT VEHICLE] Failed to load addons:', error);
+        setAvailableAddons([]);
+      }
+    };
+
+    fetchAddonsForVehicle();
+  }, [selectedVehicle]);
 
   const handleSelectVehicle = (vehicle: FareEstimate) => {
     setSelectedVehicle(vehicle);
@@ -151,23 +197,41 @@ const SelectVehiclePage = () => {
         destinationLongitude: destinationLongitude,
         vehicle: selectedVehicle,
         receiverDetails: receiverDetails,
-        tipAmount: tipAmount,
-        // payment_method: paymentMethod // If backend supports it on creation
+        paymentMethod: paymentMethod === 'cash' ? 'cash' : 'wallet',
+        tip_amount: tipAmount,
+        addon_charges: addonCharges, // Include addon charges
       };
 
       // 2. Create Booking
-      const { data: booking, error } = await createBooking(bookingParams);
+      const { data, error } = await createBooking(bookingParams);
 
-      if (error || !booking) {
-        throw new Error(error || "Failed to create booking");
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
       }
 
+      if (!data) {
+        Alert.alert("Error", "Failed to create booking");
+        return;
+      }
+
+      // Add selected addons to booking
+      if (selectedAddonIds.length > 0) {
+        console.log('[SELECT VEHICLE] Adding', selectedAddonIds.length, 'addons to booking');
+        for (const addonId of selectedAddonIds) {
+          const { error: addonError } = await addAddonToBooking(data.id, addonId);
+          if (addonError) {
+            console.error('[SELECT VEHICLE] Failed to add addon:', addonError);
+            // Non-blocking - continue even if addon fails
+          }
+        }
+      }
       // 3. Process Payment if Wallet selected
       if (paymentMethod === 'wallet' || paymentMethod === 'partial_wallet') {
-          console.log(`[PAYMENT] Processing ${paymentMethod} payment for booking ${booking.id}`);
+          console.log(`[PAYMENT] Processing ${paymentMethod} payment for booking ${data.id}`);
           
           const result = await payWithWallet(
-              booking.id, 
+              data.id, 
               profile.id, 
               paymentMethod === 'wallet' // true for full, false for partial
           );
@@ -186,10 +250,10 @@ const SelectVehiclePage = () => {
       }
 
       // 4. Navigate to next screen
-      setCurrentBooking(booking);
+      setCurrentBooking(data);
       router.replace({
         pathname: "/waiting-for-driver",
-        params: { bookingId: booking.id },
+        params: { bookingId: data.id },
       });
 
     } catch (err: any) {
@@ -201,27 +265,11 @@ const SelectVehiclePage = () => {
     }
   };
 
-  const getVehicleIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'bike': return '🏍️';
-      case 'tempo': return '🛺';
-      case 'sedan': return '🚗';
-      case 'truck': return '🚚';
-      default: return '🚗';
-    }
-  };
+  // Vehicle icon and description now come from database via vehicleSpecs
+  // No hardcoding - fully backend-driven
 
-  const getVehicleDescription = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'bike': return 'Small packages up to 20kg';
-      case 'tempo': return 'Medium loads up to 500kg';
-      case 'sedan': return 'Furniture & appliances';
-      case 'truck': return 'Heavy goods moving';
-      default: return 'Standard delivery';
-    }
-  };
-
-  const totalFare = selectedVehicle ? selectedVehicle.total_fare + tipAmount : 0;
+  const addonCharges = calculateAddonCharges(selectedAddonIds, availableAddons);
+  const totalFare = selectedVehicle ? selectedVehicle.total_fare + tipAmount + addonCharges : 0;
   
   // Calculate payment split for wallet
   const paymentSplit = selectedVehicle 
@@ -238,7 +286,7 @@ const SelectVehiclePage = () => {
       }`}
     >
       <View className="w-12 h-12 bg-gray-50 rounded-full items-center justify-center mr-3">
-        <Text className="text-xl">{getVehicleIcon(item.vehicle_type)}</Text>
+        <Text className="text-xl">{getVehicleIcon(item.vehicle_type, vehicleSpecs)}</Text>
       </View>
       
       <View className="flex-1">
@@ -246,7 +294,7 @@ const SelectVehiclePage = () => {
           {item.vehicle_type}
         </Text>
         <Text className="text-xs text-gray-500 font-JakartaMedium">
-          {getVehicleDescription(item.vehicle_type)}
+          {getVehicleDescription(item.vehicle_type, vehicleSpecs)}
         </Text>
         <Text className="text-xs text-gray-400 mt-0.5">
           {item.duration_minutes} min • {item.distance_km} km
