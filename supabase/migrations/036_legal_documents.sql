@@ -18,6 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_legal_documents_type ON public.legal_documents(ty
 ALTER TABLE public.legal_documents ENABLE ROW LEVEL SECURITY;
 
 -- Allow service role full access
+-- Allow service role full access
+DROP POLICY IF EXISTS "Service role full access on legal_documents" ON public.legal_documents;
 CREATE POLICY "Service role full access on legal_documents"
   ON public.legal_documents
   FOR ALL
@@ -25,6 +27,7 @@ CREATE POLICY "Service role full access on legal_documents"
   WITH CHECK (true);
 
 -- Allow authenticated users to read published documents
+DROP POLICY IF EXISTS "Authenticated users can read published legal docs" ON public.legal_documents;
 CREATE POLICY "Authenticated users can read published legal docs"
   ON public.legal_documents
   FOR SELECT

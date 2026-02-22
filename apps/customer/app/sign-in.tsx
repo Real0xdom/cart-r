@@ -19,6 +19,7 @@ import { Feather, MaterialIcons } from "@expo/vector-icons";
 import CustomButton from "@/components/CustomButton";
 import { images } from "@/constants";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/lib/supabase";
 import { TermsCheckbox } from "@/components/TermsCheckbox";
 
@@ -26,6 +27,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const CustomerSignIn = () => {
     const { signInWithPhone, verifyOtp } = useAuth();
+    const { t } = useLanguage();
 
     const [phone, setPhone] = useState("");
     const [otp, setOtp] = useState("");
@@ -53,7 +55,7 @@ const CustomerSignIn = () => {
             
             if (!supabase) {
                 console.error('[SignIn] Supabase client is undefined!');
-                Alert.alert('System Error', 'Database connection not initialized');
+                Alert.alert(t('error'), 'Database connection not initialized');
                 return false;
             }
 
@@ -81,7 +83,7 @@ const CustomerSignIn = () => {
     // Step 1: Check if user exists, then either send OTP or go to registration
     const onLoginPress = async () => {
         if (!phone || phone.length < 10) {
-            return Alert.alert("Error", "Please enter a valid 10-digit phone number");
+            return Alert.alert(t("error"), t("enterValidPhone"));
         }
 
         const formatted = formatPhone(phone);
@@ -97,9 +99,9 @@ const CustomerSignIn = () => {
                 setLoading(true);
                 const { error } = await signInWithPhone(formatted);
                 if (error) {
-                    Alert.alert("Error", error.message);
+                    Alert.alert(t("error"), error.message);
                 } else {
-                    Alert.alert("OTP Sent", `We've sent a verification code to ${formatted}`);
+                    Alert.alert(t("otpSent"), `${t("otpSentTo")} ${formatted}`);
                     setStep('otp');
                 }
             } else {
@@ -118,31 +120,42 @@ const CustomerSignIn = () => {
     };
 
     // Step 2: Verify OTP for existing users
+    // Step 2: Verify OTP for existing users
     const onVerifyOtpPress = async () => {
         if (!otp || otp.length !== 6) {
-            return Alert.alert("Error", "Please enter the 6-digit OTP");
+            return Alert.alert(t("error"), t("enterSixDigitOtp"));
         }
 
         setLoading(true);
+        console.log('[SignIn] Verifying OTP for:', formattedPhoneNumber);
 
         try {
             const { error } = await verifyOtp(formattedPhoneNumber, otp);
+            console.log('[SignIn] verifyOtp result error:', error);
+
             if (error) {
-                Alert.alert("Error", error.message);
+                Alert.alert(t("error"), error.message);
             } else {
+                console.log('[SignIn] OTP verified successfully. Checking session...');
+                
                 // Check if user has accepted latest terms
                 const { data: sessionData } = await supabase.auth.getSession();
+                console.log('[SignIn] Session user id:', sessionData?.session?.user?.id);
+
                 if (sessionData?.session?.user) {
                     const userId = sessionData.session.user.id;
                     setUserId(userId);
 
+                    console.log('[SignIn] Checking terms acceptance for user:', userId);
                     const { data: hasAccepted, error: termsError } = await supabase.rpc(
                         'has_accepted_latest_terms',
                         {
                             p_user_id: userId,
-                            p_terms_version: 'v1.0'
+                            p_required_version: 'v1.0'
                         }
                     );
+                    
+                    console.log('[SignIn] has_accepted_latest_terms result:', { hasAccepted, termsError });
 
                     if (termsError) {
                         console.error('Error checking terms acceptance:', termsError);
@@ -150,17 +163,21 @@ const CustomerSignIn = () => {
                         router.replace("/(tabs)/home");
                     } else if (!hasAccepted) {
                         // Show terms modal - block user until accepted
+                        console.log('[SignIn] Terms not accepted, showing modal');
                         setShowTermsModal(true);
                     } else {
                         // Terms already accepted
+                        console.log('[SignIn] Terms accepted, navigating to home');
                         router.replace("/(tabs)/home");
                     }
                 } else {
+                    console.log('[SignIn] No user in session, navigating to home anyway (fallback)');
                     router.replace("/(tabs)/home");
                 }
             }
         } catch (err: any) {
-            Alert.alert("Error", err.message || "Invalid OTP");
+            console.error('[SignIn] Exception in onVerifyOtpPress:', err);
+            Alert.alert(t("error"), err.message || "Invalid OTP");
         } finally {
             setLoading(false);
         }
@@ -169,11 +186,11 @@ const CustomerSignIn = () => {
     // Accept terms for existing user
     const onAcceptTerms = async () => {
         if (!termsAccepted) {
-            return Alert.alert("Error", "Please accept the Terms & Conditions to continue");
+            return Alert.alert(t("error"), t("pleaseAcceptTerms"));
         }
 
         if (!userId) {
-            return Alert.alert("Error", "User session not found");
+            return Alert.alert(t("error"), "User session not found");
         }
 
         setLoading(true);
@@ -189,7 +206,7 @@ const CustomerSignIn = () => {
 
             if (error) {
                 console.error('Error recording terms acceptance:', error);
-                Alert.alert("Error", "Failed to record terms acceptance. Please try again.");
+                Alert.alert(t("error"), "Failed to record terms acceptance. Please try again.");
                 setLoading(false);
                 return;
             }
@@ -197,7 +214,7 @@ const CustomerSignIn = () => {
             // Success - navigate to home
             router.replace("/(tabs)/home");
         } catch (err: any) {
-            Alert.alert("Error", err.message || "Failed to accept terms");
+            Alert.alert(t("error"), err.message || "Failed to accept terms");
         } finally {
             setLoading(false);
         }
@@ -217,10 +234,10 @@ const CustomerSignIn = () => {
             {/* Welcome Text */}
             <View className="items-center px-6 mt-4">
                 <Text className="text-3xl font-JakartaBold text-gray-900 mb-2">
-                    Welcome to CartR
+                    {t("welcomeToCartR")}
                 </Text>
                 <Text className="text-base text-gray-500 text-center font-JakartaMedium">
-                    Log in with your valid phone number
+                    {t("loginWithPhone")}
                 </Text>
             </View>
 
@@ -229,14 +246,14 @@ const CustomerSignIn = () => {
                 {/* Country Code & Phone Input */}
                 <View className="mb-4">
                     <Text className="text-sm font-JakartaSemiBold text-gray-600 mb-2 ml-1">
-                        Mobile Number
+                        {t("mobileNumber")}
                     </Text>
                     <View className="flex-row items-center bg-gray-100 rounded-2xl overflow-hidden border border-gray-200">
                         {/* Country Code Selector */}
                         <TouchableOpacity 
                             className="flex-row items-center px-4 py-4 bg-gray-50 border-r border-gray-200"
                             onPress={() => {
-                                Alert.alert("Country", "Currently only India (+91) is supported");
+                                Alert.alert("Country", t("countryIndiaOnly"));
                             }}
                         >
                             <Text className="text-lg mr-1">🇮🇳</Text>
@@ -248,7 +265,7 @@ const CustomerSignIn = () => {
                         <TextInput
                             ref={phoneInputRef}
                             className="flex-1 px-4 py-4 text-lg font-JakartaSemiBold"
-                            placeholder="Enter phone number"
+                            placeholder={t("enterPhoneNumber")}
                             placeholderTextColor="#9CA3AF"
                             value={phone}
                             onChangeText={setPhone}
@@ -271,18 +288,18 @@ const CustomerSignIn = () => {
                         <View className="flex-row items-center">
                             <ActivityIndicator color="#fff" size="small" />
                             <Text className="text-white font-JakartaBold text-lg ml-2">
-                                {checkingUser ? "Checking..." : "Sending OTP..."}
+                                {checkingUser ? t("checking") : t("sendingOtp")}
                             </Text>
                         </View>
                     ) : (
                         <Text className="text-white font-JakartaBold text-lg">
-                            Continue
+                            {t("continue")}
                         </Text>
                     )}
                 </TouchableOpacity>
 
                 <Text className="text-center text-gray-400 text-xs mt-4 font-Jakarta">
-                    By continuing, you agree to our Terms of Service and Privacy Policy
+                    {t("termsAgree")}
                 </Text>
             </View>
         </View>
@@ -299,10 +316,10 @@ const CustomerSignIn = () => {
 
             {/* Title */}
             <Text className="text-2xl font-JakartaBold text-gray-900 text-center mb-2">
-                Verify your number
+                {t("verifyYourNumber")}
             </Text>
             <Text className="text-gray-500 text-center font-JakartaMedium mb-8">
-                Enter the 6-digit code sent to{'\n'}
+                {t("enterCodeSentTo")}{'\n'}
                 <Text className="font-JakartaBold text-gray-700">{formattedPhoneNumber}</Text>
             </Text>
 
@@ -334,12 +351,12 @@ const CustomerSignIn = () => {
                     <View className="flex-row items-center">
                         <ActivityIndicator color="#fff" size="small" />
                         <Text className="text-white font-JakartaBold text-lg ml-2">
-                            Verifying...
+                            {t("verifying")}
                         </Text>
                     </View>
                 ) : (
                     <Text className="text-white font-JakartaBold text-lg">
-                        Verify & Continue
+                        {t("verifyAndContinue")}
                     </Text>
                 )}
             </TouchableOpacity>
@@ -347,22 +364,22 @@ const CustomerSignIn = () => {
             {/* Resend OTP */}
             <View className="flex-row justify-center mt-6">
                 <Text className="text-gray-500 font-Jakarta">
-                    Didn't receive code?{" "}
+                    {t("didntReceiveCode")}{" "}
                 </Text>
                 <TouchableOpacity 
                     onPress={() => {
                         setLoading(true);
                         signInWithPhone(formattedPhoneNumber)
                             .then(({ error }) => {
-                                if (error) Alert.alert("Error", error.message);
-                                else Alert.alert("OTP Sent", "New code sent!");
+                                if (error) Alert.alert(t("error"), error.message);
+                                else Alert.alert(t("otpSent"), t("newCodeSent"));
                             })
                             .finally(() => setLoading(false));
                     }}
                     disabled={loading}
                 >
                     <Text className="text-success-500 font-JakartaSemiBold">
-                        Resend OTP
+                        {t("resendOtp")}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -378,11 +395,51 @@ const CustomerSignIn = () => {
                 <ScrollView 
                     className="flex-1"
                     contentContainerStyle={{ flexGrow: 1 }}
-                    keyboardShouldPersistTaps="handled"
+                    keyboardShouldPersistTaps="always"
                 >
                     {step === 'phone' ? renderPhoneStep() : renderOtpStep()}
                 </ScrollView>
             </KeyboardAvoidingView>
+
+            {/* Terms Acceptance Modal - Absolute Positioned Overlay */}
+            {showTermsModal && (
+                <View className="absolute top-0 bottom-0 left-0 right-0 bg-black/50 z-50 justify-end">
+                    <View className="bg-white rounded-t-3xl p-6 pb-10 shadow-2xl">
+                        <Text className="text-2xl font-JakartaBold text-gray-900 mb-2">
+                            {t("updateTerms")}
+                        </Text>
+                        <Text className="text-gray-600 font-JakartaMedium mb-6 leading-6">
+                            {t("termsModalMessage")}
+                        </Text>
+
+                        {/* Custom Terms Checkbox */}
+                        <TouchableOpacity 
+                            onPress={() => setTermsAccepted(!termsAccepted)}
+                            className="flex-row items-center mb-8"
+                            activeOpacity={0.8}
+                        >
+                            <View className={`w-6 h-6 rounded border-2 mr-3 items-center justify-center ${
+                                termsAccepted ? 'bg-success-500 border-success-500' : 'border-gray-300'
+                            }`}>
+                                {termsAccepted && <Feather name="check" size={14} color="white" />}
+                            </View>
+                            <Text className="flex-1 text-gray-700 font-JakartaMedium">
+                                {t("iAgreeTerms")}{' '}
+                                <Text className="text-success-500 font-JakartaBold underline">{t("termsAndConditions")}</Text>
+                            </Text>
+                        </TouchableOpacity>
+                        
+                        <CustomButton 
+                            title={t("acceptAndContinue")}
+                            onPress={onAcceptTerms}
+                            bgVariant={termsAccepted ? "success" : "secondary"}
+                            // @ts-ignore
+                            disabled={!termsAccepted || loading}
+                            className={!termsAccepted ? "opacity-50" : ""}
+                        />
+                    </View>
+                </View>
+            )}
         </SafeAreaView>
     );
 };

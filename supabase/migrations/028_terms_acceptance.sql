@@ -31,11 +31,14 @@ ON public.user_terms_acceptance(terms_version);
 ALTER TABLE public.user_terms_acceptance ENABLE ROW LEVEL SECURITY;
 
 -- 5. RLS Policies
+-- 5. RLS Policies
+DROP POLICY IF EXISTS "Users can view their own terms acceptance" ON public.user_terms_acceptance;
 CREATE POLICY "Users can view their own terms acceptance"
 ON public.user_terms_acceptance
 FOR SELECT
 USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert their own terms acceptance" ON public.user_terms_acceptance;
 CREATE POLICY "Users can insert their own terms acceptance"
 ON public.user_terms_acceptance
 FOR INSERT

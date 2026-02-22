@@ -19,6 +19,16 @@ interface VehicleSpec {
   updated_at: string;
 }
 
+interface FareConfig {
+  id: string;
+  vehicle_type: string;
+  base_fare: number;
+  per_km_rate: number;
+  per_minute_rate: number;
+  minimum_fare: number;
+  is_active: boolean;
+}
+
 const emptyVehicle: Omit<VehicleSpec, 'id' | 'created_at' | 'updated_at'> = {
   vehicle_type: '',
   display_name: '',
@@ -32,16 +42,38 @@ const emptyVehicle: Omit<VehicleSpec, 'id' | 'created_at' | 'updated_at'> = {
 
 export default function VehicleTypesPage() {
   const [vehicles, setVehicles] = useState<VehicleSpec[]>([]);
+  const [fareConfigs, setFareConfigs] = useState<Map<string, FareConfig>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newVehicle, setNewVehicle] = useState(emptyVehicle);
   const [addingNew, setAddingNew] = useState(false);
   const [suitableForInput, setSuitableForInput] = useState('');
+  const [editingFareId, setEditingFareId] = useState<string | null>(null);
+  const [editingFare, setEditingFare] = useState<FareConfig | null>(null);
 
   useEffect(() => {
     fetchVehicles();
+    fetchFareConfigs();
   }, []);
+
+  async function fetchFareConfigs() {
+    try {
+      const { data, error } = await supabase
+        .from('fare_config')
+        .select('*');
+
+      if (error) throw error;
+      
+      const configMap = new Map();
+      (data || []).forEach(fc => {
+        configMap.set(fc.vehicle_type, fc);
+      });
+      setFareConfigs(configMap);
+    } catch (error: any) {
+      console.error('Failed to load fare configs:', error);
+    }
+  }
 
   async function fetchVehicles() {
     setLoading(true);
@@ -114,11 +146,12 @@ export default function VehicleTypesPage() {
         });
 
       if (error) throw error;
-      toast.success('Vehicle type added!');
+      toast.success('Vehicle type added! Fare config will be auto-created.');
       setShowAddModal(false);
       setNewVehicle(emptyVehicle);
       setSuitableForInput('');
       fetchVehicles();
+      fetchFareConfigs();
     } catch (error: any) {
       toast.error('Failed to add: ' + error.message);
     } finally {
@@ -126,20 +159,75 @@ export default function VehicleTypesPage() {
     }
   };
 
+  const handleSaveFareConfig = async (vehicleType: string) => {
+    if (!editingFare) return;
+    
+    setSaving(vehicleType);
+    try {
+      const { error } = await supabase
+        .from('fare_config')
+        .upsert({
+          ...editingFare,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+      toast.success('Fare config updated!');
+      setEditingFareId(null);
+      setEditingFare(null);
+      fetchFareConfigs();
+    } catch (error: any) {
+      toast.error('Failed to save fare config: ' + error.message);
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) return;
 
     try {
-      const { error } = await supabase
+      // Get the vehicle to find its vehicle_type
+      const vehicle = vehicles.find(v => v.id === id);
+      if (!vehicle) throw new Error('Vehicle not found');
+
+      console.log('[DELETE] Starting deletion of', vehicle.vehicle_type);
+
+      // First, deactivate the fare_config so it won't show to customers
+      console.log('[DELETE] Deactivating fare_config for', vehicle.vehicle_type);
+      const { error: fareError, data: fareData } = await supabase
+        .from('fare_config')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('vehicle_type', vehicle.vehicle_type);
+
+      if (fareError) {
+        console.error('[DELETE] Fare deactivation error:', fareError);
+        throw fareError;
+      }
+      console.log('[DELETE] Fare deactivated successfully', fareData);
+
+      // Then delete the vehicle_specification
+      console.log('[DELETE] Deleting vehicle_specification:', id);
+      const { error: vehicleError, data: vehicleData } = await supabase
         .from('vehicle_specifications')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select(); // Add select() to see what was deleted
 
-      if (error) throw error;
-      toast.success(`${name} deleted`);
+      if (vehicleError) {
+        console.error('[DELETE] Vehicle deletion error:', vehicleError);
+        throw vehicleError;
+      }
+      console.log('[DELETE] Vehicle deleted successfully', vehicleData);
+
+      toast.success(`${name} deleted successfully!`);
       setVehicles(prev => prev.filter(v => v.id !== id));
+      await fetchVehicles(); // Re-fetch full list from database
+      await fetchFareConfigs(); // Refresh fare configs
+      console.log('[DELETE] Deletion complete');
     } catch (error: any) {
-      toast.error('Failed to delete: ' + error.message);
+      console.error('[DELETE] Error:', error);
+      toast.error('Failed to delete: ' + (error.message || JSON.stringify(error)));
     }
   };
 
@@ -230,6 +318,7 @@ export default function VehicleTypesPage() {
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Max Weight (kg)</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Passengers</th>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Suitable For</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Fare Status</th>
                     <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -290,8 +379,34 @@ export default function VehicleTypesPage() {
                           )}
                         </div>
                       </td>
+                      <td className="px-6 py-4">
+                        {fareConfigs.get(v.vehicle_type) ? (
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
+                              ✓ Active
+                            </span>
+                            <span className="text-xs text-gray-600 font-mono">₹{fareConfigs.get(v.vehicle_type)?.base_fare}</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700">
+                            ⚠ No Fare
+                          </span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          {fareConfigs.get(v.vehicle_type) && (
+                            <button
+                              onClick={() => {
+                                setEditingFare(fareConfigs.get(v.vehicle_type) || null);
+                                setEditingFareId(v.vehicle_type);
+                              }}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit fare config"
+                            >
+                              💰
+                            </button>
+                          )}
                           <button
                             onClick={() => handleSave(v.id)}
                             disabled={saving === v.id}
@@ -428,6 +543,108 @@ export default function VehicleTypesPage() {
                 ) : (
                   <>
                     <Plus size={16} /> Add Vehicle
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Fare Config Modal */}
+      {editingFareId && editingFare && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-8 mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Edit Fare Config</h2>
+              <button onClick={() => { setEditingFareId(null); setEditingFare(null); }} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Vehicle Type</label>
+                <input
+                  type="text"
+                  value={editingFare.vehicle_type}
+                  disabled
+                  className="input-field text-sm bg-gray-50 text-gray-600 cursor-not-allowed"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Base Fare (₹)</label>
+                  <input
+                    type="number"
+                    value={editingFare.base_fare}
+                    onChange={(e) => setEditingFare({ ...editingFare, base_fare: Number(e.target.value) })}
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Per KM (₹)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editingFare.per_km_rate}
+                    onChange={(e) => setEditingFare({ ...editingFare, per_km_rate: Number(e.target.value) })}
+                    className="input-field text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Per Minute (₹)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editingFare.per_minute_rate}
+                    onChange={(e) => setEditingFare({ ...editingFare, per_minute_rate: Number(e.target.value) })}
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Minimum Fare (₹)</label>
+                  <input
+                    type="number"
+                    value={editingFare.minimum_fare}
+                    onChange={(e) => setEditingFare({ ...editingFare, minimum_fare: Number(e.target.value) })}
+                    className="input-field text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <input
+                  type="checkbox"
+                  checked={editingFare.is_active}
+                  onChange={(e) => setEditingFare({ ...editingFare, is_active: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <label className="text-sm text-gray-700 font-medium">Active (shown to customers)</label>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => { setEditingFareId(null); setEditingFare(null); }}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSaveFareConfig(editingFareId)}
+                disabled={saving === editingFareId}
+                className="flex-1 btn-primary flex items-center justify-center gap-2"
+              >
+                {saving === editingFareId ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Save size={16} /> Save Fare
                   </>
                 )}
               </button>

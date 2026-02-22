@@ -14,6 +14,8 @@ interface Rating {
   created_at: string;
   booking: {
     booking_number: string;
+    origin_address?: string;
+    destination_address?: string;
   } | null;
   from_user: {
     name: string;
@@ -112,38 +114,18 @@ export default function RatingsPage() {
   async function fetchRatings() {
     setLoading(true);
     try {
-      let query = supabase
-        .from('ratings')
-        .select(`
-          id, booking_id, rating, review, rater_type, created_at,
-          booking:bookings!ratings_booking_id_fkey(booking_number),
-          from_user:users!ratings_from_user_id_fkey(name, email),
-          to_user:users!ratings_to_user_id_fkey(name, email)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(200);
-
-      if (typeFilter !== 'all') {
-        query = query.eq('rater_type', typeFilter);
+      const params = new URLSearchParams();
+      if (typeFilter !== 'all') params.set('type', typeFilter);
+      if (starFilter > 0) params.set('star', String(starFilter));
+      const res = await fetch(`/api/ratings?${params.toString()}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || res.statusText);
       }
-      if (starFilter > 0) {
-        query = query.eq('rating', starFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      
-      // Transform Supabase array relationships to single objects
-      const transformedData = data?.map((rating: any) => ({
-        ...rating,
-        booking: rating.booking?.[0] || null,
-        from_user: rating.from_user?.[0] || null,
-        to_user: rating.to_user?.[0] || null,
-      })) || [];
-      
-      setRatings(transformedData);
+      const data = await res.json();
+      setRatings(Array.isArray(data) ? data : []);
     } catch (error: any) {
-      toast.error('Failed to load ratings: ' + error.message);
+      toast.error('Failed to load ratings: ' + (error.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -282,26 +264,34 @@ export default function RatingsPage() {
                           {r.booking?.booking_number || '—'}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-orange-50 rounded-full flex items-center justify-center">
-                            <User size={14} className="text-orange-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{r.from_user?.name || 'Unknown'}</p>
-                            <p className="text-[10px] text-gray-400">{r.from_user?.email || ''}</p>
-                          </div>
+                      <td className="px-6 py-4 max-w-[220px]">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {r.from_user?.name ?? '—'}
+                          </p>
+                          {r.from_user?.email && (
+                            <p className="text-[10px] text-gray-500 truncate">{r.from_user.email}</p>
+                          )}
+                          {r.booking?.origin_address && (
+                            <p className="text-[10px] text-gray-400 truncate mt-0.5" title={r.booking.origin_address}>
+                              {r.booking.origin_address}
+                            </p>
+                          )}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-blue-50 rounded-full flex items-center justify-center">
-                            <User size={14} className="text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{r.to_user?.name || 'Unknown'}</p>
-                            <p className="text-[10px] text-gray-400">{r.to_user?.email || ''}</p>
-                          </div>
+                      <td className="px-6 py-4 max-w-[220px]">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {r.to_user?.name ?? '—'}
+                          </p>
+                          {r.to_user?.email && (
+                            <p className="text-[10px] text-gray-500 truncate">{r.to_user.email}</p>
+                          )}
+                          {r.booking?.destination_address && (
+                            <p className="text-[10px] text-gray-400 truncate mt-0.5" title={r.booking.destination_address}>
+                              {r.booking.destination_address}
+                            </p>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">

@@ -32,6 +32,7 @@ export interface Booking {
   estimated_distance: number | null;
   estimated_duration: number | null;
   total_fare: number;
+  addon_charges?: number;
   // New fields for tip and fare adjustments
   tip_amount?: number;
   fare_multiplier?: number;
@@ -74,6 +75,13 @@ export interface Booking {
     phone: string;
     avatar_url: string | null;
   };
+  // Addons attached to this booking
+  booking_addons?: Array<{
+    quantity: number;
+    unit_price: number;
+    total_price?: number;
+    addon_services: { name: string; code: string; price: number } | null;
+  }>;
 }
 
 // Fare configuration per vehicle type (in INR)
@@ -215,6 +223,12 @@ export async function getBookingById(bookingId: string): Promise<{ data: Booking
           vehicle_model,
           rating,
           user:users!drivers_user_id_fkey(name, phone, avatar_url)
+        ),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
         )
       `)
       .eq('id', bookingId)
@@ -339,10 +353,18 @@ export async function getAvailableBookings(
       
       const rejectedBookingIds = new Set((rejections || []).map(r => r.booking_id));
       
-      // 3. Fetch all pending bookings for vehicle type
+      // 3. Fetch all pending bookings for vehicle type (include addons for display)
       const { data, error } = await supabase
         .from('bookings')
-        .select('*')
+        .select(`
+          *,
+          booking_addons(
+            quantity,
+            unit_price,
+            total_price,
+            addon_services(name, code, price)
+          )
+        `)
         .eq('status', 'pending')
         .eq('vehicle_type', driverVehicleType)
         .is('driver_id', null)
@@ -451,11 +473,13 @@ export async function acceptBooking(
 
 /**
  * Subscribe to available bookings for drivers (real-time) - filtered by vehicle type
+ * onUpdate: when customer retries with tip - booking gets new expires_at and driver_payout
  */
 export function subscribeToAvailableBookings(
   driverVehicleType: string,
   onInsert: (booking: Booking) => void,
-  onDelete: (bookingId: string) => void
+  onDelete: (bookingId: string) => void,
+  onUpdate?: (booking: Booking) => void
 ) {
   const subscription = supabase
     .channel('available-bookings')
@@ -481,9 +505,18 @@ export function subscribeToAvailableBookings(
         table: 'bookings',
       },
       (payload) => {
-        // If booking was accepted or cancelled, remove from available list
-        if (payload.new.status !== 'pending' || payload.new.driver_id) {
-          onDelete(payload.new.id as string);
+        const b = payload.new as any;
+        if (b.status !== 'pending' || b.driver_id) {
+          onDelete(b.id as string);
+        } else if (
+          !b.driver_id &&
+          b.vehicle_type === driverVehicleType &&
+          onUpdate &&
+          b.expires_at &&
+          new Date(b.expires_at) > new Date()
+        ) {
+          // Retry with tip: still pending, extended expires_at - show updated rate to drivers
+          onUpdate(payload.new as Booking);
         }
       }
     )

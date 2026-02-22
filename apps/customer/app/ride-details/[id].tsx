@@ -1,19 +1,23 @@
-import { View, Text, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { getBookingById } from '@/lib/bookings';
+import { hasUserRated } from '@/lib/ratingUtils';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Booking } from '@/types/type';
 
 const RideDetails = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { profile } = useAuth();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [rating, setRating] = useState(0);
     const [review, setReview] = useState('');
     const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+    const [alreadyRated, setAlreadyRated] = useState(false);
 
     useEffect(() => {
         if (!id) {
@@ -25,8 +29,10 @@ const RideDetails = () => {
             const { data } = await getBookingById(id);
             if (data) {
                 setBooking(data);
-                // Pre-fill rating if already rated (assuming we had a ratings table, but simplified for now we might store in booking or separate table)
-                // For now, we'll assume rating is stored on booking or just allow one-time rating submission
+                if (profile?.id) {
+                    const result = await hasUserRated(id, profile.id);
+                    setAlreadyRated(result.rated);
+                }
             } else {
                 Alert.alert('Error', 'Failed to load trip details');
             }
@@ -34,7 +40,7 @@ const RideDetails = () => {
         };
 
         fetchBooking();
-    }, [id]);
+    }, [id, profile?.id]);
 
     const handleRateTrip = async () => {
         if (rating === 0) {
@@ -42,7 +48,8 @@ const RideDetails = () => {
             return;
         }
 
-        if (!booking?.driver_id) {
+        const driverUserId = (booking.driver as { user_id?: string })?.user_id;
+        if (!booking?.driver_id || !driverUserId) {
             Alert.alert('Error', 'Cannot rate a trip without a driver');
             return;
         }
@@ -54,10 +61,13 @@ const RideDetails = () => {
                 .insert({
                     booking_id: booking.id,
                     from_user_id: booking.customer_id,
-                    to_user_id: booking.driver!.user!.id || booking.driver!.id, // Fallback if join structure differs
+                    to_user_id: driverUserId,
                     rating: rating,
-                    review: review,
-                    is_from_customer: true
+                    review: review || null,
+                    is_from_customer: true,
+                    rated_by: booking.customer_id,
+                    rated_user: driverUserId,
+                    rater_type: 'customer'
                 });
 
             if (error) {
@@ -68,6 +78,7 @@ const RideDetails = () => {
                     throw error;
                 }
             } else {
+                setAlreadyRated(true);
                 Alert.alert('Thank you!', 'Your feedback helps us improve.');
                 router.back();
             }
@@ -216,11 +227,37 @@ const RideDetails = () => {
                     </View>
                 )}
 
-                {/* Rating Section (Only for completed trips) */}
+                {/* Download Invoice - Only for completed trips */}
                 {isCompleted && (
+                    <View className="bg-white p-5 rounded-2xl mb-4 shadow-sm">
+                        <Text className="text-lg font-JakartaBold mb-2">Trip Invoice</Text>
+                        <Text className="text-gray-500 text-sm font-JakartaMedium mb-4">
+                            Download or share your invoice for this trip.
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => router.push({ pathname: '/invoice', params: { bookingId: id } })}
+                            className="w-full py-3 rounded-xl flex-row items-center justify-center bg-primary-500"
+                        >
+                            <Feather name="file-text" size={20} color="white" />
+                            <Text className="ml-2 font-JakartaBold text-white">Download Invoice</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Rating Section (Only for completed trips, and only if not already rated) */}
+                {isCompleted && alreadyRated && (
+                    <View className="bg-white p-5 rounded-2xl mb-8 shadow-sm">
+                        <View className="flex-row items-center">
+                            <Feather name="check-circle" size={24} color="#22c55e" />
+                            <Text className="text-lg font-JakartaBold ml-2 text-gray-800">Thanks for your feedback!</Text>
+                        </View>
+                        <Text className="text-gray-500 mt-2">You have already rated this trip.</Text>
+                    </View>
+                )}
+                {isCompleted && !alreadyRated && (
                     <View className="bg-white p-5 rounded-2xl mb-8 shadow-sm">
                         <Text className="text-lg font-JakartaBold mb-4">Rate your experience</Text>
-                        <View className="flex-row justify-center space-x-2 mb-4">
+                        <View className="flex-row justify-center flex-wrap gap-1 mb-4">
                             {[1, 2, 3, 4, 5].map((star) => (
                                 <TouchableOpacity key={star} onPress={() => setRating(star)} className="p-2">
                                     <Feather 
@@ -232,7 +269,21 @@ const RideDetails = () => {
                                 </TouchableOpacity>
                             ))}
                         </View>
-                        
+                        <Text className="text-gray-500 text-sm font-JakartaMedium mb-2">
+                            Add a review (optional)
+                        </Text>
+                        <TextInput
+                            value={review}
+                            onChangeText={setReview}
+                            placeholder="How was your trip?"
+                            placeholderTextColor="#9ca3af"
+                            multiline
+                            numberOfLines={3}
+                            maxLength={250}
+                            className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-800 font-JakartaMedium text-sm mb-4 min-h-[80px]"
+                            style={{ textAlignVertical: 'top' }}
+                        />
+                        <Text className="text-gray-400 text-xs mb-4 text-right">{review.length}/250</Text>
                         <TouchableOpacity 
                             onPress={handleRateTrip}
                             disabled={isSubmittingRating}

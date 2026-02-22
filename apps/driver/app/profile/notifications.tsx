@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -15,6 +16,7 @@ interface Notification {
 
 export default function NotificationsScreen() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,7 +92,7 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-gray-900">
+    <View className="flex-1 bg-white">
       <ScrollView className="flex-1 p-5">
         
         {/* Test button removed as per requirements */}
@@ -99,25 +101,25 @@ export default function NotificationsScreen() {
              <ActivityIndicator size="large" color="#22c55e" className="mt-10" />
         ) : notifications.length === 0 ? (
             <View className="items-center mt-10">
-                <View className="w-16 h-16 bg-gray-800 rounded-full items-center justify-center mb-4">
+                <View className="w-16 h-16 bg-gray-100 rounded-full items-center justify-center mb-4">
                     <Feather name="bell-off" size={32} color="#6b7280" />
                 </View>
-                <Text className="text-gray-400 text-lg">No notifications yet</Text>
+                <Text className="text-gray-400 text-lg">{t('noNotificationsYet')}</Text>
             </View>
         ) : (
             notifications.map((item) => (
                 <TouchableOpacity 
                     key={item.id}
                     onPress={() => markAsRead(item.id)}
-                    className={`p-4 rounded-xl mb-3 border ${item.is_read ? 'bg-gray-800 border-gray-800' : 'bg-gray-800 border-primary-500'}`}
+                    className={`p-4 rounded-xl mb-3 border ${item.is_read ? 'bg-gray-100 border-gray-800' : 'bg-gray-100 border-primary-500'}`}
                 >
                     <View className="flex-row">
-                        <View className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${item.is_read ? 'bg-gray-700' : 'bg-primary-500/20'}`}>
+                        <View className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${item.is_read ? 'bg-gray-200' : 'bg-primary-500/20'}`}>
                             <Feather name={getIcon(item.title)} size={20} color={item.is_read ? '#9ca3af' : '#22c55e'} />
                         </View>
                         <View className="flex-1">
                             <View className="flex-row justify-between items-start">
-                                <Text className={`font-JakartaSemiBold mb-1 ${item.is_read ? 'text-gray-400' : 'text-white'}`}>
+                                <Text className={`font-JakartaSemiBold mb-1 ${item.is_read ? 'text-gray-500' : 'text-gray-900'}`}>
                                     {item.title}
                                 </Text>
                                 <Text className="text-gray-600 text-xs">

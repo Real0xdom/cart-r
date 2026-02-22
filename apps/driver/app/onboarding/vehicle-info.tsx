@@ -1,5 +1,5 @@
 import { router, Redirect } from "expo-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ScrollView,
   Text,
@@ -8,18 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  ActivityIndicator,
 } from "react-native";
 
 import CustomButton from "@/components/CustomButton";
 import InputField from "@/components/InputField";
 import { icons } from "@/constants";
-
-const VEHICLE_TYPES = [
-  { id: "bike", name: "Bike", icon: "🏍️", description: "2-wheeler delivery" },
-  { id: "tempo", name: "Tempo", icon: "🛺", description: "Three-wheeler cargo" },
-  { id: "sedan", name: "Sedan", icon: "🚗", description: "Mini car/Sedan" },
-  { id: "truck", name: "Truck", icon: "🚚", description: "Pickup/Truck" },
-];
+import { getActiveVehicleTypes, VehicleType } from "@/lib/vehicleTypes";
 
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -33,6 +28,37 @@ const VehicleInfo = () => {
   }
   
   const [selectedType, setSelectedType] = useState<string | null>(driverProfile?.vehicle_type || null);
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(true);
+  
+  // Fetch available vehicles from admin-approved list
+  useEffect(() => {
+    const fetchVehicles = async () => {
+      try {
+        console.log('[VEHICLE INFO] Fetching admin-approved vehicle types...');
+        const { data, error } = await getActiveVehicleTypes();
+        if (error) {
+          console.error('[VEHICLE INFO] Error fetching vehicles:', error);
+          Alert.alert('Error', 'Failed to load vehicle types. Please try again.');
+          return;
+        }
+        if (data && data.length > 0) {
+          console.log('[VEHICLE INFO] Loaded vehicle types:', data.length, data.map(v => v.vehicle_type).join(', '));
+          setVehicleTypes(data);
+        } else {
+          console.warn('[VEHICLE INFO] No vehicle types available');
+          Alert.alert('No Vehicles', 'No vehicle types are currently available. Please contact support.');
+        }
+      } catch (err) {
+        console.error('[VEHICLE INFO] Exception fetching vehicles:', err);
+        Alert.alert('Error', 'An error occurred while loading vehicles.');
+      } finally {
+        setLoadingVehicles(false);
+      }
+    };
+    
+    fetchVehicles();
+  }, []);
   
   // Format date to DD/MM/YYYY for display
   const formatDate = (dateStr?: string) => {
@@ -116,31 +142,44 @@ const VehicleInfo = () => {
             <Text className="text-gray-800 font-JakartaSemiBold mb-3">
               Select Vehicle Type
             </Text>
-            <View className="flex-row flex-wrap justify-between">
-              {VEHICLE_TYPES.map((type) => (
-                <TouchableOpacity
-                  key={type.id}
-                  onPress={() => setSelectedType(type.id)}
-                  className={`w-[48%] p-4 mb-3 rounded-xl border-2 ${
-                    selectedType === type.id
-                      ? "border-green-500 bg-green-50"
-                      : "border-gray-200 bg-white"
-                  }`}
-                >
-                  <Text className="text-2xl mb-1">{type.icon}</Text>
-                  <Text
-                    className={`font-JakartaSemiBold ${
-                      selectedType === type.id
-                        ? "text-green-700"
-                        : "text-gray-800"
+            
+            {loadingVehicles ? (
+              <View className="py-8 items-center justify-center">
+                <ActivityIndicator size="large" color="#16a34a" />
+                <Text className="text-gray-500 mt-2">Loading available vehicles...</Text>
+              </View>
+            ) : vehicleTypes.length === 0 ? (
+              <View className="py-8 items-center justify-center bg-red-50 rounded-xl">
+                <Text className="text-red-600 font-JakartaSemiBold">No vehicles available</Text>
+                <Text className="text-red-500 text-xs mt-2">Please contact support</Text>
+              </View>
+            ) : (
+              <View className="flex-row flex-wrap justify-between">
+                {vehicleTypes.map((type) => (
+                  <TouchableOpacity
+                    key={type.vehicle_type}
+                    onPress={() => setSelectedType(type.vehicle_type)}
+                    className={`w-[48%] p-4 mb-3 rounded-xl border-2 ${
+                      selectedType === type.vehicle_type
+                        ? "border-green-500 bg-green-50"
+                        : "border-gray-200 bg-white"
                     }`}
                   >
-                    {type.name}
-                  </Text>
-                  <Text className="text-gray-500 text-xs">{type.description}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                    <Text className="text-2xl mb-1">{type.icon_emoji}</Text>
+                    <Text
+                      className={`font-JakartaSemiBold ${
+                        selectedType === type.vehicle_type
+                          ? "text-green-700"
+                          : "text-gray-800"
+                      }`}
+                    >
+                      {type.display_name}
+                    </Text>
+                    <Text className="text-gray-500 text-xs">{type.description}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             {/* Vehicle Details */}
             <Text className="text-gray-800 font-JakartaSemiBold mt-4 mb-3">

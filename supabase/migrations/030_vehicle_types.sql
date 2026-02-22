@@ -164,6 +164,8 @@ ON CONFLICT (vehicle_type) DO UPDATE SET
 ALTER TABLE public.vehicle_specifications ENABLE ROW LEVEL SECURITY;
 
 -- 6. RLS Policy (public read access)
+-- 6. RLS Policy (public read access)
+DROP POLICY IF EXISTS "Anyone can view vehicle specifications" ON public.vehicle_specifications;
 CREATE POLICY "Anyone can view vehicle specifications"
 ON public.vehicle_specifications
 FOR SELECT
@@ -195,7 +197,7 @@ BEGIN
     vs.max_weight_kg,
     vs.suitable_for
   FROM vehicle_specifications vs
-  JOIN fare_config fc ON vs.vehicle_type = fc.vehicle_type
+  INNER JOIN fare_config fc ON vs.vehicle_type = fc.vehicle_type
   WHERE fc.is_active = true
   ORDER BY fc.base_fare ASC;
 END;

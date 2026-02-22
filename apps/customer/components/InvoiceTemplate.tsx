@@ -91,7 +91,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ invoice }) => 
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Distance Traveled:</Text>
-            <Text style={styles.infoValue}>{invoice.distance_km.toFixed(2)} km</Text>
+            <Text style={styles.infoValue}>{(invoice.distance_km ?? 0).toFixed(2)} km</Text>
           </View>
         </View>
 

@@ -96,13 +96,29 @@ export async function getExpoPushToken(): Promise<string | null> {
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) return null;
 
-    // Get push token - must provide projectId for dev builds
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: 'bc38d8b8-1b48-4959-88eb-4d67e640842c', // EAS projectId from app.json
-    });
+    // Add delay for Firebase initialization if needed
+    // This helps in cases where Firebase hasn't been initialized yet
+    let lastError: any;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // Get push token - must provide projectId for dev builds
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: '81d0a3a8-050d-4190-a31c-78e75e869b4d', // EAS projectId from app.json
+        });
 
-    console.log('📱 Got push token:', tokenData.data);
-    return tokenData.data;
+        console.log('📱 Got push token:', tokenData.data);
+        return tokenData.data;
+      } catch (error) {
+        lastError = error;
+        console.warn(`Attempt ${attempt + 1}/3 to get push token failed, retrying...`, error);
+        // Wait before retrying (exponential backoff: 500ms, 1000ms, etc)
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    
+    // All attempts failed
+    console.error('Failed to get push token after 3 attempts:', lastError);
+    return null;
   } catch (error) {
     console.error('Error getting push token:', error);
     return null;
@@ -114,8 +130,15 @@ export async function getExpoPushToken(): Promise<string | null> {
  */
 export async function registerPushToken(supabase: any, userId: string): Promise<boolean> {
   try {
+    console.log('🔄 [Driver] registerPushToken Starting token registration for user:', userId);
+    
     const token = await getExpoPushToken();
-    if (!token) return false;
+    if (!token) {
+      console.warn('❌ [Driver] No push token obtained - permission denied or module issue');
+      return false;
+    }
+
+    console.log('🔑 [Driver] Got token:', token.substring(0, 30) + '...');
 
     const { error } = await supabase
       .from('users')
@@ -123,14 +146,14 @@ export async function registerPushToken(supabase: any, userId: string): Promise<
       .eq('id', userId);
 
     if (error) {
-      console.error('Error saving push token:', error);
+      console.error('❌ [Driver] Supabase update error:', error);
       return false;
     }
 
-    console.log('✅ Push token registered successfully');
+    console.log('✅ [Driver] Push token registered successfully');
     return true;
   } catch (error) {
-    console.error('Error registering push token:', error);
+    console.error('❌ [Driver] Error registering push token:', error);
     return false;
   }
 }

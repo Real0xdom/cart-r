@@ -262,11 +262,14 @@ ALTER TABLE public.addon_services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.booking_addons ENABLE ROW LEVEL SECURITY;
 
 -- 12. RLS Policies
+-- 12. RLS Policies
+DROP POLICY IF EXISTS "Anyone can view active addon services" ON public.addon_services;
 CREATE POLICY "Anyone can view active addon services"
 ON public.addon_services
 FOR SELECT
 USING (is_active = true);
 
+DROP POLICY IF EXISTS "Users can view their booking addons" ON public.booking_addons;
 CREATE POLICY "Users can view their booking addons"
 ON public.booking_addons
 FOR SELECT
@@ -280,6 +283,7 @@ USING (
   )
 );
 
+DROP POLICY IF EXISTS "Customers can add addons to their bookings" ON public.booking_addons;
 CREATE POLICY "Customers can add addons to their bookings"
 ON public.booking_addons
 FOR INSERT

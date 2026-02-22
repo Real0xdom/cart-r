@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import { Image, ImageSourcePropType, View } from "react-native";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { icons } from "@/constants";
 
 const TabIcon = ({
@@ -10,14 +11,14 @@ const TabIcon = ({
     focused: boolean;
 }) => (
     <View
-        className={`flex flex-row justify-center items-center rounded-full ${focused ? "bg-gray-700" : ""}`}
+        className={`flex flex-row justify-center items-center rounded-full ${focused ? "bg-green-100" : ""}`}
     >
         <View
-            className={`rounded-full w-12 h-12 items-center justify-center ${focused ? "bg-general-500" : ""}`}
+            className={`rounded-full w-12 h-12 items-center justify-center ${focused ? "bg-green-500" : ""}`}
         >
             <Image
                 source={source}
-                tintColor="white"
+                tintColor={focused ? "white" : "#6b7280"}
                 resizeMode="contain"
                 className="w-7 h-7"
             />
@@ -26,15 +27,16 @@ const TabIcon = ({
 );
 
 const DriverTabsLayout = () => {
+    const { t } = useLanguage();
     return (
         <Tabs
             initialRouteName="home"
             screenOptions={{
-                tabBarActiveTintColor: "white",
-                tabBarInactiveTintColor: "white",
+                tabBarActiveTintColor: "#22c55e",
+                tabBarInactiveTintColor: "#6b7280",
                 tabBarShowLabel: false,
                 tabBarStyle: {
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: "#ffffff",
                     borderRadius: 50,
                     paddingBottom: 0,
                     overflow: "hidden",
@@ -52,7 +54,7 @@ const DriverTabsLayout = () => {
             <Tabs.Screen
                 name="home"
                 options={{
-                    title: "Home",
+                    title: t("home"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.home} focused={focused} />
@@ -62,7 +64,7 @@ const DriverTabsLayout = () => {
             <Tabs.Screen
                 name="requests"
                 options={{
-                    title: "Requests",
+                    title: t("requests"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.list} focused={focused} />
@@ -72,7 +74,7 @@ const DriverTabsLayout = () => {
             <Tabs.Screen
                 name="earnings"
                 options={{
-                    title: "Earnings",
+                    title: t("earnings"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.dollar} focused={focused} />
@@ -82,7 +84,7 @@ const DriverTabsLayout = () => {
             <Tabs.Screen
                 name="profile"
                 options={{
-                    title: "Profile",
+                    title: t("profile"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.profile} focused={focused} />

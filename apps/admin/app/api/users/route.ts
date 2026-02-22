@@ -24,7 +24,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
     }
 
-    return NextResponse.json(users || []);
+    // Fetch referral counts per referrer
+    const { data: refRows } = await supabaseAdmin
+      .from('referrals')
+      .select('referrer_id');
+    const countsMap: Record<string, number> = {};
+    (refRows || []).forEach((r: { referrer_id: string }) => {
+      countsMap[r.referrer_id] = (countsMap[r.referrer_id] || 0) + 1;
+    });
+
+    const usersWithReferrals = (users || []).map((u: { id: string }) => ({
+      ...u,
+      referral_count: countsMap[u.id] ?? 0,
+    }));
+
+    return NextResponse.json(usersWithReferrals);
   } catch (error) {
     console.error('API Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

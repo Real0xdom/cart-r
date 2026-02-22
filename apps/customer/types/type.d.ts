@@ -76,6 +76,12 @@ declare interface GoogleInputProps {
     longitude: number;
     address: string;
   }) => void;
+  /** Optional: bias search results toward a specific location (service area center) */
+  locationBias?: {
+    latitude: number;
+    longitude: number;
+    radius: number; // meters
+  };
 }
 
 declare interface InputFieldProps extends TextInputProps {
@@ -177,6 +183,7 @@ declare interface Booking {
   estimated_distance: number | null;
   estimated_duration: number | null;
   total_fare: number;
+  addon_charges?: number;
   tip_amount: number;
   fare_multiplier: number;
   driver_payout: number;
@@ -193,11 +200,14 @@ declare interface Booking {
   goods_description: string | null;
   created_at: string;
   accepted_at: string | null;
+  driver_arrived_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   cancelled_by: string | null;
   cancellation_reason: string | null;
+  free_waiting_time_minutes: number;
+  waiting_charge_per_minute: number;
   driver?: {
     id: string;
     vehicle_number: string;
@@ -210,6 +220,15 @@ declare interface Booking {
       avatar_url: string | null;
     };
   };
+  /** When no driver accepts - booking expires; customer can retry with tip */
+  expires_at?: string | null;
+  /** Addons attached to this booking (from booking_addons + addon_services) */
+  booking_addons?: Array<{
+    quantity: number;
+    unit_price: number;
+    total_price?: number;
+    addon_services: { name: string; code: string; price: number } | null;
+  }>;
 }
 
 // Booking store for managing current booking state

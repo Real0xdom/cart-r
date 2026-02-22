@@ -1,6 +1,8 @@
 import { Stack } from 'expo-router';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function ProfileLayout() {
+  const { t } = useLanguage();
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
@@ -8,9 +10,9 @@ export default function ProfileLayout() {
         name="vehicle" 
         options={{ 
           headerShown: true,
-          headerTitle: 'Vehicle Details',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('vehicleDetails'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
@@ -18,9 +20,9 @@ export default function ProfileLayout() {
         name="documents" 
         options={{ 
           headerShown: true, 
-          headerTitle: 'My Documents',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('myDocuments'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
@@ -28,9 +30,9 @@ export default function ProfileLayout() {
         name="bank" 
         options={{ 
           headerShown: true, 
-          headerTitle: 'Bank & Payouts',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('bankAndPayouts'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
@@ -38,9 +40,9 @@ export default function ProfileLayout() {
         name="support" 
         options={{ 
           headerShown: true, 
-          headerTitle: 'Help & Support',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('helpSupport'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
@@ -48,9 +50,9 @@ export default function ProfileLayout() {
         name="reviews" 
         options={{ 
           headerShown: true, 
-          headerTitle: 'Ratings & Reviews',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('ratingsReviews'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
@@ -58,12 +60,24 @@ export default function ProfileLayout() {
         name="notifications" 
         options={{ 
           headerShown: true, 
-          headerTitle: 'Notifications',
-          headerStyle: { backgroundColor: '#111827' },
-          headerTintColor: '#fff',
+          headerTitle: t('notifications'),
+          headerStyle: { backgroundColor: '#ffffff' },
+          headerTintColor: '#111827',
           headerTitleStyle: { fontFamily: 'Jakarta-Bold' }
         }} 
       />
+       <Stack.Screen 
+         name="terms" 
+         options={{ 
+           headerShown: false
+         }} 
+       />
+       <Stack.Screen 
+         name="faq" 
+         options={{ 
+           headerShown: false
+         }} 
+       />
     </Stack>
   );
 }

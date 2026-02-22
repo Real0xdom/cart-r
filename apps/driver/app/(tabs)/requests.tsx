@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useCallback, useEffect } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, Booking } from '@/lib/bookings';
 import * as Location from 'expo-location';
 
@@ -42,13 +43,14 @@ const useCountdown = (expiresAt: string | null) => {
 };
 
 const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, onAccept: (id: string) => void, onReject: (id: string) => void }) => {
+    const { t } = useLanguage();
     const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
     
     // Don't render expired requests
     if (isExpired) return null;
     
     return (
-        <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+        <View className="bg-white rounded-2xl p-4 mb-4 border border-gray-200 shadow-sm">
             {/* Expiration Timer Badge */}
             {timeLeft && (
                 <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
@@ -61,63 +63,78 @@ const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, on
             {/* Increased Fare Badge */}
             {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
                 <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
-                    <Text className="text-white font-JakartaBold text-xs">🔥 Increased Fare</Text>
+                    <Text className="text-white font-JakartaBold text-xs">🔥 {t('increasedFare')}</Text>
                     {request.tip_amount && request.tip_amount > 0 && (
                         <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
+                    )}
+                </View>
+            )}
+
+            {/* Addons - driver sees addon names and updated price before accepting */}
+            {request.booking_addons && request.booking_addons.length > 0 && (
+                <View className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl mb-3">
+                    <Text className="text-amber-700 font-JakartaBold text-xs mb-1">{t('addonsLabel')}</Text>
+                    {request.booking_addons.map((ba: any, i: number) => (
+                        <Text key={i} className="text-amber-800 font-JakartaMedium text-xs" numberOfLines={1}>
+                            • {ba.addon_services?.name ?? t('addon')} — ₹{(ba.quantity || 1) * (ba.unit_price || 0)}
+                        </Text>
+                    ))}
+                    {request.addon_charges != null && request.addon_charges > 0 && (
+                        <Text className="text-amber-700 font-JakartaSemiBold text-xs mt-1">{t('totalAddons')}: ₹{request.addon_charges}</Text>
                     )}
                 </View>
             )}
             
             <View className="flex-row justify-between items-start mb-4">
                 <View className="flex-1 pr-16">
-                    <Text className="text-gray-400 text-xs mb-1">PICKUP</Text>
-                    <Text className="text-white font-JakartaSemiBold text-base" numberOfLines={2}>
+                    <Text className="text-gray-500 text-xs mb-1">{t('pickup')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
                         {request.origin_address}
                     </Text>
                 </View>
-                <View className="bg-green-500/20 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
-                    <Text className="text-green-400 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
+                <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
+                    <Text className="text-green-700 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
                 </View>
             </View>
 
             <View className="mb-4">
-                <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
-                <Text className="text-white font-JakartaSemiBold text-base" numberOfLines={2}>
+                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
+                <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
                     {request.destination_address}
                 </Text>
             </View>
 
             <View className="flex-row gap-4 mb-4">
-                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                    <Text className="text-gray-400 text-xs">Distance</Text>
-                    <Text className="text-white font-JakartaSemiBold">
+                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">{t('distance')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold">
                         {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
                     </Text>
                 </View>
-                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                    <Text className="text-gray-400 text-xs">Est. Time</Text>
-                    <Text className="text-white font-JakartaSemiBold">
+                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">Est. Time</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold">
                         {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
                     </Text>
                 </View>
-                <View className="flex-1 bg-gray-700/50 p-3 rounded-xl">
-                    <Text className="text-gray-400 text-xs">Payment</Text>
-                    <Text className="text-white font-JakartaSemiBold capitalize">{request.payment_method}</Text>
+                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">{t('payment')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold capitalize">{request.payment_method}</Text>
                 </View>
             </View>
 
             <View className="flex-row gap-3">
                 <TouchableOpacity
                     onPress={() => onReject(request.id)}
-                    className="flex-1 bg-red-500/20 p-4 rounded-xl"
+                    className="flex-1 bg-red-50 p-4 rounded-xl border border-red-200"
                 >
-                    <Text className="text-red-400 text-center font-JakartaBold">Decline</Text>
+                    <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     onPress={() => onAccept(request.id)}
                     className="flex-1 bg-green-500 p-4 rounded-xl"
                 >
-                    <Text className="text-white text-center font-JakartaBold">Accept</Text>
+                    <Text className="text-white text-center font-JakartaBold">{t('accept')}</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -126,6 +143,7 @@ const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, on
 
 const DriverRequests = () => {
     const { driverProfile, profile } = useAuth();
+    const { t } = useLanguage();
     const [requests, setRequests] = useState<Booking[]>([]);
     const [refreshing, setRefreshing] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -199,6 +217,18 @@ const DriverRequests = () => {
                 },
                 (removedBookingId: string) => {
                     setRequests(prev => prev.filter(b => b.id !== removedBookingId));
+                },
+                (updatedBooking: Booking) => {
+                    // Customer retried with tip - update driver_payout, tip_amount, expires_at
+                    setRequests(prev => {
+                        const idx = prev.findIndex(b => b.id === updatedBooking.id);
+                        if (idx >= 0) {
+                            const next = [...prev];
+                            next[idx] = { ...next[idx], ...updatedBooking };
+                            return next;
+                        }
+                        return [updatedBooking, ...prev];
+                    });
                 }
             );
 
@@ -216,7 +246,7 @@ const DriverRequests = () => {
         
         if (!driverProfile?.id) {
             console.error('[HANDLE ACCEPT] No driver profile found');
-            Alert.alert("Error", "Driver profile not found. Please log in again.");
+            Alert.alert(t("error"), t("driverProfileNotFound"));
             return;
         }
 
@@ -242,12 +272,12 @@ const DriverRequests = () => {
 
     const handleReject = async (id: string) => {
           Alert.alert(
-              "Decline Request",
-              "Are you sure you want to decline this request? You won't see it again.",
+              t("declineRequest"),
+              t("areYouSureDecline"),
               [
-                  { text: "Cancel", style: "cancel" },
+                  { text: t("cancel"), style: "cancel" },
                   { 
-                      text: "Decline", 
+                      text: t("decline"), 
                       style: "destructive",
                       onPress: async () => {
                           // Optimistically remove from list
@@ -270,7 +300,7 @@ const DriverRequests = () => {
 
     if (loading && !requests.length) {
         return (
-            <SafeAreaView className="flex-1 bg-gray-900 justify-center items-center">
+            <SafeAreaView className="flex-1 bg-white justify-center items-center">
                 <ActivityIndicator size="large" color="#22c55e" />
                 <Text className="text-white mt-4">Finding nearby requests...</Text>
             </SafeAreaView>
@@ -278,11 +308,11 @@ const DriverRequests = () => {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-gray-900">
+        <SafeAreaView className="flex-1 bg-white">
             <View className="p-5">
-                <Text className="text-white text-2xl font-JakartaBold mb-2">Ride Requests</Text>
-                <Text className="text-gray-400 mb-4">
-                    {requests.length} {requests.length === 1 ? 'request' : 'requests'} available nearby
+                <Text className="text-gray-900 text-2xl font-JakartaBold mb-2">{t('rideRequests')}</Text>
+                <Text className="text-gray-500 mb-4">
+                    {requests.length} {requests.length === 1 ? t('request') : t('requests')} {t('availableNearby')}
                 </Text>
             </View>
 
@@ -305,9 +335,9 @@ const DriverRequests = () => {
                 ) : (
                     <View className="flex-1 items-center justify-center py-20">
                         <Text className="text-6xl mb-4">📭</Text>
-                        <Text className="text-white text-xl font-JakartaBold mb-2">No Requests</Text>
-                        <Text className="text-gray-400 text-center">
-                            New ride requests will appear here.{'\n'}Make sure you're online!
+                        <Text className="text-gray-900 text-xl font-JakartaBold mb-2">{t('noRequestsTitle')}</Text>
+                        <Text className="text-gray-500 text-center">
+                            {t('newRideRequestsAppear')}{'\n'}{t('makeSureOnline')}
                         </Text>
                     </View>
                 )}

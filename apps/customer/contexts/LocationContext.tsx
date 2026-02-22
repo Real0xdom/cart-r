@@ -87,9 +87,23 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const fetchAndSetCurrentLocation = async () => {
     try {
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      let location: Location.LocationObject | null = null;
+
+      try {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+      } catch (primaryError: any) {
+        // GPS / location services may be off — try last known position as fallback
+        console.warn('⚠️ getCurrentPositionAsync failed, trying last known position:', primaryError?.message);
+        location = await Location.getLastKnownPositionAsync();
+      }
+
+      if (!location) {
+        console.warn('⚠️ No location available — location services may be disabled on device');
+        setErrorMessage('Location services are disabled. Please enable them in device settings for the best experience.');
+        return;
+      }
 
       const { latitude, longitude } = location.coords;
       
@@ -103,44 +117,60 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
     } catch (error) {
       console.error('Error fetching current location:', error);
-      setErrorMessage('Unable to get your current location');
+      setErrorMessage('Unable to get your current location. Please enable location services.');
     }
   };
 
   const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {
-    try {
-      // First try using Expo's built-in reverse geocoding
-      const [result] = await Location.reverseGeocodeAsync({ latitude, longitude });
-      
-      if (result) {
+    // Helper: try Expo's built-in reverse geocoding with a 3s timeout
+    const expoReverseGeocode = async (): Promise<string | null> => {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('reverseGeocodeAsync timed out')), 3000)
+      );
+      const geocode = Location.reverseGeocodeAsync({ latitude, longitude }).then(([result]) => {
+        if (!result) return null;
         const parts = [];
         if (result.name) parts.push(result.name);
         if (result.street) parts.push(result.street);
         if (result.city) parts.push(result.city);
         if (result.region) parts.push(result.region);
-        
-        if (parts.length > 0) {
-          return parts.join(', ');
-        }
-      }
+        return parts.length > 0 ? parts.join(', ') : null;
+      });
+      return Promise.race([geocode, timeout]);
+    };
 
-      // Fallback to Google Geocoding API
-      if (GOOGLE_PLACES_API_KEY) {
+    // Helper: fall back to Google Geocoding API
+    const googleReverseGeocode = async (): Promise<string | null> => {
+      if (!GOOGLE_PLACES_API_KEY) return null;
+      try {
         const response = await fetch(
           `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_PLACES_API_KEY}`
         );
         const data = await response.json();
-        
         if (data.results && data.results.length > 0) {
           return data.results[0].formatted_address;
         }
+      } catch (err) {
+        console.warn('Google reverse geocode failed:', err);
       }
+      return null;
+    };
 
-      return 'Current Location';
-    } catch (error) {
-      console.error('Error reverse geocoding:', error);
-      return 'Current Location';
+    try {
+      const expoResult = await expoReverseGeocode();
+      if (expoResult) return expoResult;
+    } catch (err) {
+      console.warn('⚠️ Expo reverseGeocodeAsync failed/timed out, trying Google API:', (err as Error).message);
     }
+
+    try {
+      const googleResult = await googleReverseGeocode();
+      if (googleResult) return googleResult;
+    } catch (err) {
+      console.warn('Google reverse geocoding failed:', err);
+    }
+
+    return 'Current Location';
   };
 
   const requestLocationPermission = useCallback(async (): Promise<boolean> => {

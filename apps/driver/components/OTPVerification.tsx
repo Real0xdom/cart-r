@@ -157,10 +157,12 @@ const OTPVerification: React.FC<OTPVerificationProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1f2937',
+    backgroundColor: '#ffffff',
     padding: 24,
     borderRadius: 24,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   header: {
     alignItems: 'center',
@@ -169,12 +171,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#fff',
+    color: '#111827',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#9ca3af',
+    color: '#6b7280',
     textAlign: 'center',
   },
   otpContainer: {
@@ -188,11 +190,11 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#374151',
-    backgroundColor: '#111827',
+    borderColor: '#d1d5db',
+    backgroundColor: '#f9fafb',
     fontSize: 28,
     fontWeight: '700',
-    color: '#fff',
+    color: '#111827',
     textAlign: 'center',
   },
   otpInputFilled: {
@@ -209,13 +211,15 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   infoBox: {
-    backgroundColor: '#374151',
+    backgroundColor: '#f3f4f6',
     padding: 16,
     borderRadius: 12,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   infoText: {
-    color: '#9ca3af',
+    color: '#6b7280',
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 20,

@@ -107,6 +107,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (session?.user) {
           await fetchProfile(session.user.id);
+          // Register push token with retries
+          import('@/lib/notifications').then(async ({ registerPushToken }) => {
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts) {
+              try {
+                const success = await registerPushToken(supabase, session.user.id);
+                if (success) {
+                  console.log('✅ Push token registered after attempt', attempts + 1);
+                  break;
+                }
+              } catch (err) {
+                console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
+              }
+              
+              attempts++;
+              if (attempts < maxAttempts) {
+                // Wait before retrying (2 seconds, then 5 seconds)
+                await new Promise(resolve => 
+                  setTimeout(resolve, attempts === 1 ? 2000 : 5000)
+                );
+                console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
+              }
+            }
+            
+            if (attempts === maxAttempts) {
+              console.error('❌ Failed to register push token after 3 attempts');
+            }
+          });
         } else {
           setProfile(null);
           setDriverProfile(null);

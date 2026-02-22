@@ -2,12 +2,14 @@ import { supabase } from './supabase';
 
 export interface AddonService {
   id: string;
+  code: string;
   name: string;
   description: string;
   price: number;
-  icon: string;
-  is_active: boolean;
-  applicable_vehicle_types: string[];
+  icon_emoji?: string;
+  icon?: string;
+  is_active?: boolean;
+  applicable_vehicle_types?: string[];
 }
 
 /**
@@ -36,16 +38,19 @@ export async function getApplicableAddons(vehicleType: string): Promise<{
 }
 
 /**
- * Add addon to booking (called after booking creation)
+ * Add addon to booking (called after booking creation).
+ * Uses addon code as required by DB RPC add_addon_to_booking.
  */
 export async function addAddonToBooking(
   bookingId: string,
-  addonId: string
+  addonCode: string,
+  quantity: number = 1
 ): Promise<{ error: string | null }> {
   try {
     const { error } = await supabase.rpc('add_addon_to_booking', {
       p_booking_id: bookingId,
-      p_addon_id: addonId
+      p_addon_code: addonCode,
+      p_quantity: quantity
     });
 
     if (error) {
@@ -53,7 +58,7 @@ export async function addAddonToBooking(
       return { error: error.message };
     }
 
-    console.log('[ADDONS] Added addon to booking:', addonId);
+    console.log('[ADDONS] Added addon to booking:', addonCode);
     return { error: null };
   } catch (err: any) {
     console.error('[ADDONS] Exception:', err);

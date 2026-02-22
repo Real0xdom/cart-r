@@ -216,6 +216,8 @@ CREATE TRIGGER trigger_auto_stop_waiting_timer
 ALTER TABLE public.waiting_charges_config ENABLE ROW LEVEL SECURITY;
 
 -- 12. RLS Policy
+-- 12. RLS Policy
+DROP POLICY IF EXISTS "Anyone can view waiting charges config" ON public.waiting_charges_config;
 CREATE POLICY "Anyone can view waiting charges config"
 ON public.waiting_charges_config
 FOR SELECT

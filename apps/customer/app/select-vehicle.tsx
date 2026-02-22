@@ -5,17 +5,17 @@ import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
 import { getActiveVehicleTypes, getVehicleIcon, getVehicleDescription, VehicleType } from "@/lib/vehicleTypes";
-import { 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  FlatList,
+import {
+  Text,
+  View,
+  TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Modal,
+  Pressable,
   ScrollView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import { calculateFares, FareEstimate } from "@/lib/fare";
 import { createBooking } from "@/lib/bookings";
 import { payWithWallet, getWalletBalance, calculatePaymentSplit } from "@/lib/walletPayment";
@@ -39,16 +39,16 @@ const SelectVehiclePage = () => {
   const [fares, setFares] = useState<FareEstimate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tipAmount, setTipAmount] = useState(0);
   const [isBooking, setIsBooking] = useState(false);
-  
+
   // Vehicle specifications from database
   const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
-  
-  // Addon services
+
+  // Addon services (only shown in bottom modal when vehicle has addons)
   const [availableAddons, setAvailableAddons] = useState<AddonService[]>([]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
-  
+  const [showAddonModal, setShowAddonModal] = useState(false);
+
   // Wallet payment state
   const [walletBalance, setWalletBalance] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | 'partial_wallet'>('cash');
@@ -148,11 +148,29 @@ const SelectVehiclePage = () => {
     fetchAddonsForVehicle();
   }, [selectedVehicle]);
 
+  // When vehicle has addons, show bottom modal (slide up)
+  useEffect(() => {
+    if (selectedVehicle && availableAddons.length > 0) {
+      setShowAddonModal(true);
+    } else {
+      setShowAddonModal(false);
+    }
+  }, [selectedVehicle, availableAddons.length]);
+
   const handleSelectVehicle = (vehicle: FareEstimate) => {
     setSelectedVehicle(vehicle);
+    setSelectedAddonIds([]);
   };
 
-  const handleBookNow = async () => {
+  const addonChargesForIds = (ids: string[]) => calculateAddonCharges(ids, availableAddons);
+  const totalFareForAddons = (ids: string[]) =>
+    selectedVehicle ? selectedVehicle.total_fare + addonChargesForIds(ids) : 0;
+  const totalFare = selectedVehicle ? selectedVehicle.total_fare + addonChargesForIds(selectedAddonIds) : 0;
+  const paymentSplit = selectedVehicle
+    ? calculatePaymentSplit(walletBalance, totalFare)
+    : null;
+
+  const doCreateBookingAndNavigate = async (addonIds: string[]) => {
     if (isBooking) return;
 
     if (!selectedVehicle || !profile?.id) {
@@ -170,17 +188,18 @@ const SelectVehiclePage = () => {
       return;
     }
 
-    // 1. Validation for Wallet Payment
-    if (paymentMethod === 'wallet' && paymentSplit && !paymentSplit.canPayFull) {
-        Alert.alert(
-            "Insufficient Balance", 
-            `You need ₹${totalFare.toFixed(2)} to pay fully with wallet. Please add money or choose another method.`,
-            [
-                { text: "Add Money", onPress: () => router.push("/(tabs)/payment") },
-                { text: "Cancel", style: "cancel" }
-            ]
-        );
-        return;
+    const fareWithAddons = totalFareForAddons(addonIds);
+    const split = selectedVehicle ? calculatePaymentSplit(walletBalance, fareWithAddons) : null;
+    if (paymentMethod === 'wallet' && split && !split.canPayFull) {
+      Alert.alert(
+        "Insufficient Balance",
+        `You need ₹${fareWithAddons.toFixed(2)} to pay fully with wallet. Please add money or choose another method.`,
+        [
+          { text: "Add Money", onPress: () => router.push("/(tabs)/payment") },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
     }
 
     setIsBooking(true);
@@ -198,11 +217,9 @@ const SelectVehiclePage = () => {
         vehicle: selectedVehicle,
         receiverDetails: receiverDetails,
         paymentMethod: paymentMethod === 'cash' ? 'cash' : 'wallet',
-        tip_amount: tipAmount,
-        addon_charges: addonCharges, // Include addon charges
+        tip_amount: 0,
       };
 
-      // 2. Create Booking
       const { data, error } = await createBooking(bookingParams);
 
       if (error) {
@@ -215,47 +232,27 @@ const SelectVehiclePage = () => {
         return;
       }
 
-      // Add selected addons to booking
-      if (selectedAddonIds.length > 0) {
-        console.log('[SELECT VEHICLE] Adding', selectedAddonIds.length, 'addons to booking');
-        for (const addonId of selectedAddonIds) {
-          const { error: addonError } = await addAddonToBooking(data.id, addonId);
-          if (addonError) {
-            console.error('[SELECT VEHICLE] Failed to add addon:', addonError);
-            // Non-blocking - continue even if addon fails
+      if (addonIds.length > 0) {
+        for (const addonId of addonIds) {
+          const addon = availableAddons.find((a) => a.id === addonId);
+          if (addon?.code) {
+            await addAddonToBooking(data.id, addon.code);
           }
         }
       }
-      // 3. Process Payment if Wallet selected
-      if (paymentMethod === 'wallet' || paymentMethod === 'partial_wallet') {
-          console.log(`[PAYMENT] Processing ${paymentMethod} payment for booking ${data.id}`);
-          
-          const result = await payWithWallet(
-              data.id, 
-              profile.id, 
-              paymentMethod === 'wallet' // true for full, false for partial
-          );
 
-          if (!result.success) {
-              Alert.alert("Payment Failed", result.error || "Wallet deduction failed. Paying with cash instead.");
-              // Fallback to cash is automatic since booking exists? 
-              // Actually we should probably cancel booking or update it?
-              // For now, we proceed but notify user.
-          } else {
-              console.log("[PAYMENT] Success:", result);
-              // Update local balance immediately for UI responsiveness
-              const newBal = result.new_wallet_balance;
-              if (newBal !== undefined) setWalletBalance(newBal);
-          }
+      if (paymentMethod === 'wallet' || paymentMethod === 'partial_wallet') {
+        const result = await payWithWallet(data.id, profile.id, paymentMethod === 'wallet');
+        if (!result.success) {
+          Alert.alert("Payment Failed", result.error || "Wallet deduction failed. Paying with cash instead.");
+        } else if (result.new_wallet_balance !== undefined) {
+          setWalletBalance(result.new_wallet_balance);
+        }
       }
 
-      // 4. Navigate to next screen
       setCurrentBooking(data);
-      router.replace({
-        pathname: "/waiting-for-driver",
-        params: { bookingId: data.id },
-      });
-
+      setShowAddonModal(false);
+      router.replace({ pathname: "/waiting-for-driver", params: { bookingId: data.id } });
     } catch (err: any) {
       console.error("[BOOKING ERROR]:", err);
       Alert.alert("Error", err.message || "Booking failed.");
@@ -265,16 +262,14 @@ const SelectVehiclePage = () => {
     }
   };
 
-  // Vehicle icon and description now come from database via vehicleSpecs
-  // No hardcoding - fully backend-driven
-
-  const addonCharges = calculateAddonCharges(selectedAddonIds, availableAddons);
-  const totalFare = selectedVehicle ? selectedVehicle.total_fare + tipAmount + addonCharges : 0;
-  
-  // Calculate payment split for wallet
-  const paymentSplit = selectedVehicle 
-    ? calculatePaymentSplit(walletBalance, totalFare)
-    : null;
+  const handleBookNow = () => {
+    if (!selectedVehicle) return;
+    if (availableAddons.length > 0) {
+      setShowAddonModal(true);
+    } else {
+      doCreateBookingAndNavigate([]);
+    }
+  };
 
   const renderVehicleItem = ({ item }: { item: FareEstimate }) => (
     <TouchableOpacity
@@ -333,7 +328,7 @@ const SelectVehiclePage = () => {
           </View>
         ) : (
           <>
-            {/* Vehicle List */}
+            {/* Vehicle List only */}
             <View>
               {fares.map((item) => (
                 <View key={item.vehicle_type}>
@@ -342,48 +337,22 @@ const SelectVehiclePage = () => {
               ))}
             </View>
 
-            {/* Tip Section */}
-            {selectedVehicle && (
-              <View className="bg-gray-50 rounded-2xl p-4 mt-2">
-                <View className="flex-row justify-between items-center mb-2">
-                  <Text className="text-sm font-JakartaSemiBold text-gray-700">
-                    Add Driver Tip
-                  </Text>
-                  <Text className="text-lg font-JakartaBold text-brand-500">
-                    +₹{tipAmount}
-                  </Text>
-                </View>
-                <Slider
-                  style={{ height: 40 }}
-                  minimumValue={0}
-                  maximumValue={200}
-                  step={10}
-                  value={tipAmount}
-                  onValueChange={setTipAmount}
-                  minimumTrackTintColor="#FF9800"
-                  maximumTrackTintColor="#d1d5db"
-                  thumbTintColor="#FF9800"
-                />
-                <View className="flex-row justify-between">
-                  <Text className="text-xs text-gray-400">₹0</Text>
-                  <Text className="text-xs text-gray-400">₹200</Text>
-                </View>
-              </View>
-            )}
-
-
-
-            {/* Total & Book Button */}
+            {/* Total & Book / Back - no tip on this page */}
             <View className="mt-4">
               {selectedVehicle && (
                 <View className="flex-row justify-between items-center mb-3 px-1">
-                  <Text className="text-gray-600 font-JakartaMedium">Total Amount</Text>
-                  <Text className="text-2xl font-JakartaBold text-green-600">₹{totalFare}</Text>
+                  <Text className="text-gray-600 font-JakartaMedium">Fare</Text>
+                  <Text className="text-xl font-JakartaBold text-green-600">
+                    ₹{selectedVehicle.total_fare}
+                    {availableAddons.length > 0 && (
+                      <Text className="text-sm font-JakartaMedium text-gray-500"> + add-ons in next step</Text>
+                    )}
+                  </Text>
                 </View>
               )}
-              
+
               <View className="flex-row gap-3">
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => router.back()}
                   className="flex-1 bg-gray-100 py-4 rounded-xl items-center flex-row justify-center"
                   disabled={isBooking}
@@ -391,12 +360,12 @@ const SelectVehiclePage = () => {
                   <Feather name="arrow-left" size={18} color="#333" />
                   <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
                 </TouchableOpacity>
-                
+
                 <TouchableOpacity
                   onPress={handleBookNow}
                   disabled={!selectedVehicle || isBooking}
                   className={`flex-[2] py-4 rounded-xl items-center justify-center flex-row ${
-                    selectedVehicle && !isBooking ? 'bg-brand-500' : 'bg-gray-300'
+                    selectedVehicle && !isBooking ? "bg-brand-500" : "bg-gray-300"
                   }`}
                 >
                   {isBooking ? (
@@ -413,6 +382,63 @@ const SelectVehiclePage = () => {
           </>
         )}
 
+      {/* Add-on Services bottom modal - slides up when vehicle has addons */}
+      <Modal
+        visible={showAddonModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowAddonModal(false)}
+      >
+        <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setShowAddonModal(false)}>
+          <Pressable className="bg-white rounded-t-3xl max-h-[85%]" onPress={(e) => e.stopPropagation()}>
+            <View className="w-12 h-1 bg-gray-300 rounded-full self-center mt-2 mb-1" />
+            <ScrollView className="px-5 pb-8" showsVerticalScrollIndicator={false}>
+              {selectedVehicle && (
+                <AddonSelector
+                  addons={availableAddons}
+                  selectedAddonIds={selectedAddonIds}
+                  onToggleAddon={(id) =>
+                    setSelectedAddonIds((prev) =>
+                      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                    )
+                  }
+                  vehicleType={selectedVehicle.vehicle_type}
+                />
+              )}
+
+              <View className="flex-row justify-between items-center mt-4 mb-6">
+                <Text className="text-gray-800 font-JakartaBold">Total</Text>
+                <Text className="text-2xl font-JakartaBold text-green-600">₹{totalFare}</Text>
+              </View>
+
+              <View className="flex-row gap-3">
+                <TouchableOpacity
+                  onPress={() => setShowAddonModal(false)}
+                  className="flex-1 bg-gray-100 py-4 rounded-xl items-center flex-row justify-center"
+                  disabled={isBooking}
+                >
+                  <Feather name="arrow-left" size={18} color="#333" />
+                  <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => doCreateBookingAndNavigate(selectedAddonIds)}
+                  disabled={isBooking}
+                  className="flex-[2] py-4 rounded-xl items-center justify-center flex-row bg-brand-500"
+                >
+                  {isBooking ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Feather name="search" size={18} color="#fff" />
+                      <Text className="ml-2 font-JakartaBold text-white">Book Now</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </RideLayout>
   );
 };

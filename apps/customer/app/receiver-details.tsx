@@ -1,6 +1,7 @@
 import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
 import { useLocationStore, useBookingStore } from "@/store";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
 import { 
@@ -14,6 +15,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 
 const ReceiverDetailsPage = () => {
+  const { t } = useLanguage();
   const {
     destinationAddress,
     destinationLatitude,
@@ -36,6 +38,13 @@ const ReceiverDetailsPage = () => {
 
   // Save as options
   const saveAsOptions = ['Home', 'Office', 'Friend', 'Family', 'Other'];
+  const saveAsLabels: Record<string, string> = {
+    Home: t('homeLabel'),
+    Office: t('office'),
+    Friend: t('friend'),
+    Family: t('family'),
+    Other: t('other'),
+  };
 
   const handleProceed = () => {
     if (!receiverName.trim()) {
@@ -66,7 +75,7 @@ const ReceiverDetailsPage = () => {
 
   return (
     <RideLayout 
-      title="Receiver Details" 
+      title={t("receiverDetails")} 
       snapPoints={["40%", "70%", "90%"]}
     >
       <View>
@@ -75,7 +84,7 @@ const ReceiverDetailsPage = () => {
         {/* Receiver Details Form */}
         <View className="mb-6">
           <Text className="text-xl font-JakartaBold text-gray-800 mb-4">
-            Who will receive this?
+            {t("whoWillReceive")}
           </Text>
 
           {/* Receiver Name */}
@@ -158,7 +167,7 @@ const ReceiverDetailsPage = () => {
                       <Text className={`ml-2 font-JakartaMedium ${
                         selectedSaveAs === option ? 'text-white' : 'text-gray-700'
                       }`}>
-                        {option}
+                        {saveAsLabels[option] ?? option}
                       </Text>
                     </View>
                   </TouchableOpacity>

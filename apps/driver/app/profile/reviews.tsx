@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
 
@@ -17,6 +18,7 @@ interface Review {
 
 export default function DriverReviews() {
   const { driverProfile, user } = useAuth();
+  const { t } = useLanguage();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ average: 0, total: 0 });
@@ -74,70 +76,70 @@ export default function DriverReviews() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-gray-900 items-center justify-center">
+      <View className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#22c55e" />
       </View>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-gray-900">
+    <ScrollView className="flex-1 bg-white">
       <View className="p-5">
         
         {/* Summary Card */}
-        <View className="bg-gray-800 rounded-2xl p-6 mb-6 items-center">
-          <Text className="text-white text-4xl font-JakartaBold mb-1">{stats.average}</Text>
-          <View className="flex-row mb-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-               <Feather 
-                  key={star} 
-                  name="star" 
-                  size={20} 
-                  color={Math.round(stats.average) >= star ? "#fbbf24" : "#4b5563"} 
-                  fill={Math.round(stats.average) >= star ? "#fbbf24" : "none"}
-               />
-            ))}
-          </View>
-          <Text className="text-gray-400 text-sm">{stats.total} Reviews</Text>
+        <View className="bg-white rounded-2xl p-6 mb-6 items-center border border-gray-200">
+           <Text className="text-gray-900 text-4xl font-JakartaBold mb-1">{stats.average}</Text>
+           <View className="flex-row mb-2">
+             {[1, 2, 3, 4, 5].map((star) => (
+                <Feather 
+                   key={star} 
+                   name="star" 
+                   size={20} 
+                   color={Math.round(stats.average) >= star ? "#fbbf24" : "#d1d5db"} 
+                   fill={Math.round(stats.average) >= star ? "#fbbf24" : "none"}
+                />
+             ))}
+           </View>
+           <Text className="text-gray-500 text-sm">{stats.total} {t('reviewsCount')}</Text>
         </View>
 
-        <Text className="text-white text-lg font-JakartaBold mb-4">Recent Reviews</Text>
+        <Text className="text-gray-900 text-lg font-JakartaBold mb-4">{t('recentReviews')}</Text>
 
         {reviews.length === 0 ? (
            <View className="items-center py-10">
               <Text className="text-4xl mb-4">💬</Text>
-              <Text className="text-gray-400">No reviews yet.</Text>
+              <Text className="text-gray-400">{t('noReviewsYet')}</Text>
            </View>
         ) : (
-          reviews.map((review) => (
-            <View key={review.id} className="bg-gray-800 p-4 rounded-xl mb-4">
-              <View className="flex-row justify-between mb-2">
-                 <View className="flex-row items-center">
-                    <View className="w-8 h-8 bg-gray-700 rounded-full items-center justify-center mr-2">
-                        <Text className="text-xs">👤</Text> 
-                    </View>
-                    <Text className="text-white font-JakartaSemiBold">{review.customer?.name || 'Customer'}</Text>
-                 </View>
-                 <Text className="text-gray-500 text-xs">
-                    {new Date(review.created_at).toLocaleDateString()}
-                 </Text>
-              </View>
-              
-              <View className="flex-row mb-2">
-                {[1, 2, 3, 4, 5].map((star) => (
-                   <Feather 
-                      key={star} 
-                      name="star" 
-                      size={14} 
-                      color={review.rating >= star ? "#fbbf24" : "#4b5563"} 
-                      fill={review.rating >= star ? "#fbbf24" : "none"}
-                   />
-                ))}
-              </View>
+           reviews.map((review) => (
+             <View key={review.id} className="bg-white p-4 rounded-xl mb-4 border border-gray-200">
+               <View className="flex-row justify-between mb-2">
+                  <View className="flex-row items-center">
+                     <View className="w-8 h-8 bg-gray-100 rounded-full items-center justify-center mr-2">
+                         <Text className="text-xs">👤</Text> 
+                     </View>
+                     <Text className="text-gray-900 font-JakartaSemiBold">{review.customer?.name || t('customer')}</Text>
+                  </View>
+                  <Text className="text-gray-400 text-xs">
+                     {new Date(review.created_at).toLocaleDateString()}
+                  </Text>
+               </View>
+               
+               <View className="flex-row mb-2">
+                 {[1, 2, 3, 4, 5].map((star) => (
+                    <Feather 
+                       key={star} 
+                       name="star" 
+                       size={14} 
+                       color={review.rating >= star ? "#fbbf24" : "#d1d5db"} 
+                       fill={review.rating >= star ? "#fbbf24" : "none"}
+                    />
+                 ))}
+               </View>
 
-              {review.review && (
-                <Text className="text-gray-300 text-sm mt-1">"{review.review}"</Text>
-              )}
+               {review.review && (
+                 <Text className="text-gray-600 text-sm mt-1">"{review.review}"</Text>
+               )}
             </View>
           ))
         )}

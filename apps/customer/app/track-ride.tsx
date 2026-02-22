@@ -21,6 +21,7 @@ import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
 import type { Booking } from "@/types/type";
+import { saveRoute, saveAddress } from "@/lib/savedPlaces";
 import { useAuth } from "@/contexts/AuthContext";
 
 const TrackRidePage = () => {
@@ -41,6 +42,52 @@ const TrackRidePage = () => {
   const mapRef = useRef<MapView>(null);
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
+
+  const handleSaveRoute = async () => {
+    if (!booking) return;
+
+    setIsSavingRoute(true);
+    // Use a default name since Alert.prompt is unreliable on Android
+    const defaultName = `${booking.origin_address.split(',')[0]} to ${booking.destination_address.split(',')[0]}`;
+    
+    const { data: routeData, error: routeError } = await saveRoute({
+      name: defaultName,
+      origin_address: booking.origin_address,
+      origin_latitude: booking.origin_latitude,
+      origin_longitude: booking.origin_longitude,
+      destination_address: booking.destination_address,
+      destination_latitude: booking.destination_latitude,
+      destination_longitude: booking.destination_longitude,
+    });
+
+    if (routeError) {
+      console.error('Error saving route:', routeError);
+      Alert.alert("Error", "Failed to save route");
+      setIsSavingRoute(false);
+      return;
+    }
+
+    // Also save the pickup and drop addresses individually as requested
+    await saveAddress({
+      label: booking.origin_address.split(',')[0],
+      address: booking.origin_address,
+      latitude: booking.origin_latitude,
+      longitude: booking.origin_longitude,
+      icon_type: 'location-outline'
+    });
+
+    await saveAddress({
+      label: booking.destination_address.split(',')[0],
+      address: booking.destination_address,
+      latitude: booking.destination_latitude,
+      longitude: booking.destination_longitude,
+      icon_type: 'location-outline'
+    });
+
+    setIsSavingRoute(false);
+    Alert.alert("Success", "Route and addresses saved to your favorites!");
+  };
 
   // Fetch booking and set up subscriptions
   useEffect(() => {
@@ -399,6 +446,20 @@ const TrackRidePage = () => {
                   {destinationAddress || booking?.destination_address}
                 </Text>
               </View>
+              <TouchableOpacity
+                onPress={handleSaveRoute}
+                disabled={isSavingRoute}
+                className="bg-brand-50 px-3 py-1.5 rounded-lg border border-brand-100 flex-row items-center"
+              >
+                {isSavingRoute ? (
+                  <ActivityIndicator size="small" color="#FF9800" />
+                ) : (
+                  <>
+                    <Feather name="plus" size={14} color="#FF9800" />
+                    <Text className="ml-1 text-xs font-JakartaBold text-brand-600">Save Route</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
 
             <View className="h-px bg-gray-200 my-2" />
@@ -508,11 +569,17 @@ const TrackRidePage = () => {
         amount={completedBookingAmount}
         onConfirm={() => {
           setShowPaymentConfirmation(false);
-          router.replace("/(tabs)/home");
+          router.replace({
+            pathname: '/ride-details/[id]',
+            params: { id: bookingId },
+          });
         }}
         onSkip={() => {
           setShowPaymentConfirmation(false);
-          router.replace("/(tabs)/home");
+          router.replace({
+            pathname: '/ride-details/[id]',
+            params: { id: bookingId },
+          });
         }}
       />
 

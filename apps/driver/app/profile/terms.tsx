@@ -1,93 +1,160 @@
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { supabase } from '@/lib/supabase';
+
+// Using any type since legal_documents may not be in the generated types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LegalDocument = any;
 
 export default function TermsAndPolicies() {
   const router = useRouter();
+  const { t } = useLanguage();
+  const [documents, setDocuments] = useState<LegalDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchTerms();
+  }, []);
+
+  async function fetchTerms() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error: fetchError } = await (supabase as any)
+        .from('legal_documents')
+        .select('id, type, title, content, version, is_published, published_at, target_audience, updated_at')
+        .eq('is_published', true)
+        .in('target_audience', ['driver', 'both'])
+        .order('type')
+        .order('updated_at', { ascending: false });
+
+      if (fetchError) throw fetchError;
+      setDocuments(data || []);
+    } catch (err: any) {
+      console.error('Failed to fetch legal documents:', err);
+      setError(t('failedToLoad'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const renderContent = (content: string) => {
+    // Split content by lines and render, stripping markdown heading markers for readability
+    return content
+      .split('\n')
+      .map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+
+        // Heading level 1: # Title
+        if (trimmed.startsWith('# ')) {
+          return (
+            <Text key={index} className="text-lg font-JakartaBold text-gray-900 mt-5 mb-2">
+              {trimmed.replace(/^#+\s*/, '')}
+            </Text>
+          );
+        }
+        // Heading level 2: ## Title
+        if (trimmed.startsWith('## ')) {
+          return (
+            <Text key={index} className="text-base font-JakartaBold text-gray-900 mt-4 mb-1">
+              {trimmed.replace(/^#+\s*/, '')}
+            </Text>
+          );
+        }
+        // Heading level 3: ### Title
+        if (trimmed.startsWith('### ')) {
+          return (
+            <Text key={index} className="text-sm font-JakartaSemiBold text-gray-300 mt-3 mb-1">
+              {trimmed.replace(/^#+\s*/, '')}
+            </Text>
+          );
+        }
+        // Bullet points
+        if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+          return (
+            <Text key={index} className="text-gray-400 leading-6 ml-3">
+              {'• '}{trimmed.replace(/^[-•]\s*/, '')}
+            </Text>
+          );
+        }
+        // Regular paragraph
+        return (
+          <Text key={index} className="text-gray-400 leading-6 mb-1">
+            {trimmed}
+          </Text>
+        );
+      })
+      .filter(Boolean);
+  };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-900">
-      {/* Header */}
-      <View className="flex-row items-center p-4 border-b border-gray-800">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="w-10 h-10 bg-gray-800 rounded-full items-center justify-center mr-4"
-        >
-          <Feather name="arrow-left" size={24} color="#fff" />
+    <SafeAreaView className="flex-1 bg-white">
+      {/* Custom Header - Clean and Simple */}
+      <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-100">
+        <Text className="text-lg font-JakartaBold text-gray-900 flex-1">{t('termsAndPolicies')}</Text>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Feather name="x" size={24} color="#6b7280" />
         </TouchableOpacity>
-        <Text className="text-xl font-JakartaBold text-white">Terms & Policies</Text>
       </View>
 
-      <ScrollView className="flex-1 p-5">
-        
-        {/* Section 1: Introduction */}
-        <View className="mb-6">
-          <Text className="text-lg font-JakartaBold text-white mb-2">1. Introduction</Text>
-          <Text className="text-gray-400 leading-6">
-            Welcome to the Cart-R Driver App. By using our platform, you agree to comply with and be bound by the following terms and conditions. Please review them carefully.
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#f97316" />
+          <Text className="text-gray-500 mt-3 font-JakartaMedium text-sm">{t('loadingDocuments')}</Text>
+        </View>
+      ) : error ? (
+        <View className="flex-1 items-center justify-center px-8">
+          <Feather name="alert-circle" size={48} color="#ef4444" />
+          <Text className="text-gray-900 font-JakartaBold text-base mt-3 text-center">{t('failedToLoad')}</Text>
+          <Text className="text-gray-500 font-JakartaMedium text-sm mt-1 text-center">{error}</Text>
+          <TouchableOpacity
+            onPress={fetchTerms}
+            className="mt-5 px-6 py-3 bg-orange-500 rounded-xl"
+          >
+            <Text className="text-gray-900 font-JakartaBold text-sm">{t('tryAgain')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : documents.length === 0 ? (
+        <View className="flex-1 items-center justify-center px-8">
+          <Feather name="file-text" size={48} color="#6b7280" />
+          <Text className="text-gray-900 font-JakartaBold text-base mt-3 text-center">{t('noDocumentsFound')}</Text>
+          <Text className="text-gray-500 font-JakartaMedium text-sm mt-1 text-center">
+            {t('legalNotPublished')}
           </Text>
         </View>
+      ) : (
+        <ScrollView className="flex-1 p-5">
+          {documents.map((doc, docIndex) => (
+            <View
+              key={doc.id}
+              className={`${docIndex < documents.length - 1 ? 'mb-8 pb-8 border-b border-gray-800' : 'mb-4'}`}
+            >
+              {/* Document title */}
+              <Text className="text-xl font-JakartaBold text-gray-900 mb-1">{doc.title}</Text>
+              <Text className="text-xs text-gray-500 font-JakartaMedium mb-4">
+                Version {doc.version}
+                {doc.published_at ? ` · Updated ${new Date(doc.published_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}
+              </Text>
 
-        {/* Section 2: Driver Eligibility */}
-        <View className="mb-6">
-          <Text className="text-lg font-JakartaBold text-white mb-2">2. Driver Eligibility</Text>
-          <Text className="text-gray-400 leading-6">
-            To register as a driver, you must:
-            {'\n'}• Be at least 18 years of age.
-            {'\n'}• Possess a valid driver's license.
-            {'\n'}• Have valid vehicle registration and insurance.
-            {'\n'}• Pass our background check process.
-          </Text>
-        </View>
+              {/* Document content */}
+              <View>{renderContent(doc.content)}</View>
+            </View>
+          ))}
 
-        {/* Section 3: User Conduct */}
-        <View className="mb-6">
-          <Text className="text-lg font-JakartaBold text-white mb-2">3. Code of Conduct</Text>
-          <Text className="text-gray-400 leading-6">
-            We maintain a zero-tolerance policy for:
-            {'\n'}• Discrimination or harassment of any kind.
-            {'\n'}• Unsafe driving practices.
-            {'\n'}• Fraudulent activities or misuse of the platform.
-            {'\n'}• Distracted driving (e.g., texting while driving).
-          </Text>
-        </View>
-
-        {/* Section 4: Privacy Policy */}
-        <View className="mb-6">
-          <Text className="text-lg font-JakartaBold text-white mb-2">4. Privacy Policy</Text>
-          <Text className="text-gray-400 leading-6">
-            Your privacy is important to us. We collect and use your data to:
-            {'\n'}• Connect you with customers.
-            {'\n'}• Process payments and verify trips.
-            {'\n'}• Improve our platform's safety and efficiency.
-            {'\n'}We do not sell your personal data to third parties. Location data is collected only when you are online and available for trips.
-          </Text>
-        </View>
-
-        {/* Section 5: Payments */}
-        <View className="mb-6">
-          <Text className="text-lg font-JakartaBold text-white mb-2">5. Payments & Payouts</Text>
-          <Text className="text-gray-400 leading-6">
-            Earnings are calculated based on trip distance and time. Payouts are processed weekly to your registered bank account. We reserve the right to adjust fares in cases of route inefficiency or fraud.
-          </Text>
-        </View>
-        
-        {/* Section 6: Account Termination */}
-         <View className="mb-8">
-          <Text className="text-lg font-JakartaBold text-white mb-2">6. Account Termination</Text>
-          <Text className="text-gray-400 leading-6">
-            Cart-R reserves the right to deactivate your account if you violate these terms, receive consistently low ratings, or engage in unsafe behavior.
-          </Text>
-        </View>
-
-        <View className="mb-10 pt-4 border-t border-gray-800">
-           <Text className="text-gray-500 text-center text-xs">
-             Last Updated: January 2026
-           </Text>
-        </View>
-
-      </ScrollView>
+          <View className="mb-10 pt-4 border-t border-gray-800">
+            <Text className="text-gray-500 text-center text-xs">
+              {t('lastUpdated')}: {documents[0]?.published_at ? new Date(documents[0].published_at).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : 'N/A'}
+            </Text>
+          </View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

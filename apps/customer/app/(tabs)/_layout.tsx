@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router";
 import { Image, ImageSourcePropType, View } from "react-native";
-
+import { useLanguage } from "@/contexts/LanguageContext";
 import { icons } from "@/constants";
 
 const TabIcon = ({
@@ -27,6 +27,7 @@ const TabIcon = ({
 );
 
 const Layout = () => {
+    const { t } = useLanguage();
     return (
         <Tabs
             initialRouteName="home"
@@ -53,7 +54,7 @@ const Layout = () => {
             <Tabs.Screen
                 name="home"
                 options={{
-                    title: "Home",
+                    title: t("home"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.home} focused={focused} />
@@ -63,7 +64,7 @@ const Layout = () => {
             <Tabs.Screen
                 name="rides"
                 options={{
-                    title: "Rides",
+                    title: t("rides"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.list} focused={focused} />
@@ -73,7 +74,7 @@ const Layout = () => {
             <Tabs.Screen
                 name="payment"
                 options={{
-                    title: "Payment",
+                    title: t("payment"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.dollar} focused={focused} />
@@ -83,7 +84,7 @@ const Layout = () => {
             <Tabs.Screen
                 name="profile"
                 options={{
-                    title: "Profile",
+                    title: t("profile"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.profile} focused={focused} />

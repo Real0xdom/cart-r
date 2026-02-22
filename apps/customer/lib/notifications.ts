@@ -1,44 +1,67 @@
 // Customer App - Notification Setup
 // Handles push notification registration and listeners
 
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
-// Configure notification handling behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Helper to safely load the module
+const getNotifications = () => {
+  try {
+    return require('expo-notifications');
+  } catch (error) {
+    console.warn('Expo Notifications not available:', error);
+    return null;
+  }
+};
 
 /**
- * Setup Android notification channels
+ * Initialize all notification configuration
  */
-export async function setupNotificationChannels() {
-  if (Platform.OS === 'android') {
-    // Default channel for booking updates
-    await Notifications.setNotificationChannelAsync('booking-updates', {
-      name: 'Booking Updates',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      sound: 'default',
-      enableVibrate: true,
-      showBadge: true,
+export async function initializeNotifications() {
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+
+  try {
+    // 1. Set handler
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
     });
 
-    // Default channel for general notifications
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'General',
-      importance: Notifications.AndroidImportance.DEFAULT,
-      sound: 'default',
-    });
+    // 2. Setup channels (Android)
+    if (Platform.OS === 'android') {
+      try {
+        await Notifications.setNotificationChannelAsync('booking-updates', {
+          name: 'Booking Updates',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          sound: 'default',
+          enableVibrate: true,
+          showBadge: true,
+        });
 
-    console.log('✅ Customer notification channels configured');
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'General',
+          importance: Notifications.AndroidImportance.DEFAULT,
+          sound: 'default',
+        });
+
+        console.log('✅ Customer notification channels configured');
+      } catch (error) {
+        console.warn('Failed to setup notification channels:', error);
+      }
+    }
+  } catch (error: any) {
+    if (error?.message?.includes('Cannot find native module')) {
+      console.warn('Expo Notifications native module missing. Please rebuild your development client.');
+    } else {
+      console.warn('Failed to initialize notifications:', error);
+    }
   }
 }
 
@@ -46,23 +69,35 @@ export async function setupNotificationChannels() {
  * Request notification permissions
  */
 export async function requestNotificationPermissions(): Promise<boolean> {
+  const Notifications = getNotifications();
+  if (!Notifications) return false;
+
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    console.log('📱 Current permission status:', existingStatus);
+    
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
+      console.log('📝 Requesting notification permissions...');
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
+      console.log('✅ Permission request result:', status);
     }
 
     if (finalStatus !== 'granted') {
-      console.log('Notification permissions not granted');
+      console.warn('⚠️ Notification permissions not granted');
       return false;
     }
 
+    console.log('✅ Notification permissions granted');
     return true;
-  } catch (error) {
-    console.error('Error requesting notification permissions:', error);
+  } catch (error: any) {
+    if (error?.message?.includes('Cannot find native module')) {
+      console.warn('Expo Notifications native module missing. Please rebuild your development client.');
+    } else {
+      console.error('Error requesting notification permissions:', error);
+    }
     return false;
   }
 }
@@ -71,17 +106,37 @@ export async function requestNotificationPermissions(): Promise<boolean> {
  * Get the Expo Push Token
  */
 export async function getExpoPushToken(): Promise<string | null> {
+  const Notifications = getNotifications();
+  if (!Notifications) {
+    console.warn('❌ Notifications module not available');
+    return null;
+  }
+
   try {
     const hasPermission = await requestNotificationPermissions();
-    if (!hasPermission) return null;
+    if (!hasPermission) {
+      console.warn('❌ No notification permissions');
+      return null;
+    }
 
+    console.log('🔄 Getting Expo push token...');
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId: undefined, // Uses project ID from app.json
     });
 
+    if (!tokenData?.data) {
+      console.warn('❌ [getExpoPushToken] No token data returned');
+      return null;
+    }
+
+    console.log('✅ Got Expo push token:', tokenData.data.substring(0, 30) + '...');
     return tokenData.data;
-  } catch (error) {
-    console.error('Error getting push token:', error);
+  } catch (error: any) {
+    if (error?.message?.includes('Cannot find native module')) {
+      console.warn('Expo Notifications native module missing. Please rebuild your development client.');
+    } else {
+      console.error('Error getting push token:', error);
+    }
     return null;
   }
 }
@@ -91,8 +146,15 @@ export async function getExpoPushToken(): Promise<string | null> {
  */
 export async function registerPushToken(userId: string): Promise<boolean> {
   try {
+    console.log('🔄 [registerPushToken] Starting token registration for user:', userId);
+    
     const token = await getExpoPushToken();
-    if (!token) return false;
+    if (!token) {
+      console.warn('❌ [registerPushToken] No push token obtained - permission denied or module issue');
+      return false;
+    }
+
+    console.log('🔑 [registerPushToken] Got token:', token.substring(0, 30) + '...');
 
     const { error } = await supabase
       .from('users')
@@ -100,14 +162,14 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       .eq('id', userId);
 
     if (error) {
-      console.error('Error saving push token:', error);
+      console.error('❌ [registerPushToken] Supabase update error:', error);
       return false;
     }
 
-    console.log('✅ Customer push token registered');
+    console.log('✅ [registerPushToken] Token saved to database successfully');
     return true;
   } catch (error) {
-    console.error('Error registering push token:', error);
+    console.error('❌ [registerPushToken] Exception occurred:', error);
     return false;
   }
 }
@@ -116,24 +178,40 @@ export async function registerPushToken(userId: string): Promise<boolean> {
  * Add listener for incoming notifications
  */
 export function addNotificationReceivedListener(
-  callback: (notification: Notifications.Notification) => void
+  callback: (notification: any) => void
 ) {
-  return Notifications.addNotificationReceivedListener(callback);
+  const Notifications = getNotifications();
+  if (!Notifications) return { remove: () => {} };
+
+  try {
+    return Notifications.addNotificationReceivedListener(callback);
+  } catch (error) {
+    console.warn('Failed to add notification received listener:', error);
+    return { remove: () => {} };
+  }
 }
 
 /**
  * Add listener for notification taps (when user taps on notification)
  */
 export function addNotificationResponseListener(
-  callback: (response: Notifications.NotificationResponse) => void
+  callback: (response: any) => void
 ) {
-  return Notifications.addNotificationResponseReceivedListener(callback);
+  const Notifications = getNotifications();
+  if (!Notifications) return { remove: () => {} };
+
+  try {
+    return Notifications.addNotificationResponseReceivedListener(callback);
+  } catch (error) {
+    console.warn('Failed to add notification response listener:', error);
+    return { remove: () => {} };
+  }
 }
 
 /**
  * Parse notification data to handle navigation
  */
-export function parseNotificationData(notification: Notifications.Notification): {
+export function parseNotificationData(notification: any): {
   type: string;
   bookingId?: string;
   status?: string;

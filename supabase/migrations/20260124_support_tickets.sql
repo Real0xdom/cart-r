@@ -16,20 +16,24 @@ ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
 
 -- Policies
 -- Users can view their own tickets
+DROP POLICY IF EXISTS "Users can view own tickets" ON support_tickets;
 CREATE POLICY "Users can view own tickets" ON support_tickets
     FOR SELECT USING (auth.uid() = user_id);
 
 -- Users can create tickets
+DROP POLICY IF EXISTS "Users can create tickets" ON support_tickets;
 CREATE POLICY "Users can create tickets" ON support_tickets
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Admins can view all tickets (Assuming admin check is done via role in app logic or separate admin policy if RLS enforced stricter)
 -- For simplicity in this project's context where admins often use service role or client-side checks:
+DROP POLICY IF EXISTS "Admins can view all tickets" ON support_tickets;
 CREATE POLICY "Admins can view all tickets" ON support_tickets
     FOR SELECT USING (
         EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
     );
 
+DROP POLICY IF EXISTS "Admins can update tickets" ON support_tickets;
 CREATE POLICY "Admins can update tickets" ON support_tickets
     FOR UPDATE USING (
         EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')

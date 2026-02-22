@@ -8,6 +8,13 @@ import { LogBox } from "react-native";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 
+import { 
+  initializeNotifications, 
+  requestNotificationPermissions,
+  addNotificationReceivedListener,
+  addNotificationResponseListener 
+} from "@/lib/notifications";
+
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
@@ -24,10 +31,35 @@ export default function RootLayout() {
     Jakarta: require("../assets/fonts/PlusJakartaSans-Regular.ttf"),
     "Jakarta-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
   });
+  console.log('[SplashDebug] useFonts loaded:', loaded);
 
   useEffect(() => {
     if (loaded) {
+      console.log('[SplashDebug] Fonts loaded, hiding splash screen.');
+      // Hide splash screen immediately when fonts are loaded
       SplashScreen.hideAsync();
+      // Setup notifications
+      let notificationReceivedSubscription: any;
+      let notificationResponseSubscription: any;
+      try {
+        initializeNotifications();
+        requestNotificationPermissions();
+        // Setup notification listeners
+        notificationReceivedSubscription = addNotificationReceivedListener((notification) => {
+          console.log('📬 [RootLayout] Notification received:', notification.request.content.title);
+        });
+        notificationResponseSubscription = addNotificationResponseListener((response) => {
+          console.log('👆 [RootLayout] Notification tapped:', response.notification.request.content.title);
+        });
+      } catch (e) {
+        console.warn('Error initializing notifications:', e);
+      }
+      return () => {
+        notificationReceivedSubscription?.remove?.();
+        notificationResponseSubscription?.remove?.();
+      };
+    } else {
+      console.log('[SplashDebug] Fonts not loaded yet.');
     }
   }, [loaded]);
 
@@ -42,7 +74,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="find-ride" options={{ headerShown: false }} />
           <Stack.Screen name="receiver-details" options={{ headerShown: false }} />
           <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />

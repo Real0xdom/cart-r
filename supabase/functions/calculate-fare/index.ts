@@ -123,7 +123,14 @@ serve(async (req) => {
       
       if (configsError) throw configsError
       
-      const options = (allConfigs || []).map(calculateForConfig)
+      if (!allConfigs || allConfigs.length === 0) {
+        return new Response(
+          JSON.stringify({ options: [] }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
+      const options = allConfigs.map(calculateForConfig)
       
       // Sort: bike first, then by price
       options.sort((a, b) => {

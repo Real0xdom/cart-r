@@ -30,6 +30,9 @@ const ExpoSecureStoreAdapter = {
 };
 
 import { Database } from './database.types';
+export type { Database };
+
+
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {

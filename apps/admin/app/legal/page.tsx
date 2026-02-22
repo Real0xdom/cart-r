@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { FileText, Save, RefreshCw, Eye, EyeOff, Plus, X, Users } from 'lucide-react';
+import { FileText, Save, RefreshCw, Eye, EyeOff, Plus, X, Users, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface LegalDocument {
@@ -15,10 +15,7 @@ interface LegalDocument {
   published_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-interface AcceptanceStats {
-  [version: string]: number;
+  target_audience: 'customer' | 'driver' | 'both';
 }
 
 const docTypes = [
@@ -30,14 +27,22 @@ const docTypes = [
   { value: 'other', label: 'Other', emoji: '📄' },
 ];
 
+const audienceOptions = [
+  { value: 'both', label: 'Both (Customer & Driver)', emoji: '👥', color: 'bg-purple-100 text-purple-700' },
+  { value: 'customer', label: 'Customer Only', emoji: '🧑', color: 'bg-blue-100 text-blue-700' },
+  { value: 'driver', label: 'Driver Only', emoji: '🚗', color: 'bg-amber-100 text-amber-700' },
+];
+
 export default function LegalPage() {
   const [documents, setDocuments] = useState<LegalDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [acceptanceCount, setAcceptanceCount] = useState(0);
-  const [newDoc, setNewDoc] = useState({ type: 'terms_conditions', title: '', content: '' });
+  const [newDoc, setNewDoc] = useState({ type: 'terms_conditions', title: '', content: '', target_audience: 'both' });
   const [addingNew, setAddingNew] = useState(false);
 
   useEffect(() => {
@@ -83,6 +88,7 @@ export default function LegalPage() {
         .update({
           title: doc.title,
           content: doc.content,
+          target_audience: doc.target_audience,
           updated_at: new Date().toISOString(),
         })
         .eq('id', doc.id);
@@ -128,6 +134,25 @@ export default function LegalPage() {
     }
   };
 
+  const handleDelete = async (doc: LegalDocument) => {
+    setDeleting(doc.id);
+    try {
+      const { error } = await supabase
+        .from('legal_documents')
+        .delete()
+        .eq('id', doc.id);
+
+      if (error) throw error;
+      toast.success(`"${doc.title}" deleted`);
+      setShowDeleteConfirm(null);
+      fetchDocuments();
+    } catch (error: any) {
+      toast.error('Failed to delete: ' + error.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const handleAdd = async () => {
     if (!newDoc.title || !newDoc.content) {
       toast.error('Title and content are required');
@@ -142,6 +167,7 @@ export default function LegalPage() {
           type: newDoc.type,
           title: newDoc.title,
           content: newDoc.content,
+          target_audience: newDoc.target_audience,
           version: 'v1.0',
           is_published: false,
         });
@@ -149,7 +175,7 @@ export default function LegalPage() {
       if (error) throw error;
       toast.success('Document created!');
       setShowAddModal(false);
-      setNewDoc({ type: 'terms_conditions', title: '', content: '' });
+      setNewDoc({ type: 'terms_conditions', title: '', content: '', target_audience: 'both' });
       fetchDocuments();
     } catch (error: any) {
       toast.error('Failed to create: ' + error.message);
@@ -164,6 +190,10 @@ export default function LegalPage() {
 
   const getDocEmoji = (type: string) => {
     return docTypes.find(d => d.value === type)?.emoji || '📄';
+  };
+
+  const getAudienceBadge = (audience: string) => {
+    return audienceOptions.find(a => a.value === audience) || audienceOptions[0];
   };
 
   return (
@@ -257,9 +287,25 @@ export default function LegalPage() {
                       ) : (
                         <h3 className="text-lg font-bold text-gray-900">{doc.title}</h3>
                       )}
-                      <div className="flex items-center gap-3 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-mono">{doc.type}</span>
                         <span className="text-xs text-gray-400">Version {doc.version}</span>
+                        {/* Target Audience Badge */}
+                        {editing === doc.id ? (
+                          <select
+                            value={doc.target_audience || 'both'}
+                            onChange={(e) => handleContentChange(doc.id, 'target_audience', e.target.value)}
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold border border-gray-200 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          >
+                            {audienceOptions.map(a => (
+                              <option key={a.value} value={a.value}>{a.emoji} {a.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${getAudienceBadge(doc.target_audience || 'both').color}`}>
+                            {getAudienceBadge(doc.target_audience || 'both').emoji} {getAudienceBadge(doc.target_audience || 'both').label}
+                          </span>
+                        )}
                         {doc.published_at && (
                           <span className="text-xs text-gray-400">
                             Published {new Date(doc.published_at).toLocaleDateString('en-IN')}
@@ -301,12 +347,20 @@ export default function LegalPage() {
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => setEditing(doc.id)}
-                        className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditing(doc.id)}
+                          className="px-4 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setShowDeleteConfirm(doc.id)}
+                          className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors flex items-center gap-1.5"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -359,6 +413,30 @@ export default function LegalPage() {
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Visible To</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {audienceOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setNewDoc({ ...newDoc, target_audience: opt.value })}
+                      className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                        newDoc.target_audience === opt.value
+                          ? 'border-orange-500 bg-orange-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="text-2xl">{opt.emoji}</span>
+                      <span className={`text-xs font-semibold ${newDoc.target_audience === opt.value ? 'text-orange-600' : 'text-gray-600'}`}>
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Title</label>
                 <input
@@ -404,6 +482,53 @@ export default function LegalPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (() => {
+        const doc = documents.find(d => d.id === showDeleteConfirm);
+        if (!doc) return null;
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+            <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 mx-4">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Trash2 size={24} className="text-red-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Delete Document</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">This action cannot be undone</p>
+                </div>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to permanently delete{' '}
+                <span className="font-semibold text-gray-900">&quot;{doc.title}&quot;</span>?{' '}
+                {doc.is_published && (
+                  <span className="text-red-600 font-medium">This document is currently published and visible to users.</span>
+                )}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(null)}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDelete(doc)}
+                  disabled={deleting === doc.id}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deleting === doc.id ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <><Trash2 size={16} /> Delete</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

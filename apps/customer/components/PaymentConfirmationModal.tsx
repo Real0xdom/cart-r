@@ -133,6 +133,14 @@ const PaymentConfirmationModal = ({
             ))}
           </View>
 
+          {/* Rate your ride prompt */}
+          <View className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex-row items-center">
+            <Feather name="star" size={20} color="#f59e0b" />
+            <Text className="flex-1 ml-3 text-amber-800 font-JakartaMedium text-sm">
+              Next: Rate your ride and help us improve
+            </Text>
+          </View>
+
           {/* Skip Button */}
           <TouchableOpacity
             onPress={onSkip}

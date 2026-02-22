@@ -7,20 +7,18 @@ import {
   ActivityIndicator,
   Alert,
   Share,
-  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
-import { generateInvoice, getInvoice, InvoiceData } from "@/lib/invoiceUtils";
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import { generateInvoice, getInvoice, invoiceToHtml, InvoiceData } from "@/lib/invoiceUtils";
 
 const InvoiceScreen = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   useEffect(() => {
     if (bookingId) {
@@ -85,16 +83,47 @@ Thank you for using Cart-R!
   };
 
   const handleDownload = async () => {
-    // Note: Full PDF generation would require additional libraries like react-native-html-to-pdf
-    // For now, we'll use the share functionality
-    Alert.alert(
-      "Download Invoice",
-      "Invoice will be shared. You can save it from the share menu.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Share", onPress: handleShare }
-      ]
-    );
+    if (!invoice) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      // Load native modules only when needed (avoids crash in Expo Go / dev builds without rebuild)
+      const Print = await import("expo-print");
+      const Sharing = await import("expo-sharing");
+
+      const html = invoiceToHtml(invoice);
+      const { uri } = await Print.printToFileAsync({
+        html,
+        baseUrl: undefined,
+      });
+
+      const isSharingAvailable = await Sharing.isAvailableAsync();
+      if (isSharingAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: "application/pdf",
+          dialogTitle: `Save Invoice ${invoice.invoice_number}`,
+        });
+      } else {
+        await Share.share({
+          url: uri,
+          type: "application/pdf",
+          title: `Invoice ${invoice.invoice_number}`,
+        });
+      }
+    } catch (error: any) {
+      console.warn("PDF not available, falling back to share:", error?.message);
+      // Native module missing (Expo Go / unrebuilt app) or other error — share as text
+      Alert.alert(
+        "Download as PDF",
+        "PDF download requires a full app build. Share the invoice as text instead?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Share invoice", onPress: handleShare },
+        ]
+      );
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   if (loading) {
@@ -148,9 +177,14 @@ Thank you for using Cart-R!
           
           <TouchableOpacity
             onPress={handleDownload}
+            disabled={isGeneratingPdf}
             className="bg-brand-500 p-3 rounded-full"
           >
-            <Feather name="download" size={20} color="#fff" />
+            {isGeneratingPdf ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Feather name="download" size={20} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
       </View>

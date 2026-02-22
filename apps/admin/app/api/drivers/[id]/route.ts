@@ -26,6 +26,7 @@ export async function GET(
 
     // If driver has user_id, fetch user using service role key (bypasses RLS)
     let userData = null;
+    let referralCount = 0;
     if (driverData?.user_id) {
       const { data: user, error: userError } = await supabaseAdmin
         .from('users')
@@ -40,12 +41,20 @@ export async function GET(
       } else {
         console.error('User fetch error:', userError);
       }
+
+      // Referral count for this user (as referrer)
+      const { count } = await supabaseAdmin
+        .from('referrals')
+        .select('*', { count: 'exact', head: true })
+        .eq('referrer_id', driverData.user_id);
+      referralCount = count ?? 0;
     }
 
     // Return combined data
     return NextResponse.json({
       ...driverData,
-      user: userData || { name: 'Unknown', email: '', phone: '', avatar_url: null }
+      user: userData || { name: 'Unknown', email: '', phone: '', avatar_url: null },
+      referral_count: referralCount
     });
   } catch (error) {
     console.error('API Error:', error);

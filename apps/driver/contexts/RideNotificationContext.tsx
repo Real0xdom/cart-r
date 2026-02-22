@@ -42,22 +42,24 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
     const unsubscribe = subscribeToAvailableBookings(
       driverProfile.vehicle_type,
-      (newBooking: Booking) => {
+      async (newBooking: Booking) => {
         console.log('[NOTIFICATION CONTEXT] New booking received:', newBooking.id);
-        
-        // Show in-app notification
-        showNotification(newBooking);
+        // Fetch full booking so we have addons and correct total for display
+        const { data: fullBooking } = await getBookingById(newBooking.id);
+        const bookingToShow = fullBooking || newBooking;
+        showNotification(bookingToShow);
 
-        // Also send local notification
+        // Also send local notification (total_fare includes addons from DB trigger)
+        const fare = bookingToShow.driver_payout ?? bookingToShow.total_fare;
         Notifications.scheduleNotificationAsync({
           content: {
             title: '🚖 New Ride Request!',
-            body: `₹${newBooking.driver_payout || newBooking.total_fare} • ${newBooking.origin_address.substring(0, 50)}...`,
-            data: { bookingId: newBooking.id },
+            body: `₹${fare} • ${bookingToShow.origin_address.substring(0, 50)}...`,
+            data: { bookingId: bookingToShow.id },
             sound: true,
-            channelId: RIDE_REQUESTS_CHANNEL, // Ensure high priority channel
+            channelId: RIDE_REQUESTS_CHANNEL,
           },
-          trigger: null, // Immediate
+          trigger: null,
         });
       },
       (removedBookingId: string) => {

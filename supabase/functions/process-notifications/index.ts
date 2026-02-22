@@ -7,16 +7,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-interface Notification {
-  id: string
-  user_id: string
-  title: string
-  body: string
-  data: Record<string, any>
-  notification_type: string
-  expo_push_token?: string
-}
-
 interface ExpoPushMessage {
   to: string
   title: string
@@ -33,6 +23,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Fetch unprocessed notifications with user push tokens
+    // Only select columns that definitely exist in the table
     const { data: notifications, error: fetchError } = await supabase
       .from('notifications')
       .select(`
@@ -41,7 +32,7 @@ serve(async (req) => {
         title,
         body,
         data,
-        notification_type,
+        is_read,
         users!inner(expo_push_token)
       `)
       .is('processed_at', null)
@@ -63,51 +54,69 @@ serve(async (req) => {
       )
     }
 
-    // Prepare Expo push messages
-    const messages: ExpoPushMessage[] = []
+    // Prepare Expo push messages, grouped by token to avoid PUSH_TOO_MANY_EXPERIENCE_IDS
+    const messagesByExperience = new Map<string, ExpoPushMessage[]>()
     const notificationIds: string[] = []
 
     for (const notification of notifications) {
       const pushToken = (notification as any).users?.expo_push_token
 
       if (!pushToken || !pushToken.startsWith('ExponentPushToken')) {
-        console.log(`Skipping notification ${notification.id}: Invalid push token`)
+        console.log(`Skipping notification ${notification.id}: Invalid push token "${pushToken}"`)
+        // Still mark as processed so we don't retry forever
+        notificationIds.push(notification.id)
         continue
       }
 
-      const isRideRequest = notification.notification_type === 'ride_request';
-      const channelId = isRideRequest ? 'ride-requests' : (notification.notification_type === 'booking_update' ? 'booking-updates' : 'default');
+      // Extract experience ID from token for grouping
+      let expId = 'default'
+      const match = pushToken.match(/ExponentPushToken\[(.*?)\]/)
+      if (match && match[1]) {
+        expId = match[1]
+      }
 
-      messages.push({
+      const msg: ExpoPushMessage = {
         to: pushToken,
         title: notification.title,
         body: notification.body,
         data: notification.data || {},
         sound: 'default',
         priority: 'high',
-        channelId: channelId,
-        ttl: 0, // Zero TTL for immediate high-priority delivery
-      })
+        channelId: 'default',
+        ttl: 0,
+      }
+
+      const group = messagesByExperience.get(expId) || []
+      group.push(msg)
+      messagesByExperience.set(expId, group)
 
       notificationIds.push(notification.id)
     }
 
-    // Send to Expo Push API
-    if (messages.length > 0) {
-      const expoPushEndpoint = 'https://exp.host/--/api/v2/push/send'
-      
-      const pushResponse = await fetch(expoPushEndpoint, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messages),
-      })
+    // Send to Expo Push API, grouped by experience
+    let totalSent = 0
+    const expoPushEndpoint = 'https://exp.host/--/api/v2/push/send'
 
-      const pushResult = await pushResponse.json()
-      console.log(`Sent ${messages.length} notifications:`, pushResult)
+    for (const [expId, messages] of messagesByExperience) {
+      if (messages.length === 0) continue
+
+      try {
+        const pushResponse = await fetch(expoPushEndpoint, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(messages),
+        })
+
+        const pushResult = await pushResponse.json()
+        console.log(`Sent ${messages.length} notifications for experience '${expId}':`, JSON.stringify(pushResult))
+        totalSent += messages.length
+      } catch (sendError) {
+        console.error(`Error sending notifications for experience '${expId}':`, sendError)
+      }
     }
 
     // Mark notifications as processed
@@ -125,8 +134,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         message: 'Notifications processed',
-        processed: messages.length,
-        skipped: notifications.length - messages.length,
+        processed: totalSent,
+        skipped: notifications.length - totalSent,
       }),
       { headers: { 'Content-Type': 'application/json' } }
     )

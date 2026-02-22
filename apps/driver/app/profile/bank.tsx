@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, Alert, TextInput, ActivityIndicator, FlatList } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Feather } from '@expo/vector-icons';
@@ -16,6 +17,7 @@ interface Withdrawal {
 
 export default function BankDetails() {
   const { driverProfile, user } = useAuth();
+  const { t } = useLanguage();
   const [isLoading, setIsLoading] = useState(false);
   const [balance, setBalance] = useState(0);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
@@ -68,7 +70,7 @@ export default function BankDetails() {
 
   const saveBankDetails = async () => {
     if (!bankDetails.account_number || !bankDetails.ifsc_code || !bankDetails.account_holder_name) {
-        Alert.alert('Error', 'Please fill all fields');
+        Alert.alert(t('error'), t('pleaseFillAllFields'));
         return;
     }
 
@@ -80,9 +82,9 @@ export default function BankDetails() {
 
     setIsLoading(false);
     if (error) {
-        Alert.alert('Error', error.message);
+        Alert.alert(t('error'), error.message);
     } else {
-        Alert.alert('Success', 'Bank details saved');
+        Alert.alert(t('success'), t('bankDetailsSaved'));
         setIsEditing(false);
     }
   };
@@ -90,18 +92,18 @@ export default function BankDetails() {
   const handleWithdraw = async () => {
     const withdrawalAmount = parseFloat(amount);
     if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
-        Alert.alert('Error', 'Please enter a valid amount');
+        Alert.alert(t('error'), t('pleaseEnterValidAmount'));
         return;
     }
     
     if (withdrawalAmount > balance) {
-        Alert.alert('Error', 'Insufficient balance');
+        Alert.alert(t('error'), t('insufficientBalance'));
         return;
     }
 
     // Check if bank details exist
     if (!bankDetails.account_number) {
-        Alert.alert('Error', 'Please add bank details first');
+        Alert.alert(t('error'), t('pleaseAddBankDetailsFirst'));
         return;
     }
 
@@ -118,11 +120,11 @@ export default function BankDetails() {
     setIsWithdrawing(false);
 
     if (error) {
-        Alert.alert('Error', error.message);
+        Alert.alert(t('error'), error.message);
     } else if (data && !data.success) {
-        Alert.alert('Error', data.error || 'Failed to request withdrawal');
+        Alert.alert(t('error'), data.error || t('failedToRequestWithdrawal'));
     } else {
-        Alert.alert('Success', 'Withdrawal request submitted');
+        Alert.alert(t('success'), t('withdrawalRequestSubmitted'));
         setAmount('');
         fetchData(); // Refresh balance and history
     }
@@ -138,21 +140,21 @@ export default function BankDetails() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-gray-900">
+    <ScrollView className="flex-1 bg-white">
       <View className="p-5 pb-10">
         
         {/* Balance Card */}
-        <View className="bg-gray-800 rounded-2xl p-6 mb-6 border border-gray-700">
-          <Text className="text-gray-400 text-sm mb-1">Available for Withdrawal</Text>
-          <Text className="text-white text-3xl font-JakartaBold">₹{balance.toLocaleString()}</Text>
+        <View className="bg-gray-100 rounded-2xl p-6 mb-6 border border-gray-700">
+          <Text className="text-gray-400 text-sm mb-1">{t('availableForWithdrawal')}</Text>
+          <Text className="text-gray-900 text-3xl font-JakartaBold">₹{balance.toLocaleString()}</Text>
           <View className="flex-row items-center mt-4">
               <TextInput
                 value={amount}
                 onChangeText={setAmount}
-                placeholder="Amount to withdraw"
+                placeholder={t('amountToWithdraw')}
                 placeholderTextColor="#666"
                 keyboardType="numeric"
-                className="flex-1 bg-gray-900 p-3 rounded-l-xl text-white font-JakartaMedium border border-gray-600"
+                className="flex-1 bg-gray-50 p-3 rounded-l-xl text-gray-900 font-JakartaMedium border border-gray-200"
               />
               <TouchableOpacity
                 onPress={handleWithdraw}
@@ -162,7 +164,7 @@ export default function BankDetails() {
                   {isWithdrawing ? (
                       <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                      <Text className="text-white font-JakartaBold">Withdraw</Text>
+                      <Text className="text-gray-900 font-JakartaBold">{t('withdraw')}</Text>
                   )}
               </TouchableOpacity>
           </View>
@@ -170,53 +172,53 @@ export default function BankDetails() {
 
         {/* Bank Account Section */}
         <View className="flex-row justify-between items-center mb-2">
-            <Text className="text-gray-400 font-JakartaMedium">BANK DETAILS</Text>
+            <Text className="text-gray-400 font-JakartaMedium">{t('bankDetails')}</Text>
             <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
-                <Text className="text-blue-400 font-JakartaBold">{isEditing ? 'Cancel' : 'Edit'}</Text>
+                <Text className="text-blue-400 font-JakartaBold">{isEditing ? t('cancel') : t('edit')}</Text>
             </TouchableOpacity>
         </View>
 
         {isEditing ? (
-            <View className="bg-gray-800 rounded-2xl p-5 mb-6 space-y-4">
+            <View className="bg-gray-100 rounded-2xl p-5 mb-6 space-y-4">
                 <View>
-                    <Text className="text-gray-400 text-xs mb-1">Account Holder Name</Text>
+                    <Text className="text-gray-400 text-xs mb-1">{t('accountHolderName')}</Text>
                     <TextInput
                         value={bankDetails.account_holder_name}
-                        onChangeText={(t) => setBankDetails({...bankDetails, account_holder_name: t})}
-                        className="bg-gray-900 p-3 rounded-xl text-white border border-gray-700"
+                        onChangeText={(val) => setBankDetails({...bankDetails, account_holder_name: val})}
+                        className="bg-gray-50 p-3 rounded-xl text-gray-900 border border-gray-200"
                         placeholder="e.g. John Doe"
-                        placeholderTextColor="#555"
+                        placeholderTextColor="#999"
                     />
                 </View>
                 <View>
-                    <Text className="text-gray-400 text-xs mb-1">Bank Name</Text>
+                    <Text className="text-gray-400 text-xs mb-1">{t('bankName')}</Text>
                     <TextInput
                         value={bankDetails.bank_name}
-                        onChangeText={(t) => setBankDetails({...bankDetails, bank_name: t})}
-                        className="bg-gray-900 p-3 rounded-xl text-white border border-gray-700"
+                        onChangeText={(val) => setBankDetails({...bankDetails, bank_name: val})}
+                        className="bg-gray-50 p-3 rounded-xl text-gray-900 border border-gray-200"
                         placeholder="e.g. HDFC Bank"
-                        placeholderTextColor="#555"
+                        placeholderTextColor="#999"
                     />
                 </View>
                 <View>
-                    <Text className="text-gray-400 text-xs mb-1">Account Number</Text>
+                    <Text className="text-gray-400 text-xs mb-1">{t('accountNumber')}</Text>
                     <TextInput
                         value={bankDetails.account_number}
-                        onChangeText={(t) => setBankDetails({...bankDetails, account_number: t})}
-                        className="bg-gray-900 p-3 rounded-xl text-white border border-gray-700"
+                        onChangeText={(val) => setBankDetails({...bankDetails, account_number: val})}
+                        className="bg-gray-50 p-3 rounded-xl text-gray-900 border border-gray-200"
                         placeholder="e.g. 1234567890"
-                        placeholderTextColor="#555"
+                        placeholderTextColor="#999"
                         keyboardType="numeric"
                     />
                 </View>
                 <View>
-                    <Text className="text-gray-400 text-xs mb-1">IFSC Code</Text>
+                    <Text className="text-gray-400 text-xs mb-1">{t('ifscCode')}</Text>
                     <TextInput
                         value={bankDetails.ifsc_code}
-                        onChangeText={(t) => setBankDetails({...bankDetails, ifsc_code: t})}
-                        className="bg-gray-900 p-3 rounded-xl text-white border border-gray-700"
+                        onChangeText={(val) => setBankDetails({...bankDetails, ifsc_code: val})}
+                        className="bg-gray-50 p-3 rounded-xl text-gray-900 border border-gray-200"
                         placeholder="e.g. HDFC0001234"
-                        placeholderTextColor="#555"
+                        placeholderTextColor="#999"
                         autoCapitalize="characters"
                     />
                 </View>
@@ -225,56 +227,56 @@ export default function BankDetails() {
                     disabled={isLoading}
                     className="bg-blue-600 p-4 rounded-xl items-center mt-2"
                 >
-                    {isLoading ? <ActivityIndicator color="#fff" /> : <Text className="text-white font-JakartaBold">Save Details</Text>}
+                    {isLoading ? <ActivityIndicator color="#fff" /> : <Text className="text-gray-900 font-JakartaBold">{t('saveDetails')}</Text>}
                 </TouchableOpacity>
             </View>
         ) : (
-            <View className="bg-gray-800 rounded-2xl p-5 mb-6">
+            <View className="bg-gray-100 rounded-2xl p-5 mb-6">
                 {bankDetails.account_number ? (
                     <>
                         <View className="flex-row items-center justify-between">
                             <View>
-                                <Text className="text-white font-JakartaBold text-lg">{bankDetails.bank_name || 'Bank Account'}</Text>
+                                <Text className="text-gray-900 font-JakartaBold text-lg">{bankDetails.bank_name || t('bankAccount')}</Text>
                                 <Text className="text-gray-400">{bankDetails.account_holder_name}</Text>
                                 <Text className="text-gray-500 mt-1">
                                     {bankDetails.account_number?.replace(/.(?=.{4})/g, '*')}
                                 </Text>
                             </View>
                             <View className="bg-green-500/20 px-2 py-1 rounded">
-                                <Text className="text-green-400 text-xs">Primary</Text>
+                                <Text className="text-green-400 text-xs">{t('primary')}</Text>
                             </View>
                         </View>
                     </>
                 ) : (
                     <TouchableOpacity onPress={() => setIsEditing(true)} className="items-center py-4">
                         <Feather name="plus-circle" size={32} color="#60a5fa" />
-                        <Text className="text-blue-400 mt-2 font-JakartaSemiBold">Add Bank Account</Text>
+                        <Text className="text-blue-400 mt-2 font-JakartaSemiBold">{t('addBankAccount')}</Text>
                     </TouchableOpacity>
                 )}
             </View>
         )}
 
         {/* Withdrawal History */}
-        <Text className="text-gray-400 mb-2 font-JakartaMedium">HISTORY</Text>
+        <Text className="text-gray-400 mb-2 font-JakartaMedium">{t('history')}</Text>
         {withdrawals.length > 0 ? (
             withdrawals.map((item) => (
-                <View key={item.id} className="bg-gray-800 rounded-xl p-4 mb-3 flex-row justify-between items-center">
+                <View key={item.id} className="bg-gray-100 rounded-xl p-4 mb-3 flex-row justify-between items-center">
                     <View>
-                        <Text className="text-white font-JakartaBold">Withdrawal</Text>
+                        <Text className="text-gray-900 font-JakartaBold">{t('withdrawal')}</Text>
                         <Text className="text-gray-500 text-xs">
                             {new Date(item.created_at).toLocaleDateString()} at {new Date(item.created_at).toLocaleTimeString()}
                         </Text>
                     </View>
                     <View className="items-end">
-                        <Text className="text-white font-JakartaBold text-base">- ₹{item.amount}</Text>
+                        <Text className="text-gray-900 font-JakartaBold text-base">- ₹{item.amount}</Text>
                         <Text className={`text-xs capitalize ${getStatusColor(item.status)}`}>{item.status}</Text>
                     </View>
                 </View>
             ))
         ) : (
-            <View className="bg-gray-800 rounded-2xl p-5 items-center py-8">
+            <View className="bg-gray-100 rounded-2xl p-5 items-center py-8">
                 <Text className="text-4xl mb-2">💸</Text>
-                <Text className="text-gray-400 text-center">No withdrawal history yet.</Text>
+                <Text className="text-gray-400 text-center">{t('noWithdrawalHistory')}</Text>
             </View>
         )}
         

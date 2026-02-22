@@ -95,23 +95,18 @@ export default function NotificationsPage() {
 
     const loadStats = async () => {
         try {
-            const { data, error } = await supabase
-                .from('notifications')
-                .select('id, is_read, created_at');
-
-            if (error) throw error;
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const sentToday = data?.filter(n => new Date(n.created_at) >= today).length || 0;
-            const readCount = data?.filter(n => n.is_read).length || 0;
-            const readRate = data && data.length > 0 ? (readCount / data.length) * 100 : 0;
+            const { getNotificationStats } = await import('@/app/actions/notifications');
+            const stats = await getNotificationStats();
+            
+            if (stats.error) {
+                console.error('Error loading stats:', stats.error);
+                return;
+            }
 
             setStats({
-                total_sent: data?.length || 0,
-                sent_today: sentToday,
-                read_rate: Math.round(readRate)
+                total_sent: stats.total_sent,
+                sent_today: stats.sent_today,
+                read_rate: stats.read_rate
             });
         } catch (error) {
             console.error('Error loading stats:', error);
@@ -121,25 +116,14 @@ export default function NotificationsPage() {
     const loadHistory = async () => {
         setLoadingHistory(true);
         try {
-            const { data, error } = await supabase
-                .from('notifications')
-                .select(`
-                    id,
-                    user_id,
-                    title,
-                    body,
-                    is_read,
-                    created_at,
-                    users (name, role)
-                `)
-                .order('created_at', { ascending: false })
-                .limit(50);
+            const { getNotificationHistory } = await import('@/app/actions/notifications');
+            const { data, error } = await getNotificationHistory();
 
-            if (error) throw error;
+            if (error) throw new Error(error);
             setHistory(data || []);
         } catch (error) {
             console.error('Error loading history:', error);
-            // toast.error('Failed to load notification history');
+            toast.error('Failed to load notification history');
         } finally {
             setLoadingHistory(false);
         }
@@ -202,8 +186,12 @@ export default function NotificationsPage() {
                 throw new Error(result.error);
             }
 
-            addLog(`Success! Sent to ${result.count} users.`);
-            toast.success(`Successfully sent to ${result.count} users!`);
+            addLog(`Found ${result.count} target users. Sent push to ${result.sent_count || 0} with valid tokens.`);
+            addLog(`📊 Push results: ${result.push_ok || 'N/A'} delivered, ${result.push_errors || 0} errors.`);
+            if (result.sent_count === 0) {
+              addLog(`⚠️ WARNING: No push tokens found! Users may need to re-login in the app.`);
+            }
+            toast.success(`Pushed to ${result.push_ok || result.sent_count || result.count} users!`);
 
             // Reset form
             setTitle('');

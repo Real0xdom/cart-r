@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { User, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText } from 'lucide-react';
+import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText } from 'lucide-react';
 
 interface DriverDetail {
   id: string;
@@ -33,6 +33,7 @@ interface DriverDetail {
     phone: string;
     avatar_url: string | null;
   };
+  referral_count?: number;
 }
 
 interface VerificationHistoryEntry {
@@ -340,6 +341,10 @@ export default function DriverDetailPage() {
               <div className="flex justify-between items-center">
                 <span className="text-gray-500 flex items-center gap-2"><Calendar size={14} /> Member Since</span>
                 <span className="font-semibold text-gray-900">{new Date(driver.created_at).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 flex items-center gap-2"><Users size={14} /> Referrals</span>
+                <span className="font-semibold text-gray-900">{driver.referral_count ?? 0}</span>
               </div>
             </div>
 

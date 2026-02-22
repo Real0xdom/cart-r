@@ -2,10 +2,11 @@ import { router } from "expo-router";
 import { Image, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-
+import { useLanguage } from "@/contexts/LanguageContext";
 import { images } from "@/constants";
 
 const Welcome = () => {
+  const { t } = useLanguage();
   return (
     <SafeAreaView className="flex-1 bg-white justify-between">
       {/* Header Logo */}
@@ -30,10 +31,10 @@ const Welcome = () => {
       {/* Bottom Section */}
       <View className="px-6 pb-10">
         <Text className="text-4xl font-JakartaBold text-black mb-4 leading-tight">
-          Quick, Safe,{'\n'}And Reliable{'\n'}Delivery
+          {t("quickSafeReliable")}
         </Text>
         <Text className="text-gray-500 font-JakartaMedium text-base mb-8">
-          Receive your packages quickly, safely, and without any hassle.
+          {t("receivePackagesQuickly")}
         </Text>
 
         {/* Start Button */}
@@ -52,7 +53,7 @@ const Welcome = () => {
              <View className="bg-brand-500 w-10 h-10 rounded-full items-center justify-center mr-3">
                 <Feather name="box" size={20} color="black" />
              </View>
-             <Text className="text-lg font-JakartaBold text-black">Start</Text>
+             <Text className="text-lg font-JakartaBold text-black">{t("start")}</Text>
           </View>
 
            {/* Right Arrows Icon */}

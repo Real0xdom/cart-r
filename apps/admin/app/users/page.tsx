@@ -16,6 +16,7 @@ interface User {
   created_at: string;
   is_active: boolean;
   booking_count?: number;
+  referral_count?: number;
 }
 
 export default function UsersPage() {
@@ -130,6 +131,7 @@ export default function UsersPage() {
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Referrals</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
                     <th className="px-8 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
@@ -179,6 +181,9 @@ export default function UsersPage() {
                         }`}>
                           {user.is_active ? 'Active' : 'Blocked'}
                         </span>
+                      </td>
+                      <td className="px-8 py-4">
+                        <span className="text-sm font-medium text-gray-900">{user.referral_count ?? 0}</span>
                       </td>
                       <td className="px-8 py-4 text-xs font-medium text-gray-500">
                         {new Date(user.created_at).toLocaleDateString('en-IN', {

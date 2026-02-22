@@ -368,7 +368,7 @@ const CollectPayment = () => {
 
     if (isLoading || !booking) {
         return (
-            <SafeAreaView className="flex-1 bg-gray-900 items-center justify-center">
+            <SafeAreaView className="flex-1 bg-white items-center justify-center">
                 <ActivityIndicator size="large" color="#22c55e" />
             </SafeAreaView>
         );
@@ -384,37 +384,31 @@ const CollectPayment = () => {
         ? (fare - (booking.wallet_amount_used || 0)) 
         : fare;
 
-    return (
-        <SafeAreaView className="flex-1 bg-gray-900">
-            <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
-                {/* Header */}
-                <View className="flex-row items-center py-4">
-                    <TouchableOpacity 
-                        onPress={() => router.back()}
-                        className="w-10 h-10 bg-gray-800 rounded-full items-center justify-center mr-4"
-                    >
-                        <Feather name="arrow-left" size={20} color="#fff" />
-                    </TouchableOpacity>
-                    <Text className="text-xl font-JakartaBold text-white">Collect Payment</Text>
-                </View>
+     return (
+         <SafeAreaView className="flex-1 bg-white">
+             <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
+                 {/* Clean Header - No Back Button */}
+                 <View className="flex-row items-center justify-between py-4 border-b border-gray-100 mb-4">
+                     <Text className="text-xl font-JakartaBold text-gray-900 flex-1">Collect Payment</Text>
+                 </View>
 
-                {/* Amount Card */}
-                <View className="bg-green-500/10 rounded-3xl p-8 items-center mb-6 border border-green-500/20">
-                    <Text className="text-gray-400 font-JakartaMedium mb-2">
-                        {isPaid ? 'Total Amount' : 'Amount to Collect'}
-                    </Text>
-                    <Text className="text-5xl font-JakartaBold text-green-400">
-                        ₹{isPaid ? fare : amountToCollect}
-                    </Text>
+                  {/* Amount Card */}
+                 <View className="bg-green-500/10 rounded-3xl p-8 items-center mb-6 border border-green-500/20">
+                     <Text className="text-gray-600 font-JakartaMedium mb-2">
+                         {isPaid ? 'Total Amount' : 'Amount to Collect'}
+                     </Text>
+                     <Text className="text-5xl font-JakartaBold text-green-600">
+                         ₹{isPaid ? fare : amountToCollect}
+                     </Text>
                     
-                    {/* Partial Payment breakdown */}
-                    {isPartial && (
-                         <View className="mt-2 bg-blue-500/20 px-3 py-1 rounded-lg">
-                            <Text className="text-blue-300 text-xs font-JakartaMedium">
-                                Paid via Wallet: ₹{booking.wallet_amount_used}
-                            </Text>
-                         </View>
-                    )}
+                     {/* Partial Payment breakdown */}
+                     {isPartial && (
+                          <View className="mt-2 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-200">
+                             <Text className="text-blue-700 text-xs font-JakartaMedium">
+                                 Paid via Wallet: ₹{booking.wallet_amount_used}
+                             </Text>
+                          </View>
+                     )}
                     
                     {isPaid ? (
                          <View className="bg-green-500 px-4 py-1 rounded-full mt-4">
@@ -432,21 +426,21 @@ const CollectPayment = () => {
                 {/* Payment Selection (Only if not paid) */}
                 {!isPaid && (
                 <View className="mb-8">
-                    <Text className="text-gray-400 font-JakartaSemiBold mb-4">Who is paying?</Text>
+                    <Text className="text-gray-500 font-JakartaSemiBold mb-4">Who is paying?</Text>
                     
                     {/* Receiver / Sender Toggle */}
-                    <View className="flex-row bg-gray-800 p-1 rounded-xl mb-6">
+                    <View className="flex-row bg-gray-100 p-1 rounded-xl mb-6">
                         <TouchableOpacity 
                             onPress={() => setPayer('receiver')}
-                            className={`flex-1 py-3 rounded-lg items-center ${payer === 'receiver' ? 'bg-gray-700' : ''}`}
+                            className={`flex-1 py-3 rounded-lg items-center ${payer === 'receiver' ? 'bg-gray-200' : ''}`}
                         >
-                            <Text className={`font-JakartaBold ${payer === 'receiver' ? 'text-white' : 'text-gray-500'}`}>Receiver</Text>
+                            <Text className={`font-JakartaBold ${payer === 'receiver' ? 'text-gray-900' : 'text-gray-500'}`}>Receiver</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                             onPress={() => setPayer('sender')}
-                            className={`flex-1 py-3 rounded-lg items-center ${payer === 'sender' ? 'bg-gray-700' : ''}`}
+                            className={`flex-1 py-3 rounded-lg items-center ${payer === 'sender' ? 'bg-gray-200' : ''}`}
                         >
-                             <Text className={`font-JakartaBold ${payer === 'sender' ? 'text-white' : 'text-gray-500'}`}>Sender</Text>
+                             <Text className={`font-JakartaBold ${payer === 'sender' ? 'text-gray-900' : 'text-gray-500'}`}>Sender</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -464,7 +458,7 @@ const CollectPayment = () => {
                             
                             <TouchableOpacity
                                 onPress={() => setPaymentMethod('cash')}
-                                className="w-full p-4 rounded-xl flex-row items-center justify-center bg-gray-800 border border-gray-700"
+                                className="w-full p-4 rounded-xl flex-row items-center justify-center bg-gray-100 border border-gray-200"
                             >
                                 <Feather name="dollar-sign" size={20} color="#9ca3af" />
                                 <Text className="ml-2 font-JakartaBold text-gray-400">
@@ -476,19 +470,19 @@ const CollectPayment = () => {
                 </View>
                 )}
 
-                {/* Delivery OTP (Required to complete) */}
-                <View className="mb-6">
-                    <Text className="text-gray-400 font-JakartaSemiBold mb-3">Delivery Confirmation</Text>
-                    
-                    {/* Instruction for Driver */}
-                    <View className="bg-blue-500/10 p-3 rounded-lg mb-4 border border-blue-500/20">
-                        <View className="flex-row">
-                            <Feather name="info" size={16} color="#3b82f6" style={{ marginTop: 2 }} />
-                            <Text className="text-blue-400 text-sm font-JakartaMedium ml-2 flex-1">
-                                Ask the receiver or customer for the 6-digit Delivery OTP sent to their app.
-                            </Text>
-                        </View>
-                    </View>
+                    {/* Delivery OTP (Required to complete) */}
+                 <View className="mb-6">
+                     <Text className="text-gray-600 font-JakartaSemiBold mb-3">Delivery Confirmation</Text>
+                     
+                     {/* Instruction for Driver */}
+                     <View className="bg-blue-500/10 p-3 rounded-lg mb-4 border border-blue-200">
+                         <View className="flex-row">
+                             <Feather name="info" size={16} color="#2563eb" style={{ marginTop: 2 }} />
+                             <Text className="text-blue-700 text-sm font-JakartaMedium ml-2 flex-1">
+                                 Ask the receiver or customer for the 6-digit Delivery OTP sent to their app.
+                             </Text>
+                         </View>
+                     </View>
 
                     {showOtpInput ? (
                         <View>
@@ -499,7 +493,7 @@ const CollectPayment = () => {
                                 placeholderTextColor="#6b7280"
                                 keyboardType="number-pad"
                                 maxLength={6}
-                                className="bg-gray-800 rounded-xl p-4 text-white text-center text-xl font-JakartaBold tracking-widest mb-2"
+                                className="bg-gray-100 rounded-xl p-4 text-gray-900 text-center text-xl font-JakartaBold tracking-widest mb-2 border border-gray-200"
                             />
                             {booking?.receiver_phone && (
                                 <View className="mt-2">
@@ -513,11 +507,11 @@ const CollectPayment = () => {
                                             {smsStatus?.status === 'sent' && <Feather name="check-circle" size={16} color="#22c55e" className="mr-2" />}
                                             {smsStatus?.status === 'failed' && <Feather name="alert-circle" size={16} color="#ef4444" className="mr-2" />}
                                             
-                                                <Text className={`font-JakartaMedium text-xs ${
-                                                    smsStatus?.status === 'sent' ? 'text-green-400' :
-                                                    smsStatus?.status === 'failed' ? 'text-red-400' :
-                                                    'text-blue-400'
-                                                }`}>
+                                                 <Text className={`font-JakartaMedium text-xs ${
+                                                     smsStatus?.status === 'sent' ? 'text-green-600' :
+                                                     smsStatus?.status === 'failed' ? 'text-red-600' :
+                                                     'text-blue-600'
+                                                 }`}>
                                                     {smsStatus?.status === 'sent' ? `Notification Sent to Customer App` :
                                                      smsStatus?.status === 'failed' ? `Notification Failed: ${smsStatus.error?.substring(0, 20)}...` :
                                                      `Sending Notification...`}
@@ -525,49 +519,49 @@ const CollectPayment = () => {
                                         </View>
                                     </View>
 
-                                    {/* Retry Button */}
-                                    {smsStatus?.status === 'failed' && (
-                                        <TouchableOpacity 
-                                            onPress={handleRetrySms}
-                                            disabled={isRetryingSms}
-                                            className="mt-2"
-                                        >
-                                            <Text className="text-blue-400 text-xs text-center font-JakartaBold">
-                                                {isRetryingSms ? 'Retrying...' : 'Tap to Retry Notification'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
+                                     {/* Retry Button */}
+                                     {smsStatus?.status === 'failed' && (
+                                         <TouchableOpacity 
+                                             onPress={handleRetrySms}
+                                             disabled={isRetryingSms}
+                                             className="mt-2"
+                                         >
+                                             <Text className="text-blue-600 text-xs text-center font-JakartaBold">
+                                                 {isRetryingSms ? 'Retrying...' : 'Tap to Retry Notification'}
+                                             </Text>
+                                         </TouchableOpacity>
+                                     )}
 
-                                    {/* Regenerate Button (Always visible if something is wrong or just delay) */}
-                                    <TouchableOpacity 
-                                        onPress={handleRegenerateOtp}
-                                        disabled={isRetryingSms}
-                                        className="mt-4 border-t border-gray-700 pt-2"
-                                    >
-                                        <Text className="text-gray-500 text-xs text-center font-JakartaMedium">
-                                            Notification not received? <Text className="text-red-400 font-JakartaBold">Regenerate New OTP</Text>
-                                        </Text>
-                                    </TouchableOpacity>
-                                    {/* Monitor Button */}
-                                    <TouchableOpacity 
-                                        onPress={() => router.push('/ride/debug-sms')}
-                                        className="mt-4 pt-2 border-t border-gray-700 items-center"
-                                    >
-                                        <Text className="text-gray-400 text-xs flex-row items-center">
-                                            <Feather name="activity" size={12} color="gray" /> Open Notification Monitor
-                                        </Text>
-                                    </TouchableOpacity>
+                                     {/* Regenerate Button (Always visible if something is wrong or just delay) */}
+                                     <TouchableOpacity 
+                                         onPress={handleRegenerateOtp}
+                                         disabled={isRetryingSms}
+                                         className="mt-4 border-t border-gray-200 pt-2"
+                                     >
+                                         <Text className="text-gray-600 text-xs text-center font-JakartaMedium">
+                                             Notification not received? <Text className="text-red-600 font-JakartaBold">Regenerate New OTP</Text>
+                                         </Text>
+                                     </TouchableOpacity>
+                                     {/* Monitor Button */}
+                                     <TouchableOpacity 
+                                         onPress={() => router.push('/ride/debug-sms')}
+                                         className="mt-4 pt-2 border-t border-gray-200 items-center"
+                                     >
+                                         <Text className="text-gray-600 text-xs flex-row items-center">
+                                             <Feather name="activity" size={12} color="gray" /> Open Notification Monitor
+                                         </Text>
+                                     </TouchableOpacity>
                                 </View>
                             )}
                         </View>
                     ) : (
                         <TouchableOpacity
-                            onPress={() => setShowOtpInput(true)}
-                            className="bg-gray-800 p-4 rounded-xl flex-row items-center justify-center border border-gray-700"
-                        >
-                            <Feather name="lock" size={18} color="#9ca3af" />
-                            <Text className="ml-2 text-gray-300 font-JakartaMedium">Enter Delivery OTP</Text>
-                        </TouchableOpacity>
+                             onPress={() => setShowOtpInput(true)}
+                             className="bg-gray-100 p-4 rounded-xl flex-row items-center justify-center border border-gray-200"
+                         >
+                             <Feather name="lock" size={18} color="#6b7280" />
+                             <Text className="ml-2 text-gray-600 font-JakartaMedium">Enter Delivery OTP</Text>
+                         </TouchableOpacity>
                     )}
                 </View>
 
@@ -576,7 +570,7 @@ const CollectPayment = () => {
                     onPress={handleCompleteTrip}
                     disabled={isProcessing || (!isPaid && paymentMethod === 'online' && !paymentRequested)} // Simplified logic
                     className={`w-full py-4 rounded-xl flex-row items-center justify-center mb-10 ${
-                        (isPaid || payer === 'receiver' || paymentMethod === 'cash') ? 'bg-green-500' : 'bg-gray-700'
+                        (isPaid || payer === 'receiver' || paymentMethod === 'cash') ? 'bg-green-500' : 'bg-gray-200'
                     }`}
                 >
                     {isProcessing ? (
@@ -584,7 +578,7 @@ const CollectPayment = () => {
                     ) : (
                         <>
                             <Feather name="check-circle" size={20} color="#fff" />
-                            <Text className="ml-2 text-white font-JakartaBold text-lg">
+                            <Text className="ml-2 text-gray-900 font-JakartaBold text-lg">
                                 {isPaid ? 'Complete Trip' : 'Confirm Payment & Complete'}
                             </Text>
                         </>

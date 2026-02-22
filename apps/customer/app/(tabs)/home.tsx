@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { router } from "expo-router";
 import { View, Text, TouchableOpacity, Image, ScrollView, ActivityIndicator, Dimensions, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -10,16 +11,48 @@ import type { Booking } from "@/types/type";
 import { useLocationStore } from "@/store";
 import * as SecureStore from 'expo-secure-store';
 
+import { useIsFocused } from "@react-navigation/native";
+import { isLocationSupported } from "@/lib/serviceArea";
+
+import { getSavedAddresses, SavedAddress, getPlaceIoniconName } from "@/lib/savedPlaces";
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const Home = () => {
   const { profile } = useAuth();
+  const { t } = useLanguage();
   const { userAddress, userLatitude, userLongitude, setUserLocation } = useLocationStore();
-  // State for multiple active bookings
+  const isFocused = useIsFocused();
+  
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Service Area Check State
+  const [isSupportedLocation, setIsSupportedLocation] = useState(true);
+  const [loadingLocationCheck, setLoadingLocationCheck] = useState(false);
+
+  // Check if location is supported whenever screen is focused or location changes
+  useEffect(() => {
+    const checkLocation = async () => {
+      if (userLatitude && userLongitude) {
+        // Only show loading indicator if we don't have a status yet or if explicitly refreshing
+        // But for "constant refresh" feel, we might want to do it silently in background
+        if (loading) setLoadingLocationCheck(true);
+        
+        const { supported } = await isLocationSupported(userLatitude, userLongitude);
+        setIsSupportedLocation(supported);
+        
+        setLoadingLocationCheck(false);
+      }
+    };
+
+    if (isFocused) {
+      checkLocation();
+    }
+  }, [userLatitude, userLongitude, isFocused]);
 
   // Load saved location on mount
   useEffect(() => {
@@ -107,9 +140,17 @@ const Home = () => {
     fetchBookings();
   }, [fetchBookings]);
 
+  const fetchSavedPlaces = useCallback(async () => {
+    const { data } = await getSavedAddresses();
+    if (data) setSavedAddresses(data);
+  }, []);
+
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    if (isFocused) {
+      fetchBookings();
+      fetchSavedPlaces();
+    }
+  }, [fetchBookings, fetchSavedPlaces, isFocused]);
 
   // Format date for cards
   const formatDate = (dateString: string) => {
@@ -120,8 +161,13 @@ const Home = () => {
     });
   };
 
+  // Pending booking expired? (no driver + expires_at passed)
+  const isPendingExpired = (b: Booking) =>
+    b.status === 'pending' && !b.driver_id && b.expires_at && new Date(b.expires_at) < new Date();
+
   // Get status color
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, expired = false) => {
+    if (expired) return { bg: '#FFF3E0', text: '#F97316' };
     switch (status) {
       case 'completed': return { bg: '#E8F5E9', text: '#4CAF50' };
       case 'in_progress': return { bg: '#FFF3E0', text: '#FF9800' };
@@ -132,32 +178,44 @@ const Home = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-general-900" edges={['bottom', 'left', 'right']}>
+    <SafeAreaView className="flex-1 bg-general-900">
+      <View className="flex-1 bg-general-900">
+        {/* Sticky Service Unavailable Banner */}
+        {!isSupportedLocation && !loadingLocationCheck && (
+          <TouchableOpacity
+            onPress={() => router.push("/find-ride")}
+            activeOpacity={0.9}
+            className="bg-red-500 px-4 py-3 flex-row items-center justify-between shadow-md z-50"
+          >
+            <View className="flex-row items-center flex-1 mr-2">
+              <MaterialIcons name="location-off" size={20} color="white" />
+              <Text className="text-white text-xs font-JakartaMedium ml-2 flex-1">
+                {t("gpsOutsideServiceArea")}
+              </Text>
+            </View>
+            <View className="bg-white/20 rounded-lg px-2 py-1">
+              <Text className="text-white text-xs font-JakartaBold">{t("selectAction")}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={{ paddingBottom: 120 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#FF9800"
-            colors={["#FF9800"]}
-          />
-        }
       >
         {/* Horizontal Banner (Replaces Header) */}
-        <View className="w-full items-center">
+        <View className="w-full h-48 items-center justify-center overflow-hidden">
           <Image 
             source={images.homeBanner}
-            className="w-full h-64"
-            resizeMode="contain"
+            className="w-full h-full"
+            resizeMode="cover"
           />
         </View>
 
         {/* Pickup Location Field (Auto-detected/Preferred) */}
         <View className="mx-5 -mt-4">
           <Text className="text-xs font-JakartaBold text-gray-500 mb-2 uppercase tracking-wider">
-            Pick up from
+            {t("pickUpFrom")}
           </Text>
           <TouchableOpacity 
             onPress={() => router.push("/find-ride")}
@@ -169,14 +227,51 @@ const Home = () => {
             </View>
             <View className="flex-1">
               <Text className="text-black font-JakartaBold text-sm" numberOfLines={1}>
-                {userAddress || "Detecting location..."}
+                {userAddress || t("detectingLocation")}
               </Text>
               <Text className="text-gray-400 text-xs font-JakartaMedium mt-0.5">
-                Put your preferred location
+                {t("putPreferredLocation")}
               </Text>
             </View>
             <Feather name="edit-2" size={16} color="#A0A0A0" />
           </TouchableOpacity>
+
+          {/* Quick selection of saved addresses on Home */}
+          {savedAddresses.length > 0 && (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              className="mt-3"
+              contentContainerStyle={{ paddingRight: 20 }}
+            >
+              {savedAddresses.map((place) => (
+                <TouchableOpacity
+                  key={place.id}
+                  onPress={() => {
+                    setUserLocation({
+                      latitude: Number(place.latitude),
+                      longitude: Number(place.longitude),
+                      address: place.address
+                    });
+                    router.push("/find-ride");
+                  }}
+                  className="flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-2.5 mr-3 shadow-sm"
+                >
+                  <View className="w-6 h-6 bg-brand-50 rounded-full items-center justify-center mr-2">
+                    <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={14} color="#FF9800" />
+                  </View>
+                  <Text className="text-sm font-JakartaBold text-gray-800">{place.label}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity 
+                onPress={() => router.push("/saved-addresses")}
+                className="flex-row items-center bg-gray-50 border border-dashed border-gray-200 rounded-2xl px-4 py-2.5"
+              >
+                  <Feather name="plus" size={14} color="#A0A0A0" />
+                  <Text className="ml-2 text-sm font-JakartaMedium text-gray-400">{t("addNew")}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
         </View>
 
         {/* Search Bar */}
@@ -189,7 +284,7 @@ const Home = () => {
             <Feather name="search" size={18} color="#A0A0A0" />
           </View>
           <Text className="flex-1 ml-3 font-JakartaMedium text-gray-400">
-            Where are you sending?
+            {t("whereSending")}
           </Text>
           <View className="w-10 h-10 bg-black rounded-xl items-center justify-center">
              <Feather name="arrow-right" size={18} color="white" />
@@ -200,15 +295,15 @@ const Home = () => {
         {loading ? (
           <View className="mt-8 items-center py-10">
             <ActivityIndicator size="large" color="#FF9800" />
-            <Text className="text-gray-500 font-JakartaMedium mt-3">Loading shipments...</Text>
+            <Text className="text-gray-500 font-JakartaMedium mt-3">{t("loadingShipments")}</Text>
           </View>
         ) : activeBookings.length > 0 ? (
           <>
             {/* Current Shipment Header */}
             <View className="mx-5 mt-8 flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-JakartaBold text-black">Current Shipments</Text>
+              <Text className="text-lg font-JakartaBold text-black">{t("currentShipments")}</Text>
               <TouchableOpacity onPress={() => router.push("/(tabs)/rides")}>
-                <Text className="text-brand-500 font-JakartaMedium text-sm">See All</Text>
+                <Text className="text-brand-500 font-JakartaMedium text-sm">{t("seeAll")}</Text>
               </TouchableOpacity>
             </View>
 
@@ -219,7 +314,8 @@ const Home = () => {
               contentContainerStyle={{ paddingHorizontal: 20, gap: 15 }}
             >
               {activeBookings.map((booking) => {
-                const statusInfo = getStatusColor(booking.status);
+                const expired = isPendingExpired(booking);
+                const statusInfo = getStatusColor(booking.status, expired);
                 const isPending = booking.status === 'pending';
                 
                 return (
@@ -229,7 +325,7 @@ const Home = () => {
                     className="bg-white rounded-3xl overflow-hidden shadow-md border border-gray-100"
                     style={{ width: SCREEN_WIDTH * 0.85 }}
                     onPress={() => router.push({
-                      pathname: "/track-ride",
+                      pathname: isPending ? "/waiting-for-driver" : "/track-ride",
                       params: { bookingId: booking.id }
                     })}
                   >
@@ -240,14 +336,14 @@ const Home = () => {
                           <View className={`px-3 py-1.5 rounded-full flex-row items-center`} style={{ backgroundColor: statusInfo.bg }}>
                             <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: statusInfo.text }} />
                             <Text className="text-xs font-JakartaBold capitalize" style={{ color: statusInfo.text }}>
-                              {booking.status.replace('_', ' ')}
+                              {expired ? t("searchExpired") : booking.status.replace('_', ' ')}
                             </Text>
                           </View>
-                          {booking.estimated_duration && (
+                          {booking.estimated_duration != null && booking.estimated_duration > 0 ? (
                             <Text className="text-gray-400 text-xs font-JakartaMedium ml-3">
                               ~{booking.estimated_duration} min
                             </Text>
-                          )}
+                          ) : null}
                         </View>
                         <TouchableOpacity className="w-8 h-8 bg-gray-100 rounded-full items-center justify-center">
                           <Feather name="chevron-right" size={16} color="#666" />
@@ -275,10 +371,10 @@ const Home = () => {
 
                     {/* Locations */}
                     <View className="px-5 pt-4 pb-2 flex-row justify-between">
-                      <View className="flex-1 pr-2">
+                        <View className="flex-1 pr-2">
                         <View className="flex-row items-center mb-1">
                           <View className="w-2 h-2 bg-brand-500 rounded-full mr-2" />
-                          <Text className="text-gray-400 text-xs font-JakartaMedium">From</Text>
+                          <Text className="text-gray-400 text-xs font-JakartaMedium">{t("from")}</Text>
                         </View>
                         <Text className="text-black font-JakartaBold text-sm" numberOfLines={1}>
                           {booking.origin_address}
@@ -287,7 +383,7 @@ const Home = () => {
                       <View className="flex-1 items-end pl-2">
                         <View className="flex-row items-center mb-1">
                           <View className="w-2 h-2 bg-green-500 rounded-full mr-2" />
-                          <Text className="text-gray-400 text-xs font-JakartaMedium">To</Text>
+                          <Text className="text-gray-400 text-xs font-JakartaMedium">{t("to")}</Text>
                         </View>
                         <Text className="text-black font-JakartaBold text-sm text-right" numberOfLines={1}>
                           {booking.destination_address}
@@ -303,15 +399,15 @@ const Home = () => {
                         </View>
                         <View className="flex-1">
                           <Text className="text-gray-500 text-[10px] font-JakartaMedium uppercase">
-                            {isPending ? 'Finding Driver...' : 'Driver'}
+                            {isPending ? (expired ? t("searchExpired") : t("findingDriver")) : t("driver")}
                           </Text>
                           <Text className="text-black font-JakartaSemiBold text-sm">
-                            {isPending ? 'Waiting for acceptance' : (booking.driver?.user?.name || 'Assigned')}
+                            {isPending ? (expired ? t("increaseTipRetry") : t("waitingForAcceptance")) : (booking.driver?.user?.name || t("assigned"))}
                           </Text>
                         </View>
                       </View>
                       <View>
-                          <Text className="text-xs text-gray-400 font-JakartaMedium text-right">Fare</Text>
+                          <Text className="text-xs text-gray-400 font-JakartaMedium text-right">{t("fare")}</Text>
                           <Text className="text-brand-500 font-JakartaBold text-lg">₹{booking.total_fare}</Text>
                       </View>
                     </View>
@@ -331,10 +427,10 @@ const Home = () => {
               />
             </View>
             <Text className="text-gray-800 font-JakartaBold text-xl text-center mb-2">
-              No Active Deliveries
+              {t("noActiveDeliveries")}
             </Text>
             <Text className="text-gray-500 font-JakartaMedium text-sm text-center mb-5 px-4">
-              You don't have any shipments in transit right now. Book a delivery to get started!
+              {t("noShipmentsTransit")}
             </Text>
             <TouchableOpacity 
               onPress={() => router.push("/find-ride")}
@@ -342,7 +438,7 @@ const Home = () => {
               activeOpacity={0.8}
             >
               <MaterialIcons name="local-shipping" size={20} color="white" />
-              <Text className="text-white font-JakartaBold ml-2">Book Delivery</Text>
+              <Text className="text-white font-JakartaBold ml-2">{t("bookDelivery")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -351,9 +447,9 @@ const Home = () => {
         {recentBookings.length > 0 && (
           <>
             <View className="mx-5 mt-8 flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-JakartaBold text-black">Recent History</Text>
+              <Text className="text-lg font-JakartaBold text-black">{t("recentHistory")}</Text>
               <TouchableOpacity onPress={() => router.push("/(tabs)/rides")}>
-                <Text className="text-brand-500 font-JakartaMedium text-sm">See All</Text>
+                <Text className="text-brand-500 font-JakartaMedium text-sm">{t("seeAll")}</Text>
               </TouchableOpacity>
             </View>
 
@@ -426,6 +522,7 @@ const Home = () => {
         )}
 
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };

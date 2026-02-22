@@ -1,4 +1,6 @@
 import { ExpoConfig, ConfigContext } from 'expo/config';
+import fs from 'fs';
+import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -46,7 +48,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     permissions: [
       "android.permission.ACCESS_COARSE_LOCATION",
       "android.permission.ACCESS_FINE_LOCATION"
-    ]
+    ],
+    // Only add google-services.json if it exists to avoid build errors
+    ...(fs.existsSync(path.join(__dirname, "google-services.json")) 
+      ? { googleServicesFile: "./google-services.json" } 
+      : {}),
   },
   web: {
     bundler: "metro",
@@ -65,7 +71,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         "locationAlwaysAndWhenInUsePermission": "Carter needs your location to show nearby drivers and track your deliveries."
       }
-    ]
+    ],
+    "expo-notifications"
   ],
   experiments: {
     typedRoutes: true
@@ -75,7 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "a51e67e2-edf8-465c-ba70-6f09a8eb54c7"
+      "projectId": "e959bf48-2496-41c4-a757-1b67e4b5928a"
     }
   }
 });

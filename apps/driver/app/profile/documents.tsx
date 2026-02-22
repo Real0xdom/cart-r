@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, Image, TouchableOpacity, Linking, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -9,20 +10,21 @@ import { decode } from 'base64-arraybuffer';
 
 export default function Documents() {
   const { driverProfile, refreshProfile } = useAuth();
+  const { t } = useLanguage();
   const [uploading, setUploading] = useState<string | null>(null);
 
   const openImage = (url?: string | null) => {
     if (url) {
-      Linking.openURL(url).catch(() => Alert.alert('Error', 'Could not open document'));
+      Linking.openURL(url).catch(() => Alert.alert(t('error'), t('couldNotOpenDocument')));
     } else {
-      Alert.alert('No Document', 'No document image uploaded.');
+      Alert.alert(t('noDocument'), t('noDocumentUploaded'));
     }
   };
 
   const uploadDocument = async (field: 'license_image_url' | 'rc_image_url' | 'insurance_image_url') => {
     // Prevent edit if verified
     if (driverProfile?.verification_status === 'approved') {
-        Alert.alert('Verified', 'Your documents are verified and cannot be changed. Contact support for updates.');
+        Alert.alert(t('verified'), t('verifiedCannotChange'));
         return;
     }
 
@@ -66,11 +68,11 @@ export default function Documents() {
         if (updateError) throw updateError;
 
         await refreshProfile();
-        Alert.alert('Success', 'Document uploaded successfully');
+        Alert.alert(t('success'), t('documentUploadedSuccess'));
       }
     } catch (error: any) {
       console.error('Upload error:', error);
-      Alert.alert('Error', error.message || 'Failed to upload document');
+      Alert.alert(t('error'), error.message || t('failedToUploadDocument'));
     } finally {
       setUploading(null);
     }
@@ -84,23 +86,23 @@ export default function Documents() {
      return `${type.toUpperCase()}-${shortHash.toUpperCase()}`;
   };
 
-  const DocumentCard = ({ title, subValue, imageUrl, field }: { title: string, subValue?: string, imageUrl?: string | null, field: 'license_image_url' | 'rc_image_url' | 'insurance_image_url' }) => (
-    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+  const DocumentCard = ({ title, subValue, imageUrl, field }: { title: string; subValue?: string; imageUrl?: string | null; field: 'license_image_url' | 'rc_image_url' | 'insurance_image_url' }) => (
+    <View className="bg-white rounded-2xl p-4 mb-4">
       {/* Header Row - Wrapped to prevent overflow */}
       <View className="flex-row justify-between items-start mb-3 flex-wrap">
-        <View className="flex-1 mr-2">
-          <Text className="text-white font-JakartaSemiBold text-lg">{title}</Text>
-          {subValue && <Text className="text-gray-400 text-sm">{subValue}</Text>}
-          <Text className="text-gray-500 text-xs mt-1">ID: {getDocumentId(imageUrl, field.split('_')[0])}</Text>
-        </View>
+         <View className="flex-1 mr-2">
+           <Text className="text-gray-900 font-JakartaSemiBold text-lg">{title}</Text>
+           {subValue && <Text className="text-gray-600 text-sm">{subValue}</Text>}
+           <Text className="text-gray-400 text-xs mt-1">ID: {getDocumentId(imageUrl, field.split('_')[0])}</Text>
+         </View>
         
         {imageUrl ? (
             <View className="bg-green-500/20 px-2 py-1 rounded self-start">
-                <Text className="text-green-400 text-xs font-JakartaBold">Verified</Text>
+                <Text className="text-green-400 text-xs font-JakartaBold">{t('verified')}</Text>
             </View>
         ) : (
             <View className="bg-red-500/20 px-2 py-1 rounded self-start">
-                <Text className="text-red-400 text-xs font-JakartaBold">Missing</Text>
+                <Text className="text-red-400 text-xs font-JakartaBold">{t('missing')}</Text>
             </View>
         )}
       </View>
@@ -110,7 +112,7 @@ export default function Documents() {
         onPress={() => imageUrl ? openImage(imageUrl) : uploadDocument(field)}
         onLongPress={() => !imageUrl || driverProfile?.verification_status !== 'approved' ? uploadDocument(field) : null}
         disabled={uploading === field}
-        className="h-40 bg-gray-900 rounded-xl items-center justify-center border border-gray-700 border-dashed overflow-hidden relative"
+        className="h-40 bg-white rounded-xl items-center justify-center border border-gray-200 border-dashed overflow-hidden relative"
       >
         {uploading === field ? (
             <ActivityIndicator color="#22c55e" size="large" />
@@ -127,35 +129,35 @@ export default function Documents() {
         ) : (
            <View className="items-center">
              <Feather name="upload-cloud" size={24} color="#6b7280" />
-             <Text className="text-gray-500 mt-2">Tap to upload</Text>
+             <Text className="text-gray-500 mt-2">{t('tapToUpload')}</Text>
            </View>
         )}
       </TouchableOpacity>
       
       {imageUrl && driverProfile?.verification_status !== 'approved' && (
-          <Text className="text-gray-500 text-xs text-center mt-2">Long press to change document</Text>
+          <Text className="text-gray-500 text-xs text-center mt-2">{t('longPressToChangeDocument')}</Text>
       )}
     </View>
   );
 
   return (
-    <ScrollView className="flex-1 bg-gray-900">
+    <ScrollView className="flex-1 bg-white">
       <View className="p-5">
         <DocumentCard 
-          title="Driving License" 
-          subValue={`Expires: ${driverProfile?.license_expiry || 'N/A'}`}
+          title={t('drivingLicense')} 
+          subValue={`${t('expires')}: ${driverProfile?.license_expiry || 'N/A'}`}
           imageUrl={driverProfile?.license_image_url} 
           field="license_image_url"
         />
         <DocumentCard 
-          title="RC Book" 
-          subValue="Registration Certificate"
+          title={t('rcBook')} 
+          subValue={t('registrationCertificate')}
           imageUrl={driverProfile?.rc_image_url} 
           field="rc_image_url"
         />
         <DocumentCard 
-          title="Vehicle Insurance" 
-          subValue="Policy Document"
+          title={t('vehicleInsurance')} 
+          subValue={t('policyDocument')}
           imageUrl={driverProfile?.insurance_image_url} 
           field="insurance_image_url"
         />

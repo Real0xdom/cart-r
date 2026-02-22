@@ -145,11 +145,14 @@ VALUES (
 ALTER TABLE public.service_areas ENABLE ROW LEVEL SECURITY;
 
 -- 9. RLS Policies (public read access for active areas)
+-- 9. RLS Policies (public read access for active areas)
+DROP POLICY IF EXISTS "Anyone can view active service areas" ON public.service_areas;
 CREATE POLICY "Anyone can view active service areas"
 ON public.service_areas
 FOR SELECT
 USING (is_active = true);
 
+DROP POLICY IF EXISTS "Only admins can modify service areas" ON public.service_areas;
 CREATE POLICY "Only admins can modify service areas"
 ON public.service_areas
 FOR ALL

@@ -1,15 +1,85 @@
+# Build & Dependencies
 node_modules/
 .expo/
-android/
-ios/
-android_backup/
-npm-debug.log
-yarn-error.log
+.expo-shared/
 dist/
 web-build/
+npm-debug.*
+yarn-error.log
+.next/
+out/
+build/
+
+# Android Build Artifacts & secrets
+android/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/key.properties
+*.apk
+*.aab
+
+# iOS Build Artifacts
+ios/
+ios/Pods/
+ios/build/
+
+# Certificates & Keys
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# Version Control
+.git/
+.gitignore
+.github/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+android/*.iml
+android/app/*.iml
+
+# Testing
+**/__tests__/
+**/*.test.js
+**/*.spec.js
+coverage/
+.turbo/
+
+# Backups and Junk
+android_backup/
+tmp/
+temp/
+*.tmp
+dist_test/
+
+# OS Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+lerna-debug.log*
+.pnpm-debug.log*
+
+Thumbs.db
+
+# Environment
+.env.local
+.env.*.local

@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Image, Text, View, TouchableOpacity, Alert, ImageSourcePropType } from "react-native";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { Image, Text, View, TouchableOpacity, Alert, ImageSourcePropType, Share } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import * as Linking from "expo-linking";
 import { icons } from "@/constants";
+import LanguageModal from "@/components/LanguageModal";
 
 interface ProfileItemProps {
     icon: ImageSourcePropType;
@@ -45,60 +49,42 @@ const ProfileItem = ({ icon, title, onPress }: ProfileItemProps) => (
 
 const Profile = () => {
   const { profile, signOut } = useAuth();
+  const { t } = useLanguage();
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
-  /* TEST FUNCTION: SIMULATE IDEMPOTENCY */
-  const handleTestIdempotency = async () => {
-    if (!profile?.id) return Alert.alert("Error", "Login first");
-
-    const key = `TEST-${Date.now()}`;
-    const testBookingParams = {
-        customerId: profile.id,
-        originAddress: "Test Origin",
-        originLatitude: 12.9716,
-        originLongitude: 77.5946,
-        destinationAddress: "Test Dest",
-        destinationLatitude: 12.9716,
-        destinationLongitude: 77.6,
-        vehicleType: "bike" as any,
-        idempotencyKey: key
-    };
-
+  const handleReferFriends = async () => {
+    let referralCode = (profile as { referral_code?: string } | null)?.referral_code;
+    if (!referralCode && profile?.id) {
+      const { supabase } = await import("@/lib/supabase");
+      const { data } = await supabase.from("users").select("referral_code").eq("id", profile.id).single();
+      referralCode = data?.referral_code ?? undefined;
+    }
+    if (!referralCode) {
+      Alert.alert(t("referAndEarn"), t("referMessage"));
+      return;
+    }
+    const baseUrl = Linking.createURL("");
+    const shareUrl = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "ref=" + referralCode;
+    const message = `Join Carter and get a ride! Use my referral code ${referralCode} when you sign up, or open this link: ${shareUrl}`;
     try {
-        Alert.alert("Testing", "Firing 2 identicial requests...");
-        
-        // Fire two requests in parallel
-        const req1 = import("@/lib/bookingUtils").then(m => m.createBooking(testBookingParams));
-        const req2 = import("@/lib/bookingUtils").then(m => m.createBooking(testBookingParams));
-
-        const [res1, res2] = await Promise.all([req1, req2]);
-
-        console.log("Res1:", res1);
-        console.log("Res2:", res2);
-
-        if (res1.data?.id === res2.data?.id) {
-            Alert.alert("Success! ✅", `Idempotency works!\nBoth requests returned Booking ID: ${res1.data?.id}`);
-        } else {
-            Alert.alert("Failed ❌", "Duplicate bookings created!");
-        }
-
-    } catch (e: any) {
-        Alert.alert("Error", e.message);
+      await Share.share({
+        message,
+        title: "Refer Carter",
+        url: shareUrl,
+      });
+    } catch (_e) {
+      // User dismissed share
     }
   };
 
-
   const handleLogout = async () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
+    Alert.alert(t("logout"), t("logoutConfirm"), [
         {
-            text: "Cancel",
+            text: t("cancel"),
             style: "cancel"
         },
         {
-            text: "Test Idempotency",
-            onPress: handleTestIdempotency
-        },
-        {
-            text: "Logout",
+            text: t("logout"),
             style: "destructive",
             onPress: async () => {
                  await signOut();
@@ -110,8 +96,9 @@ const Profile = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-white px-5">
+      <LanguageModal visible={languageModalVisible} onClose={() => setLanguageModalVisible(false)} />
       {/* Header */}
-      <Text className="text-2xl font-JakartaBold mt-4 mb-6">My Profile</Text>
+      <Text className="text-2xl font-JakartaBold mt-4 mb-6">{t("myProfile")}</Text>
 
       {/* User Info Card */}
       <TouchableOpacity 
@@ -125,7 +112,7 @@ const Profile = () => {
           className="rounded-full h-14 w-14 border-2 border-white"
         />
         <View className="ml-4 flex-1">
-          <Text className="text-lg font-JakartaBold text-gray-900">{profile?.name || "User Name"}</Text>
+          <Text className="text-lg font-JakartaBold text-gray-900">{profile?.name || t("user")}</Text>
           <Text className="text-sm text-gray-500 font-Jakarta">{profile?.email || "email@example.com"}</Text>
         </View>
         <View className="w-8 h-8 rounded-full bg-green-500 items-center justify-center">
@@ -137,12 +124,12 @@ const Profile = () => {
       <View className="flex flex-row mb-4">
         <GridItem 
           icon={icons.home} 
-          title="Saved Addresses" 
+          title={t("savedAddresses")} 
           onPress={() => router.push("/saved-addresses")} 
         />
         <GridItem 
           icon={icons.chat} 
-          title="Help Center" 
+          title={t("helpCenter")} 
           onPress={() => router.push("/help")} 
         />
       </View>
@@ -151,17 +138,17 @@ const Profile = () => {
       <View className="bg-white rounded-xl px-4 py-2 border border-gray-100 mb-4">
         <ProfileItem 
           icon={icons.email} 
-          title="Refer your friends" 
-          onPress={() => Alert.alert("Invite", "Referral feature coming soon!")} 
+          title={t("referYourFriends")} 
+          onPress={handleReferFriends} 
         />
         <ProfileItem 
           icon={icons.list} 
-          title="Language" 
-          onPress={() => Alert.alert("Language", "Change Language feature coming soon!")} 
+          title={t("language")} 
+          onPress={() => setLanguageModalVisible(true)} 
         />
         <ProfileItem 
           icon={icons.list} 
-          title="Terms and Conditions" 
+          title={t("termsAndConditions")} 
           onPress={() => router.push("/terms")} 
         />
       </View>
@@ -172,7 +159,7 @@ const Profile = () => {
         className="flex flex-row items-center justify-center w-full py-3 bg-red-50 rounded-xl border border-red-100 mt-auto mb-24"
       >
         <Image source={icons.out} className="w-5 h-5 mr-2" resizeMode="contain" tintColor="#ef4444" />
-        <Text className="text-base font-JakartaSemiBold text-red-500">Log Out</Text>
+        <Text className="text-base font-JakartaSemiBold text-red-500">{t("logOut")}</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );

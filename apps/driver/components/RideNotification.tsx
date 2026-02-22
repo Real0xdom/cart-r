@@ -77,6 +77,8 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
 
   const fareAmount = booking.driver_payout || booking.total_fare;
   const hasIncreasedFare = (booking.tip_amount && booking.tip_amount > 0) || (booking.fare_multiplier && booking.fare_multiplier > 1);
+  const addons = booking.booking_addons?.filter(ba => ba.addon_services) ?? [];
+  const hasAddons = addons.length > 0;
 
   return (
     <Animated.View
@@ -89,7 +91,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
         zIndex: 9999,
       }}
     >
-      <View className="bg-gray-900 border-b-4 border-green-500 shadow-2xl">
+      <View className="bg-white border-b-4 border-green-500 shadow-2xl border border-gray-200">
         {/* Header with dismiss */}
         <View className="bg-green-500 px-4 py-2 flex-row items-center justify-between">
           <View className="flex-row items-center">
@@ -120,6 +122,21 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
             </View>
           )}
 
+          {/* Addons badge - driver sees addon names before accepting */}
+          {hasAddons && (
+            <View className="bg-amber-500/90 px-3 py-2 rounded-lg self-stretch mb-3">
+              <Text className="text-white font-JakartaBold text-xs mb-1">Add-ons included</Text>
+              {addons.map((ba, i) => (
+                <Text key={i} className="text-white font-JakartaMedium text-xs" numberOfLines={1}>
+                  • {ba.addon_services?.name ?? 'Add-on'} — ₹{ba.unit_price * (ba.quantity || 1)}
+                </Text>
+              ))}
+              {booking.addon_charges != null && booking.addon_charges > 0 && (
+                <Text className="text-white font-JakartaSemiBold text-xs mt-1">Total add-ons: ₹{booking.addon_charges}</Text>
+              )}
+            </View>
+          )}
+
           {/* Pickup & Fare */}
           <View className="flex-row items-start justify-between mb-3">
             <View className="flex-1 pr-2">
@@ -129,7 +146,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
               </Text>
             </View>
             <View className="bg-green-500/20 px-4 py-2 rounded-xl">
-              <Text className="text-green-400 font-JakartaBold text-lg">₹{fareAmount}</Text>
+              <Text className="text-green-600 font-JakartaBold text-lg">₹{fareAmount}</Text>
             </View>
           </View>
 
@@ -144,18 +161,18 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
           {/* Quick Stats */}
           <View className="flex-row gap-2 mb-4">
             {booking.estimated_distance && (
-              <View className="flex-1 bg-gray-800 px-2 py-2 rounded-lg">
+              <View className="flex-1 bg-gray-100 px-2 py-2 rounded-lg border border-gray-200">
                 <Text className="text-gray-400 text-xs">Distance</Text>
                 <Text className="text-white font-JakartaBold text-xs">{booking.estimated_distance.toFixed(1)} km</Text>
               </View>
             )}
             {booking.estimated_duration && (
-              <View className="flex-1 bg-gray-800 px-2 py-2 rounded-lg">
-                <Text className="text-gray-400 text-xs">Est. Time</Text>
-                <Text className="text-white font-JakartaBold text-xs">{booking.estimated_duration.toFixed(0)} min</Text>
+              <View className="flex-1 bg-gray-100 px-2 py-2 rounded-lg border border-gray-200">
+                <Text className="text-gray-500 text-xs">Est. Time</Text>
+                <Text className="text-gray-900 font-JakartaBold text-xs">{booking.estimated_duration.toFixed(0)} min</Text>
               </View>
             )}
-            <View className="flex-1 bg-gray-800 px-2 py-2 rounded-lg">
+            <View className="flex-1 bg-gray-100 px-2 py-2 rounded-lg border border-gray-200">
               <Text className="text-gray-400 text-xs">Payment</Text>
               <Text className="text-white font-JakartaBold text-xs capitalize">{booking.payment_method}</Text>
             </View>
@@ -168,7 +185,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
               className="flex-1 bg-red-500/20 py-3 rounded-xl flex-row items-center justify-center"
             >
               <Feather name="x-circle" size={18} color="#ef4444" />
-              <Text className="text-red-400 font-JakartaBold ml-2">Decline</Text>
+              <Text className="text-red-600 font-JakartaBold ml-2">Decline</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleAccept}

@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { Puzzle, Plus, Save, RefreshCw, X, Trash2 } from 'lucide-react';
+import { Puzzle, Plus, Save, RefreshCw, X, Trash2, ChevronDown } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface AddonService {
@@ -10,6 +10,11 @@ interface AddonService {
   price: number; is_active: boolean; applicable_vehicle_types: string[];
   icon_emoji: string; display_order: number; metadata: any;
   created_at: string; updated_at: string;
+}
+
+interface VehicleOption {
+  vehicle_type: string;
+  display_name: string;
 }
 
 const emptyAddon = { code: '', name: '', description: '', price: 0, icon_emoji: '🔧', applicable_vehicle_types: [] as string[], display_order: 0 };
@@ -21,17 +26,48 @@ export default function AddonsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyAddon);
   const [adding, setAdding] = useState(false);
-  const [vehicleTypesInput, setVehicleTypesInput] = useState('');
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleOption[]>([]);
+  const [vehicleTypesDropdownOpen, setVehicleTypesDropdownOpen] = useState(false);
+  const vehicleDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchAddons(); }, []);
+
+  useEffect(() => {
+    async function fetchVehicleTypes() {
+      try {
+        const { data, error } = await supabase
+          .from('vehicle_specifications')
+          .select('vehicle_type, display_name')
+          .order('display_name');
+        if (error) throw error;
+        setVehicleTypes(data || []);
+      } catch (e: any) {
+        console.error('Failed to load vehicle types:', e);
+        setVehicleTypes([]);
+      }
+    }
+    if (showAdd) fetchVehicleTypes();
+  }, [showAdd]);
+
+  useEffect(() => {
+    if (!vehicleTypesDropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (vehicleDropdownRef.current && !vehicleDropdownRef.current.contains(e.target as Node)) {
+        setVehicleTypesDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [vehicleTypesDropdownOpen]);
 
   async function fetchAddons() {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('addon_services').select('*').order('display_order').order('name');
-      if (error) throw error;
-      setAddons(data || []);
-    } catch (e: any) { toast.error('Failed: ' + e.message); }
+      const res = await fetch('/api/addons');
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const data = await res.json();
+      setAddons(Array.isArray(data) ? data : []);
+    } catch (e: any) { toast.error('Failed: ' + (e.message || 'Could not load addons')); }
     finally { setLoading(false); }
   }
 
@@ -42,14 +78,21 @@ export default function AddonsPage() {
     if (!addon) return;
     setSaving(id);
     try {
-      const { error } = await supabase.from('addon_services').update({
-        name: addon.name, description: addon.description, price: Number(addon.price),
-        icon_emoji: addon.icon_emoji, display_order: Number(addon.display_order),
-        is_active: addon.is_active, updated_at: new Date().toISOString(),
-      }).eq('id', id);
-      if (error) throw error;
+      const res = await fetch(`/api/addons/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: addon.name,
+          description: addon.description,
+          price: Number(addon.price),
+          icon_emoji: addon.icon_emoji,
+          display_order: Number(addon.display_order),
+          is_active: addon.is_active,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       toast.success(`${addon.name} updated!`);
-    } catch (e: any) { toast.error('Failed: ' + e.message); }
+    } catch (e: any) { toast.error('Failed: ' + (e.message || 'Update failed')); }
     finally { setSaving(null); }
   };
 
@@ -57,13 +100,35 @@ export default function AddonsPage() {
     if (!form.code || !form.name) { toast.error('Code and name required'); return; }
     setAdding(true);
     try {
-      const types = vehicleTypesInput.split(',').map(s => s.trim()).filter(Boolean);
-      const { error } = await supabase.from('addon_services').insert({ ...form, price: Number(form.price), display_order: Number(form.display_order), applicable_vehicle_types: types });
-      if (error) throw error;
+      const res = await fetch('/api/addons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: form.code,
+          name: form.name,
+          description: form.description || null,
+          price: Number(form.price),
+          icon_emoji: form.icon_emoji,
+          display_order: Number(form.display_order),
+          applicable_vehicle_types: form.applicable_vehicle_types,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       toast.success('Addon added!');
-      setShowAdd(false); setForm(emptyAddon); setVehicleTypesInput(''); fetchAddons();
-    } catch (e: any) { toast.error('Failed: ' + e.message); }
+      setShowAdd(false);
+      setForm(emptyAddon);
+      fetchAddons();
+    } catch (e: any) { toast.error('Failed: ' + (e.message || 'Add failed')); }
     finally { setAdding(false); }
+  };
+
+  const toggleVehicleType = (vehicleType: string) => {
+    setForm(prev => ({
+      ...prev,
+      applicable_vehicle_types: prev.applicable_vehicle_types.includes(vehicleType)
+        ? prev.applicable_vehicle_types.filter(t => t !== vehicleType)
+        : [...prev.applicable_vehicle_types, vehicleType],
+    }));
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -78,11 +143,15 @@ export default function AddonsPage() {
 
   const toggleActive = async (id: string, current: boolean) => {
     try {
-      const { error } = await supabase.from('addon_services').update({ is_active: !current, updated_at: new Date().toISOString() }).eq('id', id);
-      if (error) throw error;
+      const res = await fetch(`/api/addons/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !current }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       setAddons(prev => prev.map(a => a.id === id ? { ...a, is_active: !current } : a));
       toast.success(current ? 'Deactivated' : 'Activated');
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: any) { toast.error(e.message || 'Update failed'); }
   };
 
   return (
@@ -220,8 +289,68 @@ export default function AddonsPage() {
                 <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Order</label>
                   <input type="number" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) })} className="input-field text-sm" /></div>
               </div>
-              <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Vehicle Types (comma-separated, leave empty for all)</label>
-                <input type="text" value={vehicleTypesInput} onChange={(e) => setVehicleTypesInput(e.target.value)} placeholder="e.g. mini_truck, pickup_truck" className="input-field text-sm" /></div>
+              <div className="relative" ref={vehicleDropdownRef}>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Vehicle Types</label>
+                <button
+                  type="button"
+                  onClick={() => setVehicleTypesDropdownOpen(prev => !prev)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:border-orange-300 focus:border-orange-500 focus:outline-none transition-colors"
+                >
+                  <span className="text-sm text-gray-700">
+                    {form.applicable_vehicle_types.length === 0
+                      ? 'Select vehicles (leave empty for all)'
+                      : `${form.applicable_vehicle_types.length} selected`}
+                  </span>
+                  <ChevronDown size={18} className={`text-gray-500 transition-transform ${vehicleTypesDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {vehicleTypesDropdownOpen && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto py-2">
+                    {vehicleTypes.length === 0 ? (
+                      <p className="px-4 py-2 text-sm text-gray-500">No vehicle types found. Add them in Vehicle Types first.</p>
+                    ) : (
+                      vehicleTypes.map((v) => (
+                        <label
+                          key={v.vehicle_type}
+                          className="flex items-center gap-3 px-4 py-2 hover:bg-orange-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.applicable_vehicle_types.includes(v.vehicle_type)}
+                            onChange={() => toggleVehicleType(v.vehicle_type)}
+                            className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                          />
+                          <span className="text-sm font-medium text-gray-800 capitalize">{v.display_name || v.vehicle_type}</span>
+                          <span className="text-xs text-gray-400 font-mono">{v.vehicle_type}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+                {form.applicable_vehicle_types.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {form.applicable_vehicle_types.map((t) => {
+                      const label = vehicleTypes.find(v => v.vehicle_type === t)?.display_name || t;
+                      return (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-medium"
+                        >
+                          {label}
+                          <button
+                            type="button"
+                            onClick={() => toggleVehicleType(t)}
+                            className="hover:bg-orange-200 rounded-full p-0.5"
+                            aria-label={`Remove ${label}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-1.5">Select which vehicle types can offer this addon. Leave empty for all.</p>
+              </div>
             </div>
             <div className="flex gap-3 mt-8">
               <button onClick={() => setShowAdd(false)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">Cancel</button>

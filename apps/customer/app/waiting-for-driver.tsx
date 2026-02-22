@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
+import { TextInput } from "react-native";
 import { subscribeToBooking, cancelBooking, getBookingById, retryBookingWithIncreasedPrice } from "@/lib/bookings";
 import type { Booking } from "@/types/type";
 
@@ -36,8 +36,10 @@ const WaitingForDriverPage = () => {
   const [isCancelling, setIsCancelling] = useState(false);
   const [showTimeout, setShowTimeout] = useState(false);
   
-  // Tip adjustment state for timeout
+  // Tip adjustment state - only shown when no driver found (timeout)
+  const TIP_PRESETS = [50, 100, 150, 200];
   const [tipAmount, setTipAmount] = useState(booking?.tip_amount || 0);
+  const [customTipInput, setCustomTipInput] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
 
   // Animation for pulsing effect
@@ -123,13 +125,24 @@ const WaitingForDriverPage = () => {
       if (data) {
         console.log('[WAITING] Initial booking data:', {
           status: data.status,
-          hasDriver: !!data.driver
+          hasDriver: !!data.driver,
+          expires_at: data.expires_at
         });
         setBooking(data);
         setTipAmount(data.tip_amount || 0);
         if ((data.status === 'accepted' || data.status === 'driver_arrived' || data.status === 'in_progress') && data.driver) {
           console.log(`[WAITING] Driver already ${data.status} - stopping timer`);
           setDriverAccepted(true);
+        } else if (
+          data.status === 'pending' &&
+          !data.driver_id &&
+          data.expires_at &&
+          new Date(data.expires_at) < new Date()
+        ) {
+          // Booking search already expired - show add-tip screen immediately
+          console.log('[WAITING] Booking already expired - showing add tip screen');
+          setShowTimeout(true);
+          setTimeRemaining(0);
         }
       }
     });
@@ -194,7 +207,11 @@ const WaitingForDriverPage = () => {
             if (success) {
               clearAll();
               clearSelectedVehicle();
-              router.replace("/(tabs)/home");
+              Alert.alert(
+                "Ride Cancelled",
+                "Your ride has been successfully cancelled.",
+                [{ text: "OK", onPress: () => router.replace("/(tabs)/home") }]
+              );
             } else {
               Alert.alert("Error", error || "Failed to cancel booking");
               setIsCancelling(false);
@@ -227,17 +244,18 @@ const WaitingForDriverPage = () => {
     }
   }, [driverAccepted, booking?.driver, bookingId]);
 
-  // Handle retry with increased price
+  // Handle retry with increased tip (Book Now) - updates booking so drivers see new amount; admin sees in booking
   const handleRetrySearch = useCallback(async () => {
     if (!bookingId || isRetrying) return;
 
+    const tipToApply = customTipInput.trim() !== "" ? (parseInt(customTipInput, 10) || 0) : tipAmount;
     setIsRetrying(true);
 
     try {
       const { success, error } = await retryBookingWithIncreasedPrice(
         bookingId,
-        tipAmount,
-        1.0 // Keep fare multiplier at 1.0 for simplicity
+        tipToApply,
+        1.0
       );
 
       if (error || !success) {
@@ -246,22 +264,23 @@ const WaitingForDriverPage = () => {
         return;
       }
 
-      // Refresh booking data
+      setTipAmount(tipToApply);
+      setCustomTipInput("");
+
       const { data: updatedBooking } = await getBookingById(bookingId);
       if (updatedBooking) {
         setCurrentBooking(updatedBooking);
         setBooking(updatedBooking);
       }
 
-      // Reset states
       setShowTimeout(false);
       setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
-
+      setIsRetrying(false);
     } catch (err: any) {
       Alert.alert("Error", err.message || "Something went wrong");
       setIsRetrying(false);
     }
-  }, [bookingId, tipAmount, setCurrentBooking]);
+  }, [bookingId, tipAmount, customTipInput, setCurrentBooking]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -271,7 +290,8 @@ const WaitingForDriverPage = () => {
   };
 
   const baseFare = booking?.total_fare || 0;
-  const newTotal = baseFare + tipAmount;
+  const effectiveTip = customTipInput.trim() !== "" ? (parseInt(customTipInput, 10) || 0) : tipAmount;
+  const newTotal = baseFare + effectiveTip;
 
   // Determine snap points based on state
   const getSnapPoints = () => {
@@ -374,55 +394,70 @@ const WaitingForDriverPage = () => {
             </TouchableOpacity>
           </View>
         ) : showTimeout ? (
-          /* Timeout State - Tip Adjustment */
+          /* Timeout State - Add driver tip (only when no driver found) */
           <View>
-            {/* Warning Badge */}
             <View className="bg-orange-100 rounded-xl p-4 mb-4 flex-row items-center">
               <View className="bg-orange-500 rounded-full p-2 mr-3">
                 <Feather name="alert-circle" size={20} color="#fff" />
               </View>
               <View className="flex-1">
-                <Text className="text-orange-700 font-JakartaBold text-base">No Drivers Nearby</Text>
-                <Text className="text-orange-600 font-JakartaMedium text-sm">Increase tip to attract drivers</Text>
+                <Text className="text-orange-700 font-JakartaBold text-base">No Drivers Found</Text>
+                <Text className="text-orange-600 font-JakartaMedium text-sm">Add a tip to attract nearby drivers</Text>
               </View>
             </View>
 
-            {/* Fare Summary */}
             <View className="bg-gray-50 rounded-2xl p-4 mb-4">
               <View className="flex-row justify-between items-center mb-3">
-                <Text className="text-gray-600 font-JakartaMedium">Base Fare</Text>
+                <Text className="text-gray-600 font-JakartaMedium">Trip Fare</Text>
                 <Text className="text-lg font-JakartaBold text-gray-800">₹{baseFare}</Text>
               </View>
-              
+
+              <Text className="text-gray-700 font-JakartaSemiBold mb-2">Add driver tip</Text>
+              <View className="flex-row flex-wrap gap-2 mb-3">
+                {TIP_PRESETS.map((preset) => (
+                  <TouchableOpacity
+                    key={preset}
+                    onPress={() => {
+                      setTipAmount(preset);
+                      setCustomTipInput("");
+                    }}
+                    className={`px-4 py-3 rounded-xl border-2 ${
+                      tipAmount === preset && !customTipInput.trim()
+                        ? "bg-brand-500 border-brand-500"
+                        : "bg-white border-gray-200"
+                    }`}
+                  >
+                    <Text
+                      className={`font-JakartaBold ${
+                        tipAmount === preset && !customTipInput.trim() ? "text-white" : "text-gray-800"
+                      }`}
+                    >
+                      ₹{preset}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
               <View className="mb-3">
-                <View className="flex-row justify-between items-center mb-2">
-                  <Text className="text-gray-700 font-JakartaSemiBold">Driver Tip</Text>
-                  <Text className="text-lg font-JakartaBold text-brand-500">+₹{tipAmount}</Text>
-                </View>
-                <Slider
-                  style={{ height: 40 }}
-                  minimumValue={0}
-                  maximumValue={200}
-                  step={10}
-                  value={tipAmount}
-                  onValueChange={setTipAmount}
-                  minimumTrackTintColor="#FF9800"
-                  maximumTrackTintColor="#d1d5db"
-                  thumbTintColor="#FF9800"
+                <Text className="text-gray-500 text-xs font-JakartaMedium mb-1">Or enter amount (₹)</Text>
+                <TextInput
+                  value={customTipInput}
+                  onChangeText={(t) => {
+                    setCustomTipInput(t.replace(/[^0-9]/g, ""));
+                    if (t.trim() !== "") setTipAmount(0);
+                  }}
+                  placeholder="0"
+                  keyboardType="number-pad"
+                  className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-800 font-JakartaSemiBold"
                 />
-                <View className="flex-row justify-between">
-                  <Text className="text-xs text-gray-400">₹0</Text>
-                  <Text className="text-xs text-gray-400">₹200</Text>
-                </View>
               </View>
 
               <View className="border-t border-gray-200 pt-3 flex-row justify-between items-center">
-                <Text className="text-gray-800 font-JakartaBold">New Total</Text>
+                <Text className="text-gray-800 font-JakartaBold">New total (shown to drivers)</Text>
                 <Text className="text-2xl font-JakartaBold text-green-600">₹{newTotal}</Text>
               </View>
             </View>
 
-            {/* Actions */}
             <TouchableOpacity
               onPress={handleRetrySearch}
               disabled={isRetrying}
@@ -432,10 +467,8 @@ const WaitingForDriverPage = () => {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Feather name="refresh-cw" size={20} color="#fff" />
-                  <Text className="ml-2 font-JakartaBold text-white text-base">
-                    Search Again
-                  </Text>
+                  <Feather name="search" size={20} color="#fff" />
+                  <Text className="ml-2 font-JakartaBold text-white text-base">Book Now</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -450,9 +483,7 @@ const WaitingForDriverPage = () => {
               ) : (
                 <>
                   <Feather name="x" size={20} color="#333" />
-                  <Text className="ml-2 font-JakartaBold text-gray-700 text-base">
-                    Cancel Booking
-                  </Text>
+                  <Text className="ml-2 font-JakartaBold text-gray-700 text-base">Cancel Booking</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -483,14 +514,31 @@ const WaitingForDriverPage = () => {
               </Text>
             </View>
 
-            {/* Fare Info */}
+            {/* Fare Info (total_fare includes addons from DB) */}
             <View className="bg-gray-50 rounded-xl p-4 w-full mb-6">
-              <View className="flex-row justify-between items-center">
+              <View className="flex-row justify-between items-center mb-2">
                 <Text className="text-gray-600 font-JakartaMedium">Trip Fare</Text>
                 <Text className="text-xl font-JakartaBold text-green-600">
-                  ₹{booking?.total_fare || 0}
+                  ₹{booking?.total_fare ?? 0}
                 </Text>
               </View>
+              {booking?.booking_addons && booking.booking_addons.length > 0 && (
+                <View className="border-t border-gray-200 pt-2 mt-2">
+                  <Text className="text-xs text-gray-500 font-JakartaMedium mb-1">Add-ons</Text>
+                  {booking.booking_addons.map((ba, i) => (
+                    <View key={i} className="flex-row justify-between">
+                      <Text className="text-gray-600 text-xs">{ba.addon_services?.name ?? 'Add-on'}</Text>
+                      <Text className="text-gray-700 text-xs font-JakartaSemiBold">₹{(ba.quantity || 1) * (ba.unit_price || 0)}</Text>
+                    </View>
+                  ))}
+                  {booking.addon_charges != null && booking.addon_charges > 0 && (
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-xs">Add-on total</Text>
+                      <Text className="text-gray-700 text-xs font-JakartaBold">₹{booking.addon_charges}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* Cancel Button */}

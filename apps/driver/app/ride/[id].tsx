@@ -267,9 +267,9 @@ const ActiveRide = () => {
 
     if (isLoading || !booking) {
         return (
-            <SafeAreaView className="flex-1 bg-gray-900 items-center justify-center">
+            <SafeAreaView className="flex-1 bg-white items-center justify-center">
                 <ActivityIndicator size="large" color="#22c55e" />
-                <Text className="text-gray-400 mt-4">Loading ride details...</Text>
+                <Text className="text-gray-500 mt-4">Loading ride details...</Text>
             </SafeAreaView>
         );
     }
@@ -281,7 +281,7 @@ const ActiveRide = () => {
     const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
 
     return (
-        <SafeAreaView className="flex-1 bg-gray-900">
+        <SafeAreaView className="flex-1 bg-white">
             {/* Map View */}
             <View className="flex-1">
                 {driverLocation ? (
@@ -341,15 +341,15 @@ const ActiveRide = () => {
                         />
                     </MapView>
                 ) : (
-                    <View className="flex-1 bg-gray-800 items-center justify-center">
+                    <View className="flex-1 bg-gray-100 items-center justify-center">
                         <ActivityIndicator size="large" color="#22c55e" />
-                        <Text className="text-gray-400 mt-2">Getting location...</Text>
+                        <Text className="text-gray-500 mt-2">Getting location...</Text>
                     </View>
                 )}
             </View>
 
             {/* Bottom Sheet */}
-            <View className="bg-gray-900 rounded-t-3xl -mt-8 max-h-[50%]">
+            <View className="bg-white rounded-t-3xl -mt-8 max-h-[50%] border-t border-gray-200">
                 <ScrollView 
                     className="p-5"
                     showsVerticalScrollIndicator={false}
@@ -362,25 +362,25 @@ const ActiveRide = () => {
                                 {status.text}
                             </Text>
                         </View>
-                        <View className="bg-gray-800 px-3 py-1 rounded-full border border-gray-700">
-                            <Text className="text-xs font-JakartaBold text-gray-400">
+                        <View className="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
+                            <Text className="text-xs font-JakartaBold text-gray-600">
                                 Ride ID: #{id?.slice(-6).toUpperCase()}
                             </Text>
                         </View>
                     </View>
 
                     {/* Customer/Receiver Info */}
-                    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+                    <View className="bg-gray-100 rounded-2xl p-4 mb-4 border border-gray-200">
                         <View className="flex-row justify-between items-center">
                             <View className="flex-row items-center">
-                                <View className="w-12 h-12 bg-gray-700 rounded-full items-center justify-center mr-3">
-                                    <Feather name="user" size={24} color="#9ca3af" />
+                                <View className="w-12 h-12 bg-gray-200 rounded-full items-center justify-center mr-3">
+                                    <Feather name="user" size={24} color="#6b7280" />
                                 </View>
                                 <View>
-                                    <Text className="text-white font-JakartaBold">
+                                    <Text className="text-gray-900 font-JakartaBold">
                                         {isInProgress ? (booking.receiver_name || 'Receiver') : customerName}
                                     </Text>
-                                    <Text className="text-gray-400 text-sm">
+                                    <Text className="text-gray-500 text-sm">
                                         {isInProgress ? 'Receiver' : 'Customer'}
                                     </Text>
                                 </View>
@@ -396,31 +396,31 @@ const ActiveRide = () => {
 
                     {/* Pickup OTP - shown when arrived */}
                     {booking.status === 'driver_arrived' && booking.pickup_otp && (
-                        <View className="bg-blue-500/10 rounded-xl p-4 mb-4">
-                            <Text className="text-blue-400 text-sm font-JakartaMedium mb-1">
+                        <View className="bg-blue-500/10 rounded-xl p-4 mb-4 border border-blue-200">
+                            <Text className="text-blue-600 text-sm font-JakartaMedium mb-1">
                                 Ask customer for OTP to start trip
                             </Text>
-                            <Text className="text-white text-xl font-JakartaBold">
+                            <Text className="text-gray-900 text-xl font-JakartaBold">
                                 Expected OTP: ****
                             </Text>
                         </View>
                     )}
 
                     {/* Ride Details */}
-                    <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+                    <View className="bg-gray-100 rounded-2xl p-4 mb-4 border border-gray-200">
                         <View className="mb-3">
-                            <Text className="text-gray-400 text-xs mb-1">
+                            <Text className="text-gray-500 text-xs mb-1">
                                 {isInProgress ? 'DROP-OFF' : 'PICKUP'}
                             </Text>
-                            <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
+                            <Text className="text-gray-900 font-JakartaSemiBold" numberOfLines={2}>
                                 {isInProgress ? booking.destination_address : booking.origin_address}
                             </Text>
                         </View>
 
                         {!isInProgress && (
                             <View className="mb-3">
-                                <Text className="text-gray-400 text-xs mb-1">DROP-OFF</Text>
-                                <Text className="text-white font-JakartaSemiBold" numberOfLines={2}>
+                                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
+                                <Text className="text-gray-900 font-JakartaSemiBold" numberOfLines={2}>
                                     {booking.destination_address}
                                 </Text>
                             </View>
@@ -429,29 +429,29 @@ const ActiveRide = () => {
                         {/* Receiver contact when in progress */}
                         {isInProgress && booking.receiver_phone && (
                             <View className="mb-3">
-                                <Text className="text-gray-400 text-xs mb-1">RECEIVER PHONE</Text>
-                                <Text className="text-white font-JakartaSemiBold">
+                                <Text className="text-gray-500 text-xs mb-1">RECEIVER PHONE</Text>
+                                <Text className="text-gray-900 font-JakartaSemiBold">
                                     +91 {booking.receiver_phone}
                                 </Text>
                             </View>
                         )}
 
-                        <View className="flex-row gap-4 mt-3 pt-3 border-t border-gray-700">
+                        <View className="flex-row gap-4 mt-3 pt-3 border-t border-gray-200">
                             <View className="flex-1">
-                                <Text className="text-gray-400 text-xs">Distance</Text>
-                                <Text className="text-white font-JakartaSemiBold">
+                                <Text className="text-gray-500 text-xs">Distance</Text>
+                                <Text className="text-gray-900 font-JakartaSemiBold">
                                     {booking.estimated_distance?.toFixed(1) || '0'} km
                                 </Text>
                             </View>
                             <View className="flex-1">
-                                <Text className="text-gray-400 text-xs">Est. Time</Text>
-                                <Text className="text-white font-JakartaSemiBold">
+                                <Text className="text-gray-500 text-xs">Est. Time</Text>
+                                <Text className="text-gray-900 font-JakartaSemiBold">
                                     {booking.estimated_duration?.toFixed(0) || '0'} min
                                 </Text>
                             </View>
                             <View className="flex-1">
-                                <Text className="text-gray-400 text-xs">Fare</Text>
-                                <Text className="text-green-400 font-JakartaBold">
+                                <Text className="text-gray-500 text-xs">Fare</Text>
+                                <Text className="text-green-600 font-JakartaBold">
                                     ₹{booking.driver_payout || booking.total_fare}
                                 </Text>
                             </View>

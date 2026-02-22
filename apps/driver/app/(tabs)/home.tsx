@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndica
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions } from '@/lib/location';
@@ -9,6 +10,7 @@ import { getDriverActiveBookings, getDriverCompletedTrips, Booking } from '@/lib
 
 const DriverHome = () => {
     const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
+    const { t } = useLanguage();
     const [isOnline, setIsOnline] = useState(driverProfile?.is_online || false);
     const [isTogglingStatus, setIsTogglingStatus] = useState(false);
     const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
@@ -64,9 +66,9 @@ const DriverHome = () => {
                 const hasPermissions = await requestLocationPermissions();
                 if (!hasPermissions) {
                     Alert.alert(
-                        'Location Permission Required',
-                        'Please enable location access to go online and receive ride requests.',
-                        [{ text: 'OK' }]
+                        t('locationPermissionRequired'),
+                        t('enableLocationAccess'),
+                        [{ text: t('ok') }]
                     );
                     setIsTogglingStatus(false);
                     return;
@@ -120,7 +122,7 @@ const DriverHome = () => {
             }
         } catch (error) {
             console.error('Failed to toggle online status:', error);
-            Alert.alert('Error', 'Failed to update online status. Please try again.');
+            Alert.alert(t('error'), t('failedToUpdateStatus'));
         } finally {
             setIsTogglingStatus(false);
         }
@@ -133,32 +135,32 @@ const DriverHome = () => {
     const getStatusBadge = (status: Booking['status']) => {
         switch (status) {
             case 'accepted':
-                return { text: 'Head to pickup', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
+                return { text: t('headToPickup'), color: 'bg-blue-500/20', textColor: 'text-blue-400' };
             case 'driver_arrived':
-                return { text: 'Verify OTP', color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
+                return { text: t('verifyOtp'), color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
             case 'in_progress':
-                return { text: 'Trip in progress', color: 'bg-green-500/20', textColor: 'text-green-400' };
+                return { text: t('tripInProgress'), color: 'bg-green-500/20', textColor: 'text-green-400' };
             default:
-                return { text: 'Unknown', color: 'bg-gray-500/20', textColor: 'text-gray-400' };
+                return { text: t('unknown'), color: 'bg-gray-500/20', textColor: 'text-gray-400' };
         }
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-gray-900">
+        <SafeAreaView className="flex-1 bg-white">
             <ScrollView className="p-5" contentContainerStyle={{ paddingBottom: 100 }}>
                 {/* Header */}
                 <View className="flex-row justify-between items-center mb-6">
                     <View>
-                        <Text className="text-gray-400 text-sm">Welcome back,</Text>
-                        <Text className="text-white text-2xl font-JakartaBold">
+                        <Text className="text-gray-500 text-sm">Welcome back,</Text>
+                        <Text className="text-gray-900 text-2xl font-JakartaBold">
                             {profile?.name || 'Driver'}
                         </Text>
                     </View>
                     <TouchableOpacity
                         onPress={signOut}
-                        className="bg-red-500/20 px-4 py-2 rounded-full"
+                        className="bg-red-50 px-4 py-2 rounded-full"
                     >
-                        <Text className="text-red-400 font-JakartaSemiBold">Logout</Text>
+                        <Text className="text-red-600 font-JakartaSemiBold">Logout</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -170,13 +172,13 @@ const DriverHome = () => {
                             onPress={() => setIsRidesExpanded(!isRidesExpanded)}
                             className="flex-row justify-between items-center mb-3"
                         >
-                            <Text className="text-white text-lg font-JakartaBold">
-                                Active Rides ({activeBookings.length})
+                            <Text className="text-gray-900 text-lg font-JakartaBold">
+                                {t('activeRides')} ({activeBookings.length})
                             </Text>
                             <Feather
                                 name={isRidesExpanded ? "chevron-up" : "chevron-down"}
                                 size={24}
-                                color="#9ca3af"
+                                color="#6b7280"
                             />
                         </TouchableOpacity>
 
@@ -187,7 +189,7 @@ const DriverHome = () => {
                                 <TouchableOpacity
                                     key={booking.id}
                                     onPress={() => navigateToRide(booking.id)}
-                                    className="bg-gray-800 rounded-2xl p-4 mb-3 border border-gray-700"
+                                    className="bg-gray-50 rounded-2xl p-4 mb-3 border border-gray-200"
                                 >
                                     {/* Status Badge */}
                                     <View className="mb-3">
@@ -200,32 +202,32 @@ const DriverHome = () => {
 
                                     {/* Customer Info */}
                                     <View className="flex-row items-center mb-3">
-                                        <View className="w-10 h-10 bg-gray-700 rounded-full items-center justify-center mr-3">
+                                        <View className="w-10 h-10 bg-gray-200 rounded-full items-center justify-center mr-3">
                                             <Text className="text-lg">👤</Text>
                                         </View>
                                         <View className="flex-1">
-                                            <Text className="text-white font-JakartaSemiBold">
+                                            <Text className="text-gray-900 font-JakartaSemiBold">
                                                 {booking.customer?.name || 'Customer'}
                                             </Text>
-                                            <Text className="text-gray-400 text-xs">
+                                            <Text className="text-gray-500 text-xs">
                                                 {booking.booking_number}
                                             </Text>
                                         </View>
-                                        <Text className="text-gray-400 text-xl">›</Text>
+                                        <Text className="text-gray-500 text-xl">›</Text>
                                     </View>
 
                                     {/* Destination */}
                                     <View className="mb-2">
-                                        <Text className="text-gray-400 text-xs mb-1">DESTINATION</Text>
-                                        <Text className="text-white text-sm" numberOfLines={1}>
+                                        <Text className="text-gray-500 text-xs mb-1">{t('destination')}</Text>
+                                        <Text className="text-gray-900 text-sm" numberOfLines={1}>
                                             {booking.destination_address}
                                         </Text>
                                     </View>
 
                                     {/* Fare */}
-                                    <View className="flex-row justify-between items-center pt-2 border-t border-gray-700">
-                                        <Text className="text-gray-400 text-xs">Fare</Text>
-                                        <Text className="text-green-400 font-JakartaBold">
+                                    <View className="flex-row justify-between items-center pt-2 border-t border-gray-200">
+                                        <Text className="text-gray-500 text-xs">Fare</Text>
+                                        <Text className="text-green-600 font-JakartaBold">
                                             ₹{booking.driver_payout || booking.total_fare}
                                         </Text>
                                     </View>
@@ -236,101 +238,101 @@ const DriverHome = () => {
                 )}
 
                 {/* Online Status Card */}
-                <View className="bg-gray-800 p-6 rounded-2xl mb-6">
+                <View className="bg-gray-50 p-6 rounded-2xl mb-6 border border-gray-200">
                     <View className="flex-row justify-between items-center">
                         <View>
-                            <Text className="text-gray-400 text-sm mb-1">Status</Text>
-                            <Text className={`text-2xl font-JakartaBold ${isOnline ? 'text-green-400' : 'text-red-400'}`}>
-                                {isOnline ? '🟢 Online' : '🔴 Offline'}
+                            <Text className="text-gray-500 text-sm mb-1">{t('status')}</Text>
+                            <Text className={`text-2xl font-JakartaBold ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
+                                {isOnline ? `🟢 ${t('online')}` : `🔴 ${t('offline')}`}
                             </Text>
                         </View>
                         <Switch
                             value={isOnline}
                             onValueChange={handleToggleOnline}
-                            trackColor={{ false: '#374151', true: '#22c55e' }}
+                            trackColor={{ false: '#d1d5db', true: '#22c55e' }}
                             thumbColor={isOnline ? '#ffffff' : '#9ca3af'}
                             disabled={isTogglingStatus}
                         />
                     </View>
                     <Text className="text-gray-500 text-sm mt-3">
                         {isTogglingStatus 
-                            ? 'Updating status...' 
+                            ? t('updatingStatus') 
                             : isOnline 
-                                ? 'You are visible to customers • GPS active' 
-                                : 'Go online to receive ride requests'}
+                                ? t('visibleToCustomers') 
+                                : t('goOnlineToReceive')}
                     </Text>
                 </View>
 
                 {/* Today's Stats */}
-                <Text className="text-white text-xl font-JakartaBold mb-4">Today's Summary</Text>
+                <Text className="text-gray-900 text-xl font-JakartaBold mb-4">{t('todaysSummary')}</Text>
                 <View className="flex-row gap-3 mb-6">
-                    <View className="flex-1 bg-blue-500/20 p-4 rounded-xl">
-                        <Text className="text-blue-400 text-sm mb-1">Earnings</Text>
+                    <View className="flex-1 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                        <Text className="text-blue-600 text-sm mb-1">Earnings</Text>
                         {isLoadingStats ? (
-                            <ActivityIndicator size="small" color="#60a5fa" />
+                            <ActivityIndicator size="small" color="#2563eb" />
                         ) : (
-                            <Text className="text-white text-2xl font-JakartaBold">
+                            <Text className="text-gray-900 text-2xl font-JakartaBold">
                                 ₹{todayStats.earnings.toLocaleString()}
                             </Text>
                         )}
                     </View>
-                    <View className="flex-1 bg-purple-500/20 p-4 rounded-xl">
-                        <Text className="text-purple-400 text-sm mb-1">Trips</Text>
+                    <View className="flex-1 bg-purple-50 p-4 rounded-xl border border-purple-100">
+                        <Text className="text-purple-600 text-sm mb-1">{t('trips')}</Text>
                         {isLoadingStats ? (
-                            <ActivityIndicator size="small" color="#a78bfa" />
+                            <ActivityIndicator size="small" color="#7c3aed" />
                         ) : (
-                            <Text className="text-white text-2xl font-JakartaBold">{todayStats.trips}</Text>
+                            <Text className="text-gray-900 text-2xl font-JakartaBold">{todayStats.trips}</Text>
                         )}
                     </View>
-                    <View className="flex-1 bg-green-500/20 p-4 rounded-xl">
-                        <Text className="text-green-400 text-sm mb-1">Rating</Text>
-                        <Text className="text-white text-2xl font-JakartaBold">
+                    <View className="flex-1 bg-green-50 p-4 rounded-xl border border-green-100">
+                        <Text className="text-green-600 text-sm mb-1">Rating</Text>
+                        <Text className="text-gray-900 text-2xl font-JakartaBold">
                             {driverProfile?.rating?.toFixed(1) || '5.0'}
                         </Text>
                     </View>
                 </View>
 
                 {/* Quick Actions */}
-                <Text className="text-white text-xl font-JakartaBold mb-4">Quick Actions</Text>
+                <Text className="text-gray-900 text-xl font-JakartaBold mb-4">{t('quickActions')}</Text>
                 <View className="gap-3">
                     <TouchableOpacity 
                         onPress={() => router.push('/(tabs)/requests')}
-                        className="bg-gray-800 p-4 rounded-xl flex-row items-center"
+                        className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
-                        <View className="w-12 h-12 bg-blue-500/20 rounded-full items-center justify-center mr-4">
+                        <View className="w-12 h-12 bg-blue-100 rounded-full items-center justify-center mr-4">
                             <Text className="text-2xl">📋</Text>
                         </View>
                         <View className="flex-1">
-                            <Text className="text-white font-JakartaSemiBold">View Requests</Text>
-                            <Text className="text-gray-400 text-sm">Check available ride requests</Text>
+                            <Text className="text-gray-900 font-JakartaSemiBold">{t('viewRequests')}</Text>
+                            <Text className="text-gray-500 text-sm">{t('checkAvailableRequests')}</Text>
                         </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity 
                         onPress={() => router.push('/(tabs)/earnings')}
-                        className="bg-gray-800 p-4 rounded-xl flex-row items-center"
+                        className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
-                        <View className="w-12 h-12 bg-green-500/20 rounded-full items-center justify-center mr-4">
+                        <View className="w-12 h-12 bg-green-100 rounded-full items-center justify-center mr-4">
                             <Text className="text-2xl">💰</Text>
                         </View>
                         <View className="flex-1">
-                            <Text className="text-white font-JakartaSemiBold">Earnings</Text>
-                            <Text className="text-gray-400 text-sm">
-                                Total: ₹{(driverProfile?.total_earnings || 0).toLocaleString()}
+                            <Text className="text-gray-900 font-JakartaSemiBold">{t('earnings')}</Text>
+                            <Text className="text-gray-500 text-sm">
+                                {t('total')}: ₹{(driverProfile?.total_earnings || 0).toLocaleString()}
                             </Text>
                         </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity 
-                        onPress={() => Alert.alert('Support', 'Contact us at drivers@cart-r.com')}
-                        className="bg-gray-800 p-4 rounded-xl flex-row items-center"
+                        onPress={() => Alert.alert(t('helpSupport'), `${t('contactUsAt')} drivers@cart-r.com`)}
+                        className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
-                        <View className="w-12 h-12 bg-orange-500/20 rounded-full items-center justify-center mr-4">
+                        <View className="w-12 h-12 bg-orange-100 rounded-full items-center justify-center mr-4">
                             <Text className="text-2xl">📞</Text>
                         </View>
                         <View className="flex-1">
-                            <Text className="text-white font-JakartaSemiBold">Support</Text>
-                            <Text className="text-gray-400 text-sm">Get help from our team</Text>
+                            <Text className="text-gray-900 font-JakartaSemiBold">{t('helpSupport')}</Text>
+                            <Text className="text-gray-500 text-sm">{t('getHelpFromTeam')}</Text>
                         </View>
                     </TouchableOpacity>
                 </View>

@@ -134,13 +134,20 @@ export async function getBookingById(bookingId: string): Promise<{
         *,
         driver:drivers(
           id,
+          user_id,
           vehicle_number,
           vehicle_model,
           vehicle_color,
           rating,
           current_latitude,
           current_longitude,
-          user:users!drivers_user_id_fkey(name, phone, avatar_url)
+          user:users!drivers_user_id_fkey(id, name, phone, avatar_url)
+        ),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
         )
       `)
       .eq('id', bookingId)
@@ -172,11 +179,12 @@ export async function getCustomerBookings(customerId: string): Promise<{
         *,
         driver:drivers(
           id,
+          user_id,
           vehicle_number,
           vehicle_model,
           vehicle_color,
           rating,
-          user:users!drivers_user_id_fkey(name, phone, avatar_url)
+          user:users!drivers_user_id_fkey(id, name, phone, avatar_url)
         )
       `)
       .eq('customer_id', customerId)
@@ -317,6 +325,7 @@ export async function cancelBooking(
 
 /**
  * Update booking with increased price (retry after timeout)
+ * Works for pending bookings even when expires_at has passed - extends search window
  */
 export async function retryBookingWithIncreasedPrice(
   bookingId: string,
@@ -324,10 +333,10 @@ export async function retryBookingWithIncreasedPrice(
   newFareMultiplier: number
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    // First get the current booking to calculate new payout
+    // First get the current booking to calculate new payout (include addon_charges)
     const { data: booking, error: fetchError } = await supabase
       .from('bookings')
-      .select('total_fare')
+      .select('total_fare, addon_charges')
       .eq('id', bookingId)
       .single();
 
@@ -335,7 +344,8 @@ export async function retryBookingWithIncreasedPrice(
       return { success: false, error: 'Booking not found' };
     }
 
-    const newDriverPayout = (booking.total_fare * newFareMultiplier) + newTipAmount;
+    const baseTotal = (booking.total_fare || 0) + (booking.addon_charges || 0);
+    const newDriverPayout = (baseTotal * newFareMultiplier) + newTipAmount;
 
     const { error } = await supabase
       .from('bookings')
@@ -343,13 +353,13 @@ export async function retryBookingWithIncreasedPrice(
         tip_amount: newTipAmount,
         fare_multiplier: newFareMultiplier,
         driver_payout: newDriverPayout,
-        status: 'pending', // Reset to pending
-        // Extend expiration by 3 more minutes
+        status: 'pending',
+        // Extend expiration by 3 more minutes - drivers will see this ride again
         expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', bookingId)
-      .in('status', ['pending']); // Only update if still pending
+      .in('status', ['pending']); // Only update if still pending (not accepted/cancelled)
 
     if (error) {
       return { success: false, error: error.message };
