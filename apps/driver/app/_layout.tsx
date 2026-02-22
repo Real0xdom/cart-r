@@ -1,13 +1,11 @@
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import "react-native-reanimated";
 import { LogBox } from "react-native";
 
 import { AuthProvider } from "@/contexts/AuthContext";
-import { LanguageProvider } from "@/contexts/LanguageContext";
 import { RideNotificationProvider, useRideNotification } from "@/contexts/RideNotificationContext";
 import RideNotification from "@/components/RideNotification";
 
@@ -84,23 +82,20 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <LanguageProvider>
-        <RideNotificationProvider>
-          <StatusBar style="dark" />
-          <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-            <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="profile" options={{ headerShown: false }} />
-            <Stack.Screen name="ride" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          
-          {/* Global notification overlay */}
-          <GlobalNotifications />
-        </RideNotificationProvider>
-      </LanguageProvider>
+      <RideNotificationProvider>
+        <Stack>
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="profile" options={{ headerShown: false }} />
+          <Stack.Screen name="ride" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" />
+        </Stack>
+        
+        {/* Global notification overlay */}
+        <GlobalNotifications />
+      </RideNotificationProvider>
     </AuthProvider>
   );
 }
