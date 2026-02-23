@@ -1,9 +1,11 @@
-import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getDriverCompletedTrips, Booking } from '@/lib/bookings';
+import { getDriverWalletInfo, WalletInfo } from '@/lib/walletLib';
 
 const { width } = Dimensions.get('window');
 
@@ -38,18 +40,25 @@ const BarChart = ({ data }: { data: DailyEarning[] }) => {
 const DriverEarnings = () => {
     const { driverProfile } = useAuth();
     const { t } = useLanguage();
+    const router = useRouter();
     const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');
     const [trips, setTrips] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
 
     const fetchEarnings = async () => {
         if (!driverProfile?.id) return;
 
-        const { data, error } = await getDriverCompletedTrips(driverProfile.id, 100);
-        if (!error && data) {
-            setTrips(data);
+        const [tripsResult, wallet] = await Promise.all([
+            getDriverCompletedTrips(driverProfile.id, 100),
+            getDriverWalletInfo(driverProfile.id),
+        ]);
+
+        if (!tripsResult.error && tripsResult.data) {
+            setTrips(tripsResult.data);
         }
+        if (wallet) setWalletInfo(wallet);
         setIsLoading(false);
     };
 
@@ -162,6 +171,23 @@ const DriverEarnings = () => {
                     ))}
                 </View>
 
+                {/* Wallet Balance Card */}
+                {walletInfo && (
+                    <View className="mx-5 bg-blue-50 border border-blue-200 rounded-2xl p-5 mb-4">
+                        <Text className="text-blue-700 text-sm font-JakartaSemiBold mb-3">💰 Wallet Balance</Text>
+                        <View className="flex-row justify-between">
+                            <View className="flex-1">
+                                <Text className="text-gray-500 text-xs">Available</Text>
+                                <Text className="text-green-700 text-2xl font-JakartaBold">₹{walletInfo.available_balance.toLocaleString()}</Text>
+                            </View>
+                            <View className="flex-1">
+                                <Text className="text-gray-500 text-xs">In Escrow</Text>
+                                <Text className="text-yellow-700 text-2xl font-JakartaBold">₹{walletInfo.pending_balance.toLocaleString()}</Text>
+                            </View>
+                        </View>
+                    </View>
+                )}
+
                 {/* Total Earnings Card */}
                 <View className="mx-5 bg-green-50 border border-green-200 rounded-2xl p-6 mb-6">
                     <Text className="text-green-700 text-sm mb-1">{t('totalEarningsPeriod')} ({t(period)})</Text>
@@ -173,7 +199,7 @@ const DriverEarnings = () => {
                         </View>
                         <View>
                             <Text className="text-gray-500 text-xs">{t('lifetimeEarnings')}</Text>
-                            <Text className="text-gray-900 font-JakartaSemiBold">₹{(driverProfile?.total_earnings || 0).toLocaleString()}</Text>
+                            <Text className="text-gray-900 font-JakartaSemiBold">₹{(walletInfo?.total_earned || driverProfile?.total_earnings || 0).toLocaleString()}</Text>
                         </View>
                         <View>
                             <Text className="text-gray-500 text-xs">{t('avgPerTrip')}</Text>
@@ -220,10 +246,10 @@ const DriverEarnings = () => {
                     )}
                 </View>
 
-                {/* Withdraw Button - shows if has balance */}
-                {(driverProfile?.total_earnings || 0) > 0 && (
+                {/* Withdraw Button */}
+                {(walletInfo?.available_balance || 0) > 0 && (
                     <TouchableOpacity 
-                        onPress={() => Alert.alert(t('comingSoon'), t('withdrawalsComingSoon'))}
+                        onPress={() => router.push('/profile/bank')}
                         className="mx-5 mt-6 bg-green-500 p-4 rounded-xl"
                     >
                         <Text className="text-white text-center font-JakartaBold text-lg">{t('withdrawToBank')}</Text>

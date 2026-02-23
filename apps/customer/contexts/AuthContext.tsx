@@ -140,7 +140,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   console.log('✅ Push token registered after attempt', attempts + 1);
                   break;
                 }
-              } catch (err) {
+              } catch (err: any) {
+                // If Firebase isn't configured, don't retry — it will never work
+                if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
+                  console.log('⚠️ Push notifications disabled (Firebase not configured). Skipping retries.');
+                  break;
+                }
                 console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
               }
               

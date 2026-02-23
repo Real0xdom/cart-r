@@ -20,6 +20,7 @@ import {
   IndianRupee,
   FileText,
   Receipt,
+  Wallet,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -61,6 +62,7 @@ const navSections: NavSection[] = [
     label: 'System',
     items: [
       { href: '/finance', label: 'Finance', icon: Receipt },
+      { href: '/payouts', label: 'Payouts', icon: Wallet },
       { href: '/notifications', label: 'Notifications', icon: Bell },
       { href: '/support', label: 'Support', icon: MessageSquare },
       { href: '/analytics', label: 'Analytics', icon: BarChart3 },

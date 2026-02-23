@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText } from 'lucide-react';
+import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText, Wallet } from 'lucide-react';
 
 interface DriverDetail {
   id: string;
@@ -67,14 +67,18 @@ export default function DriverDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({ vehicle_number: '', vehicle_model: '', vehicle_type: '' });
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'wallet'>('details');
   const [verificationHistory, setVerificationHistory] = useState<VerificationHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [walletInfo, setWalletInfo] = useState<any>(null);
+  const [walletTxns, setWalletTxns] = useState<any[]>([]);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   useEffect(() => {
     if (params.id) {
       fetchDriver(params.id as string);
       fetchVerificationHistory(params.id as string);
+      fetchWalletInfo(params.id as string);
     }
   }, [params.id]);
 
@@ -117,6 +121,25 @@ export default function DriverDetailPage() {
       console.error('Error fetching history:', err);
     }
     setHistoryLoading(false);
+  }
+
+  async function fetchWalletInfo(id: string) {
+    setWalletLoading(true);
+    try {
+      const { data: wData } = await supabase.rpc('get_driver_wallet_info', { p_driver_id: id });
+      if (wData) setWalletInfo(wData);
+
+      const { data: txns } = await supabase
+        .from('driver_wallet_transactions')
+        .select('*')
+        .eq('driver_id', id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setWalletTxns(txns || []);
+    } catch (err) {
+      console.warn('Wallet info not available:', err);
+    }
+    setWalletLoading(false);
   }
 
   async function handleSaveDetails() {
@@ -409,6 +432,17 @@ export default function DriverDetailPage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setActiveTab('wallet')}
+                className={`flex-1 px-6 py-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  activeTab === 'wallet'
+                    ? 'text-orange-600 border-b-2 border-orange-600 bg-orange-50/50'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Wallet size={16} />
+                Wallet
+              </button>
             </div>
           </div>
 
@@ -491,7 +525,7 @@ export default function DriverDetailPage() {
                 </div>
               </div>
             </>
-          ) : (
+          ) : activeTab === 'history' ? (
             /* Verification History Tab */
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-6">Verification History</h3>
@@ -508,21 +542,15 @@ export default function DriverDetailPage() {
                 </div>
               ) : (
                 <div className="relative">
-                  {/* Timeline line */}
                   <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
-                  
-                  {/* Timeline entries */}
                   <div className="space-y-6">
                     {verificationHistory.map((entry, index) => {
                       const badge = getActionBadge(entry.action);
                       return (
                         <div key={entry.id} className="relative pl-10">
-                          {/* Timeline dot */}
                           <div className={`absolute left-2 w-5 h-5 rounded-full border-2 border-white shadow ${badge.bg} flex items-center justify-center`}>
                             <span className="text-xs">{badge.icon}</span>
                           </div>
-                          
-                          {/* Entry card */}
                           <div className={`p-4 rounded-lg border ${badge.bg} border-opacity-50`}>
                             <div className="flex items-center justify-between mb-2">
                               <span className={`font-medium ${badge.text}`}>{badge.label}</span>
@@ -531,54 +559,37 @@ export default function DriverDetailPage() {
                                 {new Date(entry.created_at).toLocaleString()}
                               </span>
                             </div>
-                            
-                            {/* Rejection reason */}
                             {entry.rejection_reason && (
                               <div className="mt-2 p-3 bg-white rounded-lg border border-red-200">
                                 <p className="text-sm font-medium text-red-800 mb-1">Rejection Reason:</p>
                                 <p className="text-sm text-red-700">{entry.rejection_reason}</p>
                               </div>
                             )}
-                            
-                            {/* Document snapshot */}
                             {entry.document_snapshot && (
                               <div className="mt-3">
                                 <p className="text-xs text-gray-500 mb-2">Documents at time of {entry.action}:</p>
                                 <div className="grid grid-cols-4 gap-2">
                                   {entry.document_snapshot.license_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.license_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
+                                    <button onClick={() => setSelectedImage(entry.document_snapshot?.license_image_url || null)} className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80">
                                       <img src={entry.document_snapshot.license_image_url} alt="License" className="w-full h-full object-cover" />
                                     </button>
                                   )}
                                   {entry.document_snapshot.rc_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.rc_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
+                                    <button onClick={() => setSelectedImage(entry.document_snapshot?.rc_image_url || null)} className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80">
                                       <img src={entry.document_snapshot.rc_image_url} alt="RC" className="w-full h-full object-cover" />
                                     </button>
                                   )}
                                   {entry.document_snapshot.insurance_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.insurance_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
+                                    <button onClick={() => setSelectedImage(entry.document_snapshot?.insurance_image_url || null)} className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80">
                                       <img src={entry.document_snapshot.insurance_image_url} alt="Insurance" className="w-full h-full object-cover" />
                                     </button>
                                   )}
                                   {entry.document_snapshot.vehicle_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.vehicle_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
+                                    <button onClick={() => setSelectedImage(entry.document_snapshot?.vehicle_image_url || null)} className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80">
                                       <img src={entry.document_snapshot.vehicle_image_url} alt="Vehicle" className="w-full h-full object-cover" />
                                     </button>
                                   )}
                                 </div>
-                                {/* Vehicle info at time of action */}
                                 <div className="mt-2 text-xs text-gray-500">
                                   <span className="mr-3">🚗 {entry.document_snapshot.vehicle_type}</span>
                                   <span className="mr-3">📋 {entry.document_snapshot.vehicle_number}</span>
@@ -591,6 +602,124 @@ export default function DriverDetailPage() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Wallet Tab */
+            <div className="space-y-6">
+              {walletLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full" />
+                </div>
+              ) : walletInfo ? (
+                <>
+                  {/* Wallet Balance Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-400 font-semibold uppercase">Available</p>
+                      <p className="text-xl font-bold text-green-600">₹{Number(walletInfo.available_balance || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-400 font-semibold uppercase">Pending (Escrow)</p>
+                      <p className="text-xl font-bold text-yellow-600">₹{Number(walletInfo.pending_balance || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-400 font-semibold uppercase">Total Earned</p>
+                      <p className="text-xl font-bold text-gray-900">₹{Number(walletInfo.total_earned || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-400 font-semibold uppercase">Total Withdrawn</p>
+                      <p className="text-xl font-bold text-gray-500">₹{Number(walletInfo.total_withdrawn || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Bank & Beneficiary Status */}
+                  <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">Bank & Payout Status</h3>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-400">Bank Account</p>
+                        <p className="font-medium text-gray-800">
+                          {walletInfo.bank_details ? `****${walletInfo.bank_details?.account_number?.slice(-4) || 'N/A'}` : 'Not Added'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Cashfree Beneficiary</p>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          walletInfo.beneficiary_status === 'active' ? 'bg-green-100 text-green-700' :
+                          walletInfo.beneficiary_status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>
+                          {walletInfo.beneficiary_status || 'Not Created'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">KYC Status</p>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          walletInfo.verification_status === 'verified' || walletInfo.verification_status === 'approved' ? 'bg-green-100 text-green-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {walletInfo.verification_status || 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Transactions */}
+                  <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">Recent Wallet Transactions</h3>
+                    {walletTxns.length === 0 ? (
+                      <p className="text-gray-400 text-sm text-center py-4">No transactions yet</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100">
+                              <th className="text-left py-2 px-2 text-xs text-gray-400">Date</th>
+                              <th className="text-left py-2 px-2 text-xs text-gray-400">Type</th>
+                              <th className="text-left py-2 px-2 text-xs text-gray-400">Amount</th>
+                              <th className="text-left py-2 px-2 text-xs text-gray-400">Balance</th>
+                              <th className="text-left py-2 px-2 text-xs text-gray-400">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {walletTxns.map((t) => (
+                              <tr key={t.id}>
+                                <td className="py-2 px-2 text-xs text-gray-500">{new Date(t.created_at).toLocaleDateString()}</td>
+                                <td className="py-2 px-2">
+                                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                                    t.type === 'earning' ? 'bg-green-100 text-green-700' :
+                                    t.type === 'release' ? 'bg-blue-100 text-blue-700' :
+                                    t.type === 'withdrawal' ? 'bg-orange-100 text-orange-700' :
+                                    t.type === 'reversal' ? 'bg-purple-100 text-purple-700' :
+                                    'bg-gray-100 text-gray-700'
+                                  }`}>{t.type}</span>
+                                </td>
+                                <td className="py-2 px-2 font-bold">
+                                  <span className={t.direction === 'credit' ? 'text-green-600' : 'text-red-600'}>
+                                    {t.direction === 'credit' ? '+' : '-'}₹{t.amount}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-2">
+                                  <span className={`text-xs ${t.balance_type === 'pending' ? 'text-yellow-600' : 'text-green-600'}`}>
+                                    {t.balance_type}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-2 text-xs text-gray-500 max-w-[200px] truncate">{t.description}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8 text-gray-400">
+                  <Wallet size={40} className="mx-auto mb-3 opacity-30" />
+                  <p className="font-semibold">No wallet data available</p>
+                  <p className="text-xs mt-1">Wallet will be initialized when the driver completes their first booking</p>
                 </div>
               )}
             </div>

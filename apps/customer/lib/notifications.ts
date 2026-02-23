@@ -74,15 +74,12 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    console.log('📱 Current permission status:', existingStatus);
     
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      console.log('📝 Requesting notification permissions...');
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
-      console.log('✅ Permission request result:', status);
     }
 
     if (finalStatus !== 'granted') {
@@ -90,7 +87,6 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       return false;
     }
 
-    console.log('✅ Notification permissions granted');
     return true;
   } catch (error: any) {
     if (error?.message?.includes('Cannot find native module')) {
@@ -121,19 +117,24 @@ export async function getExpoPushToken(): Promise<string | null> {
 
     console.log('🔄 Getting Expo push token...');
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: undefined, // Uses project ID from app.json
+      projectId: undefined,
     });
 
     if (!tokenData?.data) {
-      console.warn('❌ [getExpoPushToken] No token data returned');
+      console.warn('❌ No push token received');
       return null;
     }
 
-    console.log('✅ Got Expo push token:', tokenData.data.substring(0, 30) + '...');
+    console.log('✅ Push token obtained');
     return tokenData.data;
   } catch (error: any) {
     if (error?.message?.includes('Cannot find native module')) {
       console.warn('Expo Notifications native module missing. Please rebuild your development client.');
+    } else if (error?.message?.includes('FirebaseApp is not initialized')) {
+      // Expected in dev (Expo Go) - no google-services.json
+      // Keep this quiet to avoid log spam on every app reload
+      console.warn('⚠️ Firebase not configured — push notifications disabled (expected in dev).');
+      throw new Error('FIREBASE_NOT_CONFIGURED');
     } else {
       console.error('Error getting push token:', error);
     }
@@ -146,11 +147,8 @@ export async function getExpoPushToken(): Promise<string | null> {
  */
 export async function registerPushToken(userId: string): Promise<boolean> {
   try {
-    console.log('🔄 [registerPushToken] Starting token registration for user:', userId);
-    
     const token = await getExpoPushToken();
     if (!token) {
-      console.warn('❌ [registerPushToken] No push token obtained - permission denied or module issue');
       return false;
     }
 
@@ -168,7 +166,11 @@ export async function registerPushToken(userId: string): Promise<boolean> {
 
     console.log('✅ [registerPushToken] Token saved to database successfully');
     return true;
-  } catch (error) {
+  } catch (error: any) {
+    // Re-throw Firebase config errors so retry loop can bail
+    if (error?.message === 'FIREBASE_NOT_CONFIGURED') {
+      throw error;
+    }
     console.error('❌ [registerPushToken] Exception occurred:', error);
     return false;
   }
