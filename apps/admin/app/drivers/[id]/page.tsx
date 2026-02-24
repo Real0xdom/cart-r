@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText } from 'lucide-react';
+import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText, Wallet, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 
 interface DriverDetail {
   id: string;
@@ -67,14 +67,18 @@ export default function DriverDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({ vehicle_number: '', vehicle_model: '', vehicle_type: '' });
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'history' | 'wallet'>('details');
   const [verificationHistory, setVerificationHistory] = useState<VerificationHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [walletInfo, setWalletInfo] = useState<any>(null);
+  const [walletTransactions, setWalletTransactions] = useState<any[]>([]);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   useEffect(() => {
     if (params.id) {
       fetchDriver(params.id as string);
       fetchVerificationHistory(params.id as string);
+      fetchWalletInfo(params.id as string);
     }
   }, [params.id]);
 
@@ -117,6 +121,23 @@ export default function DriverDetailPage() {
       console.error('Error fetching history:', err);
     }
     setHistoryLoading(false);
+  }
+
+  async function fetchWalletInfo(id: string) {
+    setWalletLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_driver_wallet_info', { p_driver_id: id });
+      if (!error && data) setWalletInfo(data);
+
+      const { data: txns, error: txnError } = await supabase
+        .from('driver_wallet_transactions')
+        .select('*')
+        .eq('driver_id', id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (!txnError) setWalletTransactions(txns || []);
+    } catch (err) { console.error('Wallet fetch error:', err); }
+    setWalletLoading(false);
   }
 
   async function handleSaveDetails() {
@@ -409,6 +430,17 @@ export default function DriverDetailPage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setActiveTab('wallet')}
+                className={`flex-1 px-6 py-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
+                  activeTab === 'wallet'
+                    ? 'text-orange-600 border-b-2 border-orange-600 bg-orange-50/50'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Wallet size={16} />
+                Wallet
+              </button>
             </div>
           </div>
 
@@ -491,7 +523,7 @@ export default function DriverDetailPage() {
                 </div>
               </div>
             </>
-          ) : (
+          ) : activeTab === 'history' ? (
             /* Verification History Tab */
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-6">Verification History</h3>
@@ -594,7 +626,66 @@ export default function DriverDetailPage() {
                 </div>
               )}
             </div>
-          )}
+          ) : activeTab === 'wallet' ? (
+            /* Wallet Tab */
+            <div className="space-y-4">
+              {walletLoading ? (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex justify-center"><div className="animate-spin w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full" /></div>
+              ) : (
+                <>
+                  {/* Balance Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-500 font-medium">Available</p>
+                      <p className="text-xl font-bold text-green-600">₹{Number(walletInfo?.available_balance || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-500 font-medium">Pending (Escrow)</p>
+                      <p className="text-xl font-bold text-yellow-600">₹{Number(walletInfo?.pending_balance || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-500 font-medium">Total Earned</p>
+                      <p className="text-xl font-bold text-gray-900">₹{Number(walletInfo?.total_earned || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                      <p className="text-xs text-gray-500 font-medium">Total Withdrawn</p>
+                      <p className="text-xl font-bold text-gray-900">₹{Number(walletInfo?.total_withdrawn || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  {walletInfo?.pending_withdrawals > 0 && (
+                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700">
+                      ⏳ Pending withdrawal requests: ₹{Number(walletInfo.pending_withdrawals).toLocaleString()}
+                    </div>
+                  )}
+                  {/* Transaction History */}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Transaction History</h3>
+                    {walletTransactions.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400"><Wallet size={32} className="mx-auto mb-2 opacity-50" /><p>No transactions yet</p></div>
+                    ) : (
+                      <div className="space-y-2">
+                        {walletTransactions.map((tx: any) => (
+                          <div key={tx.id} className="flex items-center gap-3 py-3 border-b border-gray-50 last:border-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tx.direction === 'credit' ? 'bg-green-100' : 'bg-red-100'}`}>
+                              {tx.direction === 'credit' ? <ArrowDownCircle size={16} className="text-green-600" /> : <ArrowUpCircle size={16} className="text-red-600" />}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-800">{tx.description || tx.type}</p>
+                              <p className="text-xs text-gray-400">{new Date(tx.created_at).toLocaleString()}</p>
+                            </div>
+                            <div className={`text-sm font-bold ${tx.direction === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                              {tx.direction === 'credit' ? '+' : '-'}₹{Number(tx.amount).toLocaleString()}
+                            </div>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${tx.status === 'completed' ? 'bg-green-100 text-green-700' : tx.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>{tx.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 

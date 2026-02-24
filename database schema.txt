@@ -166,6 +166,37 @@ CREATE TABLE public.driver_verification_history (
   CONSTRAINT driver_verification_history_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
   CONSTRAINT driver_verification_history_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id)
 );
+CREATE TABLE public.driver_wallet_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL,
+  booking_id uuid,
+  withdrawal_id uuid,
+  type text NOT NULL CHECK (type = ANY (ARRAY['earning'::text, 'release'::text, 'withdrawal'::text, 'reversal'::text, 'adjustment'::text, 'payout_fee'::text])),
+  amount numeric NOT NULL CHECK (amount > 0::numeric),
+  balance_type text NOT NULL CHECK (balance_type = ANY (ARRAY['pending'::text, 'available'::text])),
+  direction text NOT NULL CHECK (direction = ANY (ARRAY['credit'::text, 'debit'::text])),
+  status text NOT NULL DEFAULT 'completed'::text CHECK (status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text])),
+  reference_id text,
+  description text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_wallet_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_wallet_transactions_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT driver_wallet_transactions_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
+  CONSTRAINT driver_wallet_transactions_withdrawal_id_fkey FOREIGN KEY (withdrawal_id) REFERENCES public.withdrawals(id)
+);
+CREATE TABLE public.driver_wallets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL UNIQUE,
+  pending_balance numeric NOT NULL DEFAULT 0 CHECK (pending_balance >= 0::numeric),
+  available_balance numeric NOT NULL DEFAULT 0 CHECK (available_balance >= 0::numeric),
+  total_earned numeric NOT NULL DEFAULT 0,
+  total_withdrawn numeric NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_wallets_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_wallets_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
+);
 CREATE TABLE public.drivers (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   user_id uuid UNIQUE,
@@ -196,6 +227,8 @@ CREATE TABLE public.drivers (
   status text DEFAULT 'pending'::text,
   payment_flags integer DEFAULT 0,
   bank_details jsonb,
+  beneficiary_id text,
+  beneficiary_status text DEFAULT 'not_created'::text CHECK (beneficiary_status = ANY (ARRAY['not_created'::text, 'pending'::text, 'active'::text, 'failed'::text])),
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
   CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT drivers_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id)
@@ -287,6 +320,16 @@ CREATE TABLE public.notifications (
   CONSTRAINT notifications_pkey PRIMARY KEY (id),
   CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
+CREATE TABLE public.platform_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  key text NOT NULL UNIQUE,
+  value jsonb NOT NULL DEFAULT '{}'::jsonb,
+  description text,
+  is_public boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT platform_settings_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.ratings (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   booking_id uuid NOT NULL,
@@ -306,6 +349,17 @@ CREATE TABLE public.ratings (
   CONSTRAINT ratings_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES public.users(id),
   CONSTRAINT ratings_rated_by_fkey FOREIGN KEY (rated_by) REFERENCES public.users(id),
   CONSTRAINT ratings_rated_user_fkey FOREIGN KEY (rated_user) REFERENCES public.users(id)
+);
+CREATE TABLE public.referrals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  referrer_id uuid NOT NULL,
+  referred_id uuid NOT NULL UNIQUE,
+  referral_code_used character varying NOT NULL,
+  source_app character varying NOT NULL CHECK (source_app::text = ANY (ARRAY['customer_app'::character varying, 'driver_app'::character varying]::text[])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT referrals_pkey PRIMARY KEY (id),
+  CONSTRAINT referrals_referrer_id_fkey FOREIGN KEY (referrer_id) REFERENCES public.users(id),
+  CONSTRAINT referrals_referred_id_fkey FOREIGN KEY (referred_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.rides (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -444,6 +498,7 @@ CREATE TABLE public.users (
   terms_version character varying DEFAULT 'v1.0'::character varying,
   rating numeric DEFAULT 5.00,
   total_ratings integer DEFAULT 0,
+  referral_code character varying NOT NULL DEFAULT upper(SUBSTRING(md5((gen_random_uuid())::text) FROM 1 FOR 8)) UNIQUE,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.vehicle_specifications (
@@ -497,6 +552,11 @@ CREATE TABLE public.withdrawals (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   processed_at timestamp with time zone,
+  wallet_id uuid,
+  payout_reference text,
+  payout_status text,
+  payout_error text,
   CONSTRAINT withdrawals_pkey PRIMARY KEY (id),
-  CONSTRAINT withdrawals_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
+  CONSTRAINT withdrawals_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT withdrawals_wallet_id_fkey FOREIGN KEY (wallet_id) REFERENCES public.driver_wallets(id)
 );

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { IndianRupee, Package, Truck, CheckCircle } from 'lucide-react';
+import { IndianRupee, Package, Truck, CheckCircle, Wallet, Percent } from 'lucide-react';
 
 interface AnalyticsData {
   totalBookings: number;
@@ -16,6 +16,12 @@ interface AnalyticsData {
   weeklyData: { date: string; bookings: number; revenue: number }[];
   vehicleTypeBreakdown: { type: string; count: number }[];
   recentBookings: any[];
+  // Fintech metrics
+  totalDriverPayout: number;
+  platformCommission: number;
+  totalPendingBalance: number;
+  totalAvailableBalance: number;
+  pendingWithdrawals: number;
 }
 
 export default function AnalyticsDashboard() {
@@ -151,7 +157,43 @@ export default function AnalyticsDashboard() {
         weeklyData,
         vehicleTypeBreakdown,
         recentBookings: recentBookings || [],
+        // Fintech defaults — fetched below
+        totalDriverPayout: 0,
+        platformCommission: 0,
+        totalPendingBalance: 0,
+        totalAvailableBalance: 0,
+        pendingWithdrawals: 0,
       });
+
+      // Fetch fintech metrics
+      try {
+        const { data: wallets } = await supabase
+          .from('driver_wallets')
+          .select('pending_balance, available_balance, total_earned, total_withdrawn');
+        const totalPending = wallets?.reduce((s, w) => s + Number(w.pending_balance || 0), 0) || 0;
+        const totalAvailable = wallets?.reduce((s, w) => s + Number(w.available_balance || 0), 0) || 0;
+        const totalDriverPayout = wallets?.reduce((s, w) => s + Number(w.total_withdrawn || 0), 0) || 0;
+
+        const commissionSetting = await supabase.from('platform_settings').select('value').eq('key', 'commission').single();
+        const commRate = commissionSetting.data?.value?.default_rate || 15;
+        const platformComm = Math.round(totalRevenue * commRate / 100);
+
+        const { count: pendingWithdrawals } = await supabase
+          .from('withdrawals')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['pending', 'approved']);
+
+        setData(prev => prev ? {
+          ...prev,
+          totalDriverPayout: totalDriverPayout,
+          platformCommission: platformComm,
+          totalPendingBalance: totalPending,
+          totalAvailableBalance: totalAvailable,
+          pendingWithdrawals: pendingWithdrawals || 0,
+        } : prev);
+      } catch (fintechErr) {
+        console.warn('Fintech metrics error:', fintechErr);
+      }
     } catch (error) {
       console.error('Error fetching analytics:', error);
     } finally {
@@ -232,6 +274,38 @@ export default function AnalyticsDashboard() {
             value={data.completedTrips.toString()}
             subtitle={`${Math.round((data.completedTrips / (data.totalBookings || 1)) * 100)}% completion rate`}
             icon={<CheckCircle size={24} />}
+            color="emerald"
+          />
+        </div>
+
+        {/* Fintech Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <StatCard
+            title="Platform Commission"
+            value={formatCurrency(data.platformCommission)}
+            subtitle={`From ₹${data.totalRevenue.toLocaleString('en-IN')} GMV`}
+            icon={<Percent size={24} />}
+            color="purple"
+          />
+          <StatCard
+            title="Driver Payouts"
+            value={formatCurrency(data.totalDriverPayout)}
+            subtitle="Total paid to drivers"
+            icon={<Wallet size={24} />}
+            color="green"
+          />
+          <StatCard
+            title="Payout Liability"
+            value={formatCurrency(data.totalPendingBalance + data.totalAvailableBalance)}
+            subtitle={`₹${data.totalPendingBalance.toLocaleString()} pending | ₹${data.totalAvailableBalance.toLocaleString()} available`}
+            icon={<IndianRupee size={24} />}
+            color="orange"
+          />
+          <StatCard
+            title="Pending Withdrawals"
+            value={data.pendingWithdrawals.toString()}
+            subtitle="Awaiting approval"
+            icon={<Package size={24} />}
             color="emerald"
           />
         </div>
