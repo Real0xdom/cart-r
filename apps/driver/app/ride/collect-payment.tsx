@@ -1,7 +1,7 @@
 // Payment Collection Screen
 // Driver acts as Point-Of-Sale: Selects Payer (Sender/Receiver) and Method (Cash/Online)
+// Now supports Dynamic UPI QR code generation via Cashfree
 
-// Removed expo-sms - SMS is now sent automatically by backend
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { getBookingById, updateBookingStatus, subscribeToBooking, Booking } from '@/lib/bookings';
 import { supabase } from '@/lib/supabase';
+import UpiQrView from '@/components/UpiQrView';
 
 // Helper to calculate total with fees (simplified for now)
 const calculateTotal = (booking: Booking) => booking.driver_payout || booking.total_fare;
@@ -31,6 +32,13 @@ const CollectPayment = () => {
     
     // Payment request status
     const [paymentRequested, setPaymentRequested] = useState(false);
+    
+    // UPI QR State
+    const [showQr, setShowQr] = useState(false);
+    const [qrLoading, setQrLoading] = useState(false);
+    const [qrSessionId, setQrSessionId] = useState('');
+    const [qrAmount, setQrAmount] = useState(0);
+    const [qrEnvironment, setQrEnvironment] = useState<'sandbox' | 'production'>('sandbox');
 
     // SMS is now sent automatically by the backend edge function
     // No manual SMS sending needed
@@ -276,6 +284,34 @@ const CollectPayment = () => {
         return true;
     };
 
+    // Generate UPI QR Code via Cashfree
+    const handleShowQR = async () => {
+        if (!booking || qrLoading) return;
+        
+        setQrLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('create-upi-qr', {
+                body: { booking_id: booking.id }
+            });
+            
+            if (error) throw error;
+            if (!data || !data.payment_session_id) {
+                throw new Error(data?.error || 'Failed to generate QR code');
+            }
+            
+            setQrSessionId(data.payment_session_id);
+            setQrAmount(data.amount);
+            setQrEnvironment(data.environment || 'sandbox');
+            setShowQr(true);
+            
+        } catch (err: any) {
+            console.error('QR generation error:', err);
+            Alert.alert('Error', err.message || 'Failed to generate QR code. Try again.');
+        } finally {
+            setQrLoading(false);
+        }
+    };
+
     // Trigger push notification to sender
     const requestOnlinePayment = async () => {
         if (!booking || !booking.customer || isProcessing) return;
@@ -446,16 +482,50 @@ const CollectPayment = () => {
 
                     {/* Method Selection based on Payer */}
                     {payer === 'receiver' ? (
-                        <View>
- 
+                        <View className="gap-4">
                             <Text className="text-gray-500 text-center text-xs">
-                                Confirm once you have received ₹{fare} cash or via your personal UPI QR.
+                                Collect ₹{amountToCollect} cash, or show the UPI QR for the customer to scan.
                             </Text>
+                            
+                            {/* Show QR Button */}
+                            {!showQr ? (
+                                <TouchableOpacity
+                                    onPress={handleShowQR}
+                                    disabled={qrLoading}
+                                    className="w-full p-4 rounded-xl flex-row items-center justify-center bg-blue-500 shadow-sm"
+                                >
+                                    {qrLoading ? (
+                                        <ActivityIndicator size="small" color="#fff" />
+                                    ) : (
+                                        <>
+                                            <Feather name="maximize" size={20} color="#fff" />
+                                            <Text className="ml-2 font-JakartaBold text-white">
+                                                Show UPI QR Code
+                                            </Text>
+                                        </>
+                                    )}
+                                </TouchableOpacity>
+                            ) : (
+                                <View className="items-center">
+                                    {/* UPI QR Display */}
+                                    <UpiQrView
+                                        paymentSessionId={qrSessionId}
+                                        environment={qrEnvironment}
+                                        amount={qrAmount}
+                                    />
+                                    
+                                    {/* Hide QR */}
+                                    <TouchableOpacity
+                                        onPress={() => setShowQr(false)}
+                                        className="mt-3 py-2 px-4"
+                                    >
+                                        <Text className="text-gray-500 text-xs font-JakartaMedium">Hide QR Code</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
                         </View>
                     ) : (
                          <View className="gap-3">
-
-                            
                             <TouchableOpacity
                                 onPress={() => setPaymentMethod('cash')}
                                 className="w-full p-4 rounded-xl flex-row items-center justify-center bg-gray-100 border border-gray-200"

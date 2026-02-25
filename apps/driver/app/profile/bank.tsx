@@ -80,12 +80,32 @@ export default function BankDetails() {
         .update({ bank_details: bankDetails })
         .eq('id', driverProfile?.id);
 
-    setIsLoading(false);
     if (error) {
+        setIsLoading(false);
         Alert.alert(t('error'), error.message);
-    } else {
-        Alert.alert(t('success'), t('bankDetailsSaved'));
-        setIsEditing(false);
+        return;
+    }
+
+    // Call Cashfree Beneficiary Edge Function
+    try {
+        const { data, error: funcError } = await supabase.functions.invoke('create-beneficiary', {
+            body: { driver_id: driverProfile?.id }
+        });
+
+        if (funcError) throw funcError;
+        
+        if (data && data.error) {
+            Alert.alert(t('error') || 'Error', data.error || 'Failed to register bank for payouts');
+        } else {
+            Alert.alert(t('success'), t('bankDetailsSaved'));
+            setIsEditing(false);
+            fetchData(); // Refresh UI
+        }
+    } catch (err: any) {
+        console.error('Error creating beneficiary:', err);
+        Alert.alert(t('error') || 'Error', err.message || 'Failed to register bank for payouts');
+    } finally {
+        setIsLoading(false);
     }
   };
 

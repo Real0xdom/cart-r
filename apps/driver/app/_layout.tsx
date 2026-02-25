@@ -8,6 +8,7 @@ import { LogBox } from "react-native";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { RideNotificationProvider, useRideNotification } from "@/contexts/RideNotificationContext";
 import RideNotification from "@/components/RideNotification";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 
 import { 
   setupNotificationChannels, 
@@ -81,21 +82,22 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <RideNotificationProvider>
-        <Stack>
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="profile" options={{ headerShown: false }} />
-          <Stack.Screen name="ride" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" />
-        </Stack>
-        
-        {/* Global notification overlay */}
-        <GlobalNotifications />
-      </RideNotificationProvider>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <RideNotificationProvider>
+          <Stack>
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+            <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="profile" options={{ headerShown: false }} />
+            <Stack.Screen name="+not-found" />
+          </Stack>
+          
+          {/* Global notification overlay */}
+          <GlobalNotifications />
+        </RideNotificationProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

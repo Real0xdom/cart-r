@@ -113,10 +113,20 @@ serve(async (req) => {
     if (payload.type === 'PAYMENT_SUCCESS' || payload.data.payment.payment_status === 'SUCCESS') {
       const orderId = payload.data.order.order_id
       
-      // Find booking by payment_id
+      // Check if this is a wallet top-up (order starts with WALLET_)
+      if (orderId.startsWith('WALLET_')) {
+        console.log('Wallet top-up payment confirmed via webhook:', orderId)
+        // Wallet top-ups are handled by verify-payment, just acknowledge
+        return new Response(
+          JSON.stringify({ success: true, type: 'wallet_topup' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // Find booking by payment_id (handles both regular online payments and UPI QR payments)
       const { data: booking, error: findError } = await supabase
         .from('bookings')
-        .select('id, customer_id, driver_id')
+        .select('id, customer_id, driver_id, total_fare, payment_status')
         .eq('payment_id', orderId)
         .single()
 
@@ -128,11 +138,22 @@ serve(async (req) => {
         )
       }
 
+      // Skip if already paid (idempotency)
+      if (booking.payment_status === 'paid') {
+        console.log('Booking already paid, skipping:', booking.id)
+        return new Response(
+          JSON.stringify({ success: true, message: 'Already processed' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
       // Update booking payment status
+      // NOTE: This UPDATE triggers on_booking_payment_received which auto-credits the driver wallet
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
           payment_status: 'paid',
+          payment_method: 'online', // UPI is an online payment method
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking.id)
@@ -147,7 +168,6 @@ serve(async (req) => {
 
       // Notify driver about payment received
       if (booking.driver_id) {
-        // Get driver's user_id
         const { data: driver } = await supabase
           .from('drivers')
           .select('user_id')
@@ -162,6 +182,16 @@ serve(async (req) => {
             data: { booking_id: booking.id, type: 'payment_received' },
           })
         }
+      }
+
+      // Notify customer about successful payment  
+      if (booking.customer_id) {
+        await supabase.from('notifications').insert({
+          user_id: booking.customer_id,
+          title: 'Payment Successful ✅',
+          body: `Your payment of ₹${payload.data.payment.payment_amount} has been confirmed.`,
+          data: { booking_id: booking.id, type: 'payment_success' },
+        })
       }
 
       console.log('Payment processed successfully for booking:', booking.id)

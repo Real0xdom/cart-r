@@ -440,7 +440,7 @@ BEGIN
             WHERE id = NEW.driver_id;
         END IF;
         
-        v_is_cash := COALESCE(NEW.payment_method, 'cash') IN ('cash', 'Cash');
+        v_is_cash := COALESCE(NEW.payment_method::text, 'cash') IN ('cash', 'Cash');
         v_fare := COALESCE(NEW.total_fare, 0);
         
         IF NEW.driver_id IS NOT NULL AND v_fare > 0 THEN
