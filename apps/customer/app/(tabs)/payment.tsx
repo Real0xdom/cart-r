@@ -257,11 +257,17 @@ const Payment = () => {
     
     console.log("[PAYMENT] Idempotency Key:", idempotencyKey);
 
+    if (!user?.id) {
+      console.error("[PAYMENT] No user ID found");
+      setLoading(false);
+      return;
+    }
+
     // Check if we already have a pending order with this exact key
     const { data: existingOrder, error: checkError } = await supabase
       .from('wallet_transactions')
       .select('*')
-      .eq('user_id', user?.id)
+      .eq('user_id', user.id)
       .eq('amount', value)
       .eq('status', 'pending')
       .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Last 60 seconds
@@ -497,8 +503,16 @@ const Payment = () => {
         swipeDirection={['down']}
       >
         <View className="bg-white rounded-t-[32px] p-6 h-auto">
-            <View className="items-center mb-6">
+            <View className="flex-row items-center justify-between mb-6">
+                <View className="w-10" /> {/* Spacer */}
                 <View className="w-12 h-1 bg-gray-300 rounded-full" />
+                <TouchableOpacity 
+                    onPress={() => !loading && setModalVisible(false)}
+                    className="w-10 h-10 rounded-full bg-gray-50 items-center justify-center"
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <Feather name="x" size={20} color="#94A3B8" />
+                </TouchableOpacity>
             </View>
 
             {loading ? (
@@ -597,10 +611,24 @@ const Payment = () => {
         onBackdropPress={() => setStatusModalVisible(false)}
         animationIn="fadeInUp"
         animationOut="fadeOutDown"
-        className="m-0 justify-end"
+        style={{ margin: 0, justifyContent: 'flex-end' }}
       >
-        <View className="bg-white rounded-t-[32px] p-8 items-center h-auto min-h-[300px]">
-            <View className={`w-20 h-20 rounded-full items-center justify-center mb-6 ${
+        <View className="bg-white rounded-t-[32px] p-8 items-center" style={{ minHeight: 320 }}>
+            {/* Close / Cross Button */}
+            <TouchableOpacity 
+                onPress={() => setStatusModalVisible(false)}
+                className="absolute right-5 top-5 w-9 h-9 rounded-full bg-gray-100 items-center justify-center"
+                style={{ zIndex: 10 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+                <Feather name="x" size={20} color="#6B7280" />
+            </TouchableOpacity>
+
+            {/* Drag Handle */}
+            <View className="w-12 h-1 bg-gray-300 rounded-full mb-6" />
+
+            {/* Status Icon */}
+            <View className={`w-20 h-20 rounded-full items-center justify-center mb-5 ${
                 statusType === 'success' ? 'bg-green-100' : 'bg-red-100'
             }`}>
                 <Feather 
@@ -610,19 +638,35 @@ const Payment = () => {
                 />
             </View>
             
+            {/* Title */}
             <Text className="text-2xl font-JakartaBold mb-2 text-center text-gray-900">
                 {statusType === 'success' ? 'Payment Successful' : 'Payment Failed'}
             </Text>
             
-            <Text className="text-gray-500 text-center font-JakartaMedium mb-8">
+            {/* Message */}
+            <Text className="text-gray-500 text-center font-JakartaMedium mb-4 px-4">
                 {statusMessage}
             </Text>
 
+            {/* Helpful hint for failure */}
+            {statusType === 'failure' && (
+                <View className="bg-red-50 rounded-xl px-4 py-3 mb-6 w-full flex-row items-center">
+                    <Feather name="info" size={16} color="#EF4444" />
+                    <Text className="text-red-600 text-xs font-JakartaMedium ml-2 flex-1">
+                        No amount was deducted. You can safely retry.
+                    </Text>
+                </View>
+            )}
+
+            {/* Spacer for success */}
+            {statusType === 'success' && <View className="mb-4" />}
+
+            {/* Action Button */}
             <CustomButton 
                 title={statusType === 'success' ? "Done" : "Try Again"}
                 onPress={() => setStatusModalVisible(false)}
-                className={`w-full ${statusType === 'success' ? 'bg-brand-500' : 'bg-gray-200'} mb-4`}
-                textVariant={statusType === 'success' ? 'primary' : 'secondary'}
+                className={`w-full ${statusType === 'success' ? 'bg-brand-500' : 'bg-red-500'} mb-4`}
+                textVariant="primary"
             />
         </View>
       </Modal>
