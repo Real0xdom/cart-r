@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
 import { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { syncDriverStats } from '@/lib/bookings';
 import LanguageModal from '@/components/LanguageModal';
+import { Ionicons } from '@expo/vector-icons';
 
 const DriverProfile = () => {
     const { profile, driverProfile, signOut, refreshProfile } = useAuth();
@@ -48,14 +49,14 @@ const DriverProfile = () => {
     };
 
     const menuItems = [
-        { icon: '🚗', title: t('vehicleDetails'), subtitle: `${driverProfile?.vehicle_model || t('notSet')} • ${driverProfile?.vehicle_number || ''}`, route: '/profile/vehicle' },
-        { icon: '📄', title: t('documents'), subtitle: t('licenseRcInsurance'), route: '/profile/documents' },
-        { icon: '💳', title: t('bankAccount'), subtitle: t('payoutSettings'), route: '/profile/bank' },
-        { icon: '⭐', title: t('ratingsReviews'), subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} ${t('rating')}`, route: '/profile/reviews' },
-        { icon: '🔔', title: t('notifications'), subtitle: t('manageAlerts'), route: '/profile/notifications' },
-        { icon: '❓', title: t('helpSupport'), subtitle: t('getAssistance'), route: '/profile/support' },
-        { icon: '📜', title: t('termsPolicies'), subtitle: t('legalInfo'), route: '/profile/terms' },
-        { icon: '🌐', title: t('language'), subtitle: t('currentLanguage'), route: '_language' },
+        { icon: 'car-outline', title: t('vehicleDetails'), subtitle: `${driverProfile?.vehicle_model || t('notSet')} • ${driverProfile?.vehicle_number || ''}`, route: '/profile/vehicle' },
+        { icon: 'document-text-outline', title: t('documents'), subtitle: t('licenseRcInsurance'), route: '/profile/documents' },
+        { icon: 'card-outline', title: t('bankAccount'), subtitle: t('payoutSettings'), route: '/profile/bank' },
+        { icon: 'star-outline', title: t('ratingsReviews'), subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} ${t('rating')}`, route: '/profile/reviews' },
+        { icon: 'notifications-outline', title: t('notifications'), subtitle: t('manageAlerts'), route: '/profile/notifications' },
+        { icon: 'help-circle-outline', title: t('helpSupport'), subtitle: t('getAssistance'), route: '/profile/support' },
+        { icon: 'shield-checkmark-outline', title: t('termsPolicies'), subtitle: t('legalInfo'), route: '/profile/terms' },
+        { icon: 'globe-outline', title: t('language'), subtitle: t('currentLanguage'), route: '_language' },
     ];
 
     // Verification status badge
@@ -79,11 +80,11 @@ const DriverProfile = () => {
             <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 100 }}>
                 {/* Profile Header */}
                 <View className="items-center py-8 border-b border-gray-200">
-                    <View className="w-24 h-24 bg-gray-200 rounded-full items-center justify-center mb-4">
+                    <View className="w-24 h-24 bg-gray-200 rounded-full items-center justify-center mb-4 overflow-hidden">
                         {profile?.avatar_url ? (
-                            <Text className="text-4xl">👤</Text>
+                            <Image source={{ uri: profile.avatar_url }} className="w-full h-full" resizeMode="cover" />
                         ) : (
-                            <Text className="text-4xl">👤</Text>
+                            <Ionicons name="person" size={48} color="#9ca3af" />
                         )}
                     </View>
                     <Text className="text-gray-900 text-2xl font-JakartaBold">{profile?.name || 'Driver'}</Text>
@@ -141,7 +142,7 @@ const DriverProfile = () => {
                             className="flex-row items-center py-4 border-b border-gray-100"
                         >
                             <View className="w-12 h-12 bg-gray-100 rounded-full items-center justify-center mr-4">
-                                <Text className="text-2xl">{item.icon}</Text>
+                                <Ionicons name={item.icon as any} size={24} color="#6b7280" />
                             </View>
                             <View className="flex-1">
                                 <Text className="text-gray-900 font-JakartaSemiBold">{item.title}</Text>

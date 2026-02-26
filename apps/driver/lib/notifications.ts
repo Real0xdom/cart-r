@@ -3,6 +3,37 @@
 
 import * as Notifications from 'expo-notifications';
 import { Platform, Alert, Linking } from 'react-native';
+import * as TaskManager from 'expo-task-manager';
+import notifee, { AndroidImportance, AndroidVisibility, EventType } from '@notifee/react-native';
+
+const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
+
+TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error('Background task error:', error);
+    return;
+  }
+  if (data) {
+    console.log('Received background push message:', data);
+    const notification = (data as any).notification;
+    const payload = notification?.request?.trigger?.remoteMessage?.data || notification?.data;
+    
+    if (payload?.is_data_only || payload?.type === 'new_booking') {
+      try {
+        // Make sure parse JSON if stringified
+        const parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        await displayFullScreenRideRequest(parsedPayload);
+      } catch (e) {
+        console.error('Failed to display full screen notification:', e);
+      }
+    }
+  }
+});
+
+notifee.onBackgroundEvent(async ({ type, detail }) => {
+  console.log('Notifee Background Event:', type);
+  // Optional: handle background accept button presses here
+});
 
 // Notification channel for ride requests (Android)
 export const RIDE_REQUESTS_CHANNEL = 'ride-requests';
@@ -49,6 +80,55 @@ export async function setupNotificationChannels() {
 
     console.log('✅ Android notification channels configured');
   }
+
+  // Register background task for push notifications (works on iOS & Android)
+  try {
+    await Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK);
+    console.log('✅ Background push task registered');
+  } catch (err) {
+    console.error('❌ Failed to register background push task:', err);
+  }
+}
+
+/**
+ * Display a full screen ride request intent using Notifee
+ */
+export async function displayFullScreenRideRequest(data: any) {
+  if (Platform.OS !== 'android') return; // Full screen intents are Android only
+
+  const channelId = await notifee.createChannel({
+    id: 'ride_requests_fullscreen',
+    name: 'Ride Requests (Full Screen)',
+    importance: AndroidImportance.HIGH,
+    vibration: true,
+    vibrationPattern: [300, 500, 300, 500],
+    bypassDnd: true,
+  });
+
+  await notifee.displayNotification({
+    title: '🚨 New Ride Request!',
+    body: `Tap to accept and view details`,
+    data: data,
+    android: {
+      channelId,
+      importance: AndroidImportance.HIGH,
+      visibility: AndroidVisibility.PUBLIC,
+      category: 'call', // Tricks Android into allowing full screen more reliably
+      fullScreenAction: {
+        id: 'default',
+      },
+      pressAction: {
+        id: 'default',
+        launchActivity: 'default',
+      },
+      actions: [
+        {
+          title: 'Accept Ride',
+          pressAction: { id: 'accept_ride', launchActivity: 'default' },
+        },
+      ],
+    },
+  });
 }
 
 /**

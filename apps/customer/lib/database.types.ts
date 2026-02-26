@@ -1106,6 +1106,7 @@ export type Database = {
           is_active: boolean | null
           name: string
           phone: string | null
+          referral_code: string
           role: Database["public"]["Enums"]["user_role"] | null
           updated_at: string | null
         }
@@ -1119,6 +1120,7 @@ export type Database = {
           is_active?: boolean | null
           name: string
           phone?: string | null
+          referral_code?: string
           role?: Database["public"]["Enums"]["user_role"] | null
           updated_at?: string | null
         }
@@ -1132,6 +1134,7 @@ export type Database = {
           is_active?: boolean | null
           name?: string
           phone?: string | null
+          referral_code?: string
           role?: Database["public"]["Enums"]["user_role"] | null
           updated_at?: string | null
         }

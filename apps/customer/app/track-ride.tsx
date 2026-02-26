@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  Animated,
+  Image
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
@@ -23,6 +25,8 @@ import { WaitingTimer } from "@/components/WaitingTimer";
 import type { Booking } from "@/types/type";
 import { saveRoute, saveAddress } from "@/lib/savedPlaces";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAnimatedLocation } from "@/lib/mapAnimation";
+import { icons, images } from "@/constants";
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -43,6 +47,28 @@ const TrackRidePage = () => {
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+
+  const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
 
   const handleSaveRoute = async () => {
     if (!booking) return;
@@ -192,7 +218,7 @@ const TrackRidePage = () => {
         driverLocation,
         { latitude: targetLat, longitude: targetLng }
       ], {
-        edgePadding: { top: 80, right: 50, bottom: 400, left: 50 },
+        edgePadding: { top: 120, right: 60, bottom: 420, left: 60 },
         animated: true
       });
     }
@@ -287,32 +313,27 @@ const TrackRidePage = () => {
           >
             {/* Driver marker */}
             {driverLocation ? (
-              <Marker
-                coordinate={driverLocation}
+              <Marker.Animated
+                coordinate={animatedCoordinate as any}
                 anchor={{ x: 0.5, y: 0.5 }}
                 title="Driver"
                 description="En route"
                 tracksViewChanges={false}
+                rotation={heading}
+                flat={true}
               >
-                <View style={{ 
-                  backgroundColor: '#FF9800', 
-                  padding: 10, 
-                  borderRadius: 25, 
-                  borderWidth: 3, 
-                  borderColor: 'white',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 3.84,
-                  elevation: 5
+                <Animated.View style={{ 
+                  transform: [{ scale: pulseAnim }],
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}>
-                  <MaterialIcons name="local-shipping" size={24} color="white" />
-                </View>
-              </Marker>
-            ) : (
-              console.log('[TRACK-RIDE] Driver location is null, marker not rendered'),
-              null
-            )}
+                  <Image 
+                    source={images.truckTransparent}
+                    style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }} // Adjust rotation if the asset doesn't face up
+                  />
+                </Animated.View>
+              </Marker.Animated>
+            ) : null}
 
             {/* Pickup marker */}
             <Marker
@@ -321,8 +342,10 @@ const TrackRidePage = () => {
                 longitude: booking.origin_longitude,
               }}
               title="Pickup"
-              pinColor={isInProgress ? "gray" : "green"}
-            />
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+               <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
+            </Marker>
 
             {/* Dropoff marker */}
             <Marker
@@ -331,8 +354,10 @@ const TrackRidePage = () => {
                 longitude: booking.destination_longitude,
               }}
               title="Drop-off"
-              pinColor="red"
-            />
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+               <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
+            </Marker>
 
             {/* Route line from driver to current target */}
             {driverLocation && (

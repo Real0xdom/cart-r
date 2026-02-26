@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndicator } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -203,7 +203,7 @@ const DriverHome = () => {
                                     {/* Customer Info */}
                                     <View className="flex-row items-center mb-3">
                                         <View className="w-10 h-10 bg-gray-200 rounded-full items-center justify-center mr-3">
-                                            <Text className="text-lg">👤</Text>
+                                            <Ionicons name="person" size={20} color="#9ca3af" />
                                         </View>
                                         <View className="flex-1">
                                             <Text className="text-gray-900 font-JakartaSemiBold">
@@ -300,7 +300,7 @@ const DriverHome = () => {
                         className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
                         <View className="w-12 h-12 bg-blue-100 rounded-full items-center justify-center mr-4">
-                            <Text className="text-2xl">📋</Text>
+                            <Ionicons name="list" size={24} color="#3b82f6" />
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-JakartaSemiBold">{t('viewRequests')}</Text>
@@ -313,7 +313,7 @@ const DriverHome = () => {
                         className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
                         <View className="w-12 h-12 bg-green-100 rounded-full items-center justify-center mr-4">
-                            <Text className="text-2xl">💰</Text>
+                            <Ionicons name="wallet" size={24} color="#22c55e" />
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-JakartaSemiBold">{t('earnings')}</Text>
@@ -328,7 +328,7 @@ const DriverHome = () => {
                         className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
                         <View className="w-12 h-12 bg-orange-100 rounded-full items-center justify-center mr-4">
-                            <Text className="text-2xl">📞</Text>
+                            <Ionicons name="call" size={24} color="#f97316" />
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-JakartaSemiBold">{t('helpSupport')}</Text>

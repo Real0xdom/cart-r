@@ -204,11 +204,11 @@ const Home = () => {
         contentContainerStyle={{ paddingBottom: 120 }}
       >
         {/* Horizontal Banner (Replaces Header) */}
-        <View className="w-full h-48 items-center justify-center overflow-hidden">
+        <View className="w-full items-center justify-center overflow-hidden bg-brand-50" style={{ height: SCREEN_WIDTH * 0.45 }}>
           <Image 
             source={images.homeBanner}
             className="w-full h-full"
-            resizeMode="cover"
+            resizeMode="contain"
           />
         </View>
 

@@ -9,8 +9,8 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 interface ExpoPushMessage {
   to: string
-  title: string
-  body: string
+  title?: string
+  body?: string
   data?: Record<string, any>
   sound?: string
   priority?: string
@@ -77,13 +77,17 @@ serve(async (req) => {
 
       const msg: ExpoPushMessage = {
         to: pushToken,
-        title: notification.title,
-        body: notification.body,
         data: notification.data || {},
         sound: 'default',
         priority: 'high',
-        channelId: 'default',
+        channelId: 'ride-requests', // Ensures Android plays sound and wakes up for Notifee
         ttl: 0,
+      }
+
+      // If it's a data-only notification, omit title and body so the OS doesn't show a headsup automatically
+      if (!notification.data?.is_data_only) {
+        msg.title = notification.title
+        msg.body = notification.body
       }
 
       const group = messagesByExperience.get(expId) || []

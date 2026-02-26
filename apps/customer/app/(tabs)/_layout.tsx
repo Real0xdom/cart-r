@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { Image, ImageSourcePropType, View } from "react-native";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { icons } from "@/constants";
+import { Ionicons } from "@expo/vector-icons";
 
 const TabIcon = ({
     source,
@@ -21,6 +22,28 @@ const TabIcon = ({
                 tintColor="white"
                 resizeMode="contain"
                 className="w-7 h-7"
+            />
+        </View>
+    </View>
+);
+
+const TabIonicons = ({
+    name,
+    focused,
+}: {
+    name: keyof typeof Ionicons.glyphMap;
+    focused: boolean;
+}) => (
+    <View
+        className={`flex flex-row justify-center items-center rounded-full ${focused ? "bg-general-300" : ""}`}
+    >
+        <View
+            className={`rounded-full w-12 h-12 items-center justify-center ${focused ? "bg-primary-500" : ""}`}
+        >
+            <Ionicons
+                name={name}
+                size={24}
+                color="white"
             />
         </View>
     </View>
@@ -77,7 +100,7 @@ const Layout = () => {
                     title: t("payment"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
-                        <TabIcon source={icons.dollar} focused={focused} />
+                        <TabIonicons name="wallet" focused={focused} />
                     ),
                 }}
             />
@@ -87,7 +110,7 @@ const Layout = () => {
                     title: t("profile"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
-                        <TabIcon source={icons.profile} focused={focused} />
+                        <TabIonicons name="person" focused={focused} />
                     ),
                 }}
             />

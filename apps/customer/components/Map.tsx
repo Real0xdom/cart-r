@@ -18,12 +18,12 @@ const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 // Check if running in Expo Go
 const isExpoGo = Constants.appOwnership === 'expo';
 
-// Default region (centered on India as fallback)
+// Default region (Pune, India - zoomed in)
 const DEFAULT_REGION: Region = {
-  latitude: 20.5937,
-  longitude: 78.9629,
-  latitudeDelta: 10,
-  longitudeDelta: 10,
+  latitude: 18.5204,
+  longitude: 73.8567,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
 };
 
 interface MapProps {
@@ -131,8 +131,12 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
         destinationLongitude,
       });
     }
-    return DEFAULT_REGION;
-  }, [userLatitude, userLongitude, destinationLatitude, destinationLongitude]);
+    return {
+      ...DEFAULT_REGION,
+      // If we have a temporary marker, stay focused on it
+      ...(tempMarker ? { latitude: tempMarker.latitude, longitude: tempMarker.longitude } : {})
+    };
+  }, [userLatitude, userLongitude, destinationLatitude, destinationLongitude, tempMarker]);
 
   // Reverse geocode helper
   const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {

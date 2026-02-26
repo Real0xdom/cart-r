@@ -1,8 +1,10 @@
 // Live Driver Tracking Component for Customer App
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, TouchableOpacity, Linking, Platform } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { View, Text, StyleSheet, Animated, TouchableOpacity, Linking, Platform, Image } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, AnimatedRegion } from 'react-native-maps';
+import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { subscribeToDriverLocation, getDriverCurrentLocation, estimateETA } from '@/lib/tracking';
+import { icons, images } from '@/constants';
 
 interface DriverInfo {
   id: string;
@@ -37,6 +39,7 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
   const [driverLocation, setDriverLocation] = useState<Location | null>(null);
   const [eta, setEta] = useState<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
 
   // Subscribe to driver location updates
   useEffect(() => {
@@ -160,26 +163,25 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
         customMapStyle={mapStyle}
       >
         {/* Pickup Marker */}
-        <Marker coordinate={pickupLocation} anchor={{ x: 0.5, y: 1 }}>
-          <View style={styles.pickupMarker}>
-            <Text style={styles.markerEmoji}>📍</Text>
-          </View>
+        <Marker coordinate={pickupLocation} anchor={{ x: 0.5, y: 0.5 }}>
+          <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
         </Marker>
 
         {/* Drop Marker */}
-        <Marker coordinate={dropLocation} anchor={{ x: 0.5, y: 1 }}>
-          <View style={styles.dropMarker}>
-            <Text style={styles.markerEmoji}>🏁</Text>
-          </View>
+        <Marker coordinate={dropLocation} anchor={{ x: 0.5, y: 0.5 }}>
+          <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
         </Marker>
 
         {/* Driver Marker */}
         {driverLocation && (
-          <Marker coordinate={driverLocation} anchor={{ x: 0.5, y: 0.5 }}>
-            <Animated.View style={[styles.driverMarker, { transform: [{ scale: pulseAnim }] }]}>
-              <Text style={styles.driverEmoji}>🚗</Text>
+          <Marker.Animated coordinate={animatedCoordinate as any} anchor={{ x: 0.5, y: 0.5 }} rotation={heading} flat={true}>
+            <Animated.View style={[{ transform: [{ scale: pulseAnim }], alignItems: 'center', justifyContent: 'center' }]}>
+              <Image 
+                source={images.truckTransparent}
+                style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }}
+              />
             </Animated.View>
-          </Marker>
+          </Marker.Animated>
         )}
 
         {/* Route Line */}

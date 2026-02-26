@@ -7,9 +7,11 @@ import { router } from "expo-router";
 import * as Linking from "expo-linking";
 import { icons } from "@/constants";
 import LanguageModal from "@/components/LanguageModal";
+import { Ionicons } from "@expo/vector-icons";
 
 interface ProfileItemProps {
-    icon: ImageSourcePropType;
+    icon?: ImageSourcePropType;
+    ionicon?: keyof typeof Ionicons.glyphMap;
     title: string;
     onPress: () => void;
 }
@@ -26,20 +28,24 @@ const GridItem = ({ icon, title, onPress }: GridItemProps) => (
     className="flex-1 items-center justify-center p-4 bg-gray-50 rounded-xl border border-gray-100 mx-1"
   >
     <View className="w-10 h-10 rounded-full bg-white items-center justify-center border border-gray-100 shadow-sm mb-2">
-      <Image source={icon} resizeMode="contain" className="w-5 h-5" />
+      <Image source={icon} resizeMode="contain" className="w-5 h-5" tintColor="#4b5563" />
     </View>
     <Text className="text-sm font-JakartaMedium text-gray-700 text-center">{title}</Text>
   </TouchableOpacity>
 );
 
-const ProfileItem = ({ icon, title, onPress }: ProfileItemProps) => (
+const ProfileItem = ({ icon, ionicon, title, onPress }: ProfileItemProps) => (
   <TouchableOpacity
     onPress={onPress}
     className="flex flex-row items-center justify-between w-full py-3 border-b border-gray-100"
   >
     <View className="flex flex-row items-center gap-3">
       <View className="w-8 h-8 rounded-full bg-gray-50 items-center justify-center">
-        <Image source={icon} resizeMode="contain" className="w-4 h-4" />
+        {ionicon ? (
+            <Ionicons name={ionicon} size={16} color="#4b5563" />
+        ) : icon ? (
+            <Image source={icon} resizeMode="contain" className="w-4 h-4" tintColor="#4b5563" />
+        ) : null}
       </View>
       <Text className="text-base font-JakartaMedium text-gray-800">{title}</Text>
     </View>
@@ -105,12 +111,16 @@ const Profile = () => {
         onPress={() => router.push("/profile-details")}
         className="flex flex-row items-center bg-green-50 p-4 rounded-xl border border-green-100 mb-4"
       >
-        <Image
-          source={{
-            uri: profile?.avatar_url || "https://ui-avatars.com/api/?name=" + (profile?.name || "User"),
-          }}
-          className="rounded-full h-14 w-14 border-2 border-white"
-        />
+        {profile?.avatar_url ? (
+          <Image
+            source={{ uri: profile.avatar_url }}
+            className="rounded-full h-14 w-14 border-2 border-white"
+          />
+        ) : (
+          <View className="rounded-full h-14 w-14 border-2 border-white bg-green-100 items-center justify-center">
+            <Ionicons name="person" size={28} color="#22c55e" />
+          </View>
+        )}
         <View className="ml-4 flex-1">
           <Text className="text-lg font-JakartaBold text-gray-900">{profile?.name || t("user")}</Text>
           <Text className="text-sm text-gray-500 font-Jakarta">{profile?.email || "email@example.com"}</Text>
@@ -142,7 +152,7 @@ const Profile = () => {
           onPress={handleReferFriends} 
         />
         <ProfileItem 
-          icon={icons.list} 
+          ionicon="globe-outline" 
           title={t("language")} 
           onPress={() => setLanguageModalVisible(true)} 
         />

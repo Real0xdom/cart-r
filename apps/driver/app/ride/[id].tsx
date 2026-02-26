@@ -1,14 +1,16 @@
 // Active Ride Screen
 // Driver's view during an active shipment - connected to Supabase
 
-import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Polyline, AnimatedRegion } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
+import { useAnimatedLocation } from '@/lib/mapAnimation';
+import { icons, images } from '@/constants';
 
 const ActiveRide = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -18,6 +20,8 @@ const ActiveRide = () => {
     const [driverLocation, setDriverLocation] = useState<{latitude: number, longitude: number} | null>(null);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
+
+    const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
 
     // Get driver's current location with AppState management
     useEffect(() => {
@@ -170,7 +174,7 @@ const ActiveRide = () => {
                 { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
                 { latitude: targetLat, longitude: targetLng }
             ], {
-                edgePadding: { top: 80, right: 50, bottom: 250, left: 50 },
+                edgePadding: { top: 100, right: 60, bottom: 350, left: 60 },
                 animated: true
             });
         }
@@ -299,15 +303,17 @@ const ActiveRide = () => {
                         showsMyLocationButton={false}
                     >
                         {/* Driver marker */}
-                        <Marker
-                            coordinate={driverLocation}
+                        <Marker.Animated
+                            coordinate={animatedCoordinate as any}
                             title="You"
                             anchor={{ x: 0.5, y: 0.5 }}
+                            rotation={heading}
+                            flat={true}
                         >
-                            <View className="bg-blue-500 p-2 rounded-full border-2 border-white">
-                                <Text className="text-lg">🚗</Text>
-                            </View>
-                        </Marker>
+                            <Animated.View className="items-center justify-center">
+                                <Image source={images.truckTransparent} style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }} />
+                            </Animated.View>
+                        </Marker.Animated>
 
                         {/* Pickup marker */}
                         <Marker
@@ -316,8 +322,10 @@ const ActiveRide = () => {
                                 longitude: booking.origin_longitude,
                             }}
                             title="Pickup"
-                            pinColor={isInProgress ? "gray" : "green"}
-                        />
+                            anchor={{ x: 0.5, y: 0.5 }}
+                        >
+                            <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
+                        </Marker>
 
                         {/* Dropoff marker */}
                         <Marker
@@ -326,8 +334,10 @@ const ActiveRide = () => {
                                 longitude: booking.destination_longitude,
                             }}
                             title="Drop-off"
-                            pinColor={isInProgress ? "red" : "blue"}
-                        />
+                            anchor={{ x: 0.5, y: 0.5 }}
+                        >
+                            <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
+                        </Marker>
 
                         {/* Route line from driver to target */}
                         <Polyline

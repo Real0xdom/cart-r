@@ -37,10 +37,10 @@ export const calculateRegion = ({
 }) => {
   if (!userLatitude || !userLongitude) {
     return {
-      latitude: 37.78825,
-      longitude: -122.4324,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
+      latitude: 18.5204, // Pune
+      longitude: 73.8567,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
     };
   }
 

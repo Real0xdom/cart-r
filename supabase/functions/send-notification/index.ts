@@ -13,15 +13,15 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
 interface NotificationRequest {
   user_id: string
-  title: string
-  body: string
+  title?: string
+  body?: string
   data?: Record<string, any>
 }
 
 interface ExpoPushMessage {
   to: string
-  title: string
-  body: string
+  title?: string
+  body?: string
   data?: Record<string, any>
   sound?: 'default' | null
   badge?: number
@@ -42,9 +42,9 @@ serve(async (req) => {
 
     const { user_id, title, body, data }: NotificationRequest = await req.json()
 
-    if (!user_id || !title || !body) {
+    if (!user_id) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: user_id, title, body' }),
+        JSON.stringify({ error: 'Missing required field: user_id' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -97,13 +97,22 @@ serve(async (req) => {
     // Prepare Expo push message with high priority for overlay notifications
     const message: ExpoPushMessage = {
       to: user.expo_push_token,
-      title,
-      body,
       data: data || {},
       sound: 'default',
       priority: 'high',
       channelId: 'ride-requests', // Android notification channel for high-priority
       _displayInForeground: true, // Show even when app is in foreground
+    }
+
+    if (!data?.is_data_only) {
+      if (!title || !body) {
+         return new Response(
+           JSON.stringify({ error: 'Missing required fields: title, body' }),
+           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+         )
+      }
+      message.title = title
+      message.body = body
     }
 
     // Send to Expo Push API

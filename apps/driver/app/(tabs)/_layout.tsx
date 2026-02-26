@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import { Image, ImageSourcePropType, View } from "react-native";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { icons } from "@/constants";
+import { Ionicons } from "@expo/vector-icons";
 
 const TabIcon = ({
     source,
@@ -21,6 +22,28 @@ const TabIcon = ({
                 tintColor={focused ? "white" : "#6b7280"}
                 resizeMode="contain"
                 className="w-7 h-7"
+            />
+        </View>
+    </View>
+);
+
+const TabIonicons = ({
+    name,
+    focused,
+}: {
+    name: keyof typeof Ionicons.glyphMap;
+    focused: boolean;
+}) => (
+    <View
+        className={`flex flex-row justify-center items-center rounded-full ${focused ? "bg-green-100" : ""}`}
+    >
+        <View
+            className={`rounded-full w-12 h-12 items-center justify-center ${focused ? "bg-green-500" : ""}`}
+        >
+            <Ionicons
+                name={name}
+                size={24}
+                color={focused ? "white" : "#6b7280"}
             />
         </View>
     </View>
@@ -77,7 +100,7 @@ const DriverTabsLayout = () => {
                     title: t("earnings"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
-                        <TabIcon source={icons.dollar} focused={focused} />
+                        <TabIonicons name="wallet" focused={focused} />
                     ),
                 }}
             />
@@ -87,7 +110,7 @@ const DriverTabsLayout = () => {
                     title: t("profile"),
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
-                        <TabIcon source={icons.profile} focused={focused} />
+                        <TabIonicons name="person" focused={focused} />
                     ),
                 }}
             />
