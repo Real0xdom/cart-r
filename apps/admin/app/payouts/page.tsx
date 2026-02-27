@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
 import { Wallet, CheckCircle, XCircle, Clock, RefreshCw, Search, Filter, ArrowUpRight, AlertCircle, Banknote } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -58,34 +57,29 @@ export default function PayoutsPage() {
   async function fetchWithdrawals() {
     setLoading(true);
     try {
-      let query = supabase
-        .from('withdrawals')
-        .select('*, driver:drivers(id, bank_details, beneficiary_id, beneficiary_status, user:users!drivers_user_id_fkey(name, phone, email))')
-        .order('created_at', { ascending: false });
-
-      if (filter !== 'all') {
-        query = query.eq('status', filter);
+      const response = await fetch(`/api/withdrawals?status=${filter}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch withdrawals');
       }
-
-      const { data, error } = await query;
-      if (error) throw error;
 
       setWithdrawals(data || []);
 
       // Calculate stats
       const all = data || [];
-      const pending = all.filter(w => w.status === 'pending');
-      const approved = all.filter(w => w.status === 'approved');
-      const paid = all.filter(w => w.status === 'paid');
+      const pending = all.filter((w: Withdrawal) => w.status === 'pending');
+      const approved = all.filter((w: Withdrawal) => w.status === 'approved');
+      const paid = all.filter((w: Withdrawal) => w.status === 'paid');
       
       setStats({
         pendingCount: pending.length,
-        pendingAmount: pending.reduce((s, w) => s + Number(w.amount), 0),
+        pendingAmount: pending.reduce((s: number, w: Withdrawal) => s + Number(w.amount), 0),
         approvedCount: approved.length,
-        approvedAmount: approved.reduce((s, w) => s + Number(w.amount), 0),
+        approvedAmount: approved.reduce((s: number, w: Withdrawal) => s + Number(w.amount), 0),
         paidCount: paid.length,
-        paidAmount: paid.reduce((s, w) => s + Number(w.amount), 0),
-        totalLiability: pending.reduce((s, w) => s + Number(w.amount), 0) + approved.reduce((s, w) => s + Number(w.amount), 0),
+        paidAmount: paid.reduce((s: number, w: Withdrawal) => s + Number(w.amount), 0),
+        totalLiability: pending.reduce((s: number, w: Withdrawal) => s + Number(w.amount), 0) + approved.reduce((s: number, w: Withdrawal) => s + Number(w.amount), 0),
       });
     } catch (error: any) {
       toast.error('Failed to load withdrawals: ' + error.message);
@@ -97,11 +91,16 @@ export default function PayoutsPage() {
   async function handleApprove(withdrawalId: string) {
     setActionLoading(withdrawalId);
     try {
-      const { data, error } = await supabase.rpc('approve_withdrawal', {
-        p_withdrawal_id: withdrawalId,
+      const response = await fetch('/api/withdrawals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', withdrawalId }),
       });
-      if (error) throw error;
-      if (data && !data.success) throw new Error(data.error);
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to approve withdrawal');
+      }
 
       toast.success('Withdrawal approved!');
 
@@ -109,7 +108,7 @@ export default function PayoutsPage() {
       try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-        const response = await fetch(`${supabaseUrl}/functions/v1/process-withdrawal`, {
+        const fnResponse = await fetch(`${supabaseUrl}/functions/v1/process-withdrawal`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -117,7 +116,7 @@ export default function PayoutsPage() {
           },
           body: JSON.stringify({ withdrawal_id: withdrawalId }),
         });
-        const result = await response.json();
+        const result = await fnResponse.json();
         if (result.success) {
           toast.success(result.mode === 'automatic' ? 'Bank transfer initiated!' : 'Marked for manual processing');
         }
@@ -140,12 +139,16 @@ export default function PayoutsPage() {
     }
     setActionLoading(withdrawalId);
     try {
-      const { data, error } = await supabase.rpc('reject_withdrawal', {
-        p_withdrawal_id: withdrawalId,
-        p_reason: rejectReason,
+      const response = await fetch('/api/withdrawals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', withdrawalId, reason: rejectReason }),
       });
-      if (error) throw error;
-      if (data && !data.success) throw new Error(data.error);
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to reject withdrawal');
+      }
 
       toast.success('Withdrawal rejected and balance refunded');
       setShowRejectModal(null);
@@ -161,11 +164,16 @@ export default function PayoutsPage() {
   async function handleMarkPaid(withdrawalId: string) {
     setActionLoading(withdrawalId);
     try {
-      const { error } = await supabase
-        .from('withdrawals')
-        .update({ status: 'paid', processed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', withdrawalId);
-      if (error) throw error;
+      const response = await fetch('/api/withdrawals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark_paid', withdrawalId }),
+      });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to mark withdrawal as paid');
+      }
 
       toast.success('Marked as paid');
       fetchWithdrawals();

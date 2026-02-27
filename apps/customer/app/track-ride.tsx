@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
+import MapViewDirections from "react-native-maps-directions";
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
@@ -57,12 +58,12 @@ const TrackRidePage = () => {
         Animated.timing(pulseAnim, {
           toValue: 1.15,
           duration: 1000,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(pulseAnim, {
           toValue: 1,
           duration: 1000,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ])
     );
@@ -360,18 +361,16 @@ const TrackRidePage = () => {
             </Marker>
 
             {/* Route line from driver to current target */}
-            {driverLocation && (
-              <Polyline
-                coordinates={[
-                  driverLocation,
-                  {
-                    latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
-                    longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude
-                  }
-                ]}
+            {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && (
+              <MapViewDirections
+                origin={driverLocation}
+                destination={{
+                  latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
+                  longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude
+                }}
+                apikey={process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY}
                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
                 strokeWidth={4}
-                lineDashPattern={[10, 5]}
               />
             )}
           </MapView>

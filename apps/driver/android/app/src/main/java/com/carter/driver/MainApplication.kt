@@ -12,6 +12,7 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.soloader.SoLoader
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ReactNativeHostWrapper
@@ -41,7 +42,16 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    FirebaseApp.initializeApp(this)
+    if (FirebaseApp.getApps(this).isEmpty()) {
+        val options = FirebaseOptions.Builder()
+            .setApplicationId("1:670180559382:android:d9e8b0c1f2a3b4c5d6e7")
+            .setProjectId("cartr-78dd3")
+            .setApiKey("AIzaSyAf3e_rktLO-Cca6O38xYnotj5iOx03zM0")
+            .setStorageBucket("cartr-78dd3.firebasestorage.app")
+            .setGcmSenderId("670180559382")
+            .build()
+        FirebaseApp.initializeApp(this, options)
+    }
     SoLoader.init(this, false)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.

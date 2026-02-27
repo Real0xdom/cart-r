@@ -1,10 +1,13 @@
 // Live Driver Tracking Component for Customer App
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, TouchableOpacity, Linking, Platform, Image } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, AnimatedRegion } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, AnimatedRegion } from 'react-native-maps';
+import MapViewDirections from "react-native-maps-directions";
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { subscribeToDriverLocation, getDriverCurrentLocation, estimateETA } from '@/lib/tracking';
 import { icons, images } from '@/constants';
+
+const directionsAPI = process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY;
 
 interface DriverInfo {
   id: string;
@@ -71,12 +74,12 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
         Animated.timing(pulseAnim, {
           toValue: 1.3,
           duration: 1000,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(pulseAnim, {
           toValue: 1,
           duration: 1000,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ])
     );
@@ -185,15 +188,13 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
         )}
 
         {/* Route Line */}
-        {driverLocation && (
-          <Polyline
-            coordinates={[
-              driverLocation,
-              bookingStatus === 'in_progress' ? dropLocation : pickupLocation,
-            ]}
+        {driverLocation && directionsAPI && (
+          <MapViewDirections
+            origin={driverLocation}
+            destination={bookingStatus === 'in_progress' ? dropLocation : pickupLocation}
+            apikey={directionsAPI}
             strokeColor="#22c55e"
             strokeWidth={4}
-            lineDashPattern={[10, 5]}
           />
         )}
       </MapView>

@@ -12,8 +12,8 @@ export function useAnimatedLocation(coordinate: Coordinate | null) {
     new AnimatedRegion({
       latitude: coordinate?.latitude || 0,
       longitude: coordinate?.longitude || 0,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
     })
   ).current;
 
@@ -29,6 +29,8 @@ export function useAnimatedLocation(coordinate: Coordinate | null) {
         animatedCoordinate.setValue({
           latitude: coordinate.latitude,
           longitude: coordinate.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
         });
       } catch (e) {
         console.log('Error setting initial animated region value', e);
@@ -47,6 +49,8 @@ export function useAnimatedLocation(coordinate: Coordinate | null) {
       const newCoord = {
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
       };
 
       try {

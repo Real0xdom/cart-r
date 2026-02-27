@@ -1,13 +1,15 @@
 // Ride Notification Context
 // Global state for showing ride request notifications on any screen
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { acceptBooking, declineBooking, subscribeToAvailableBookings, getBookingById, Booking } from '@/lib/bookings';
-import { RIDE_REQUESTS_CHANNEL } from '@/lib/notifications';
+import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import notifee, { EventType } from '@notifee/react-native';
+import * as SecureStore from 'expo-secure-store';
 
 // Configure notifications to show in foreground
 Notifications.setNotificationHandler({
@@ -19,11 +21,11 @@ Notifications.setNotificationHandler({
 });
 
 interface RideNotificationContextType {
-  currentNotification: Booking | null;
+  currentNotification: null;
   showNotification: (booking: Booking) => void;
   hideNotification: () => void;
-  acceptRide: () => Promise<void>;
-  declineRide: () => Promise<void>;
+  acceptRide: (bookingId: string) => Promise<void>;
+  declineRide: (bookingId: string) => Promise<void>;
 }
 
 const RideNotificationContext = createContext<RideNotificationContextType | undefined>(undefined);
@@ -31,6 +33,7 @@ const RideNotificationContext = createContext<RideNotificationContextType | unde
 export function RideNotificationProvider({ children }: { children: ReactNode }) {
   const { driverProfile } = useAuth();
   const [currentNotification, setCurrentNotification] = useState<Booking | null>(null);
+  const hasHandledInitial = useRef(false);
 
   // Subscribe to new ride requests
   useEffect(() => {
@@ -47,20 +50,14 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         // Fetch full booking so we have addons and correct total for display
         const { data: fullBooking } = await getBookingById(newBooking.id);
         const bookingToShow = fullBooking || newBooking;
-        showNotification(bookingToShow);
-
-        // Also send local notification (total_fare includes addons from DB trigger)
-        const fare = bookingToShow.driver_payout ?? bookingToShow.total_fare;
-        Notifications.scheduleNotificationAsync({
-          content: {
-            title: '🚖 New Ride Request!',
-            body: `₹${fare} • ${bookingToShow.origin_address.substring(0, 50)}...`,
-            data: { bookingId: bookingToShow.id },
-            sound: true,
-            channelId: RIDE_REQUESTS_CHANNEL,
-          },
-          trigger: null,
-        });
+        // Display full screen ride request via Notifee
+        try {
+          // Prepare the payload (add bookingId for background actions)
+          const payload = { ...bookingToShow, type: 'new_booking' };
+          await displayFullScreenRideRequest(payload);
+        } catch (e) {
+          console.error('[NOTIFICATION CONTEXT] Failed to show Notifee intent', e);
+        }
       },
       (removedBookingId: string) => {
         console.log('[NOTIFICATION CONTEXT] Booking removed:', removedBookingId);
@@ -68,6 +65,9 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         if (currentNotification?.id === removedBookingId) {
           setCurrentNotification(null);
         }
+        
+        // Also cancel it from Notifee explicitly if it was on screen
+        notifee.cancelNotification(removedBookingId).catch(() => {});
       }
     );
 
@@ -112,6 +112,100 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     };
   }, [currentNotification]);
 
+  // Listen for Notifee actionable notification presses
+  useEffect(() => {
+    const unsubscribe = notifee.onForegroundEvent(async ({ type, detail }) => {
+      const { notification, pressAction } = detail;
+
+      if (type === EventType.ACTION_PRESS && pressAction?.id) {
+        console.log('[NOTIFICATION CONTEXT] Notifee action pressed:', pressAction.id);
+        const bookingId = notification?.data?.id;
+
+        if (bookingId && typeof bookingId === 'string') {
+          if (pressAction.id === 'accept_ride') {
+             // First let's check if it's already accepted by this driver (via background task)
+             const { data: booking } = await getBookingById(bookingId);
+             if (booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+                console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
+                router.push(`/ride/${bookingId}`);
+             } else {
+                await acceptRide(bookingId);
+             }
+          } else if (pressAction.id === 'decline_ride') {
+            await declineRide(bookingId);
+          }
+        }
+        
+        // Remove the notification after taking action
+        if (notification?.id) {
+          await notifee.cancelNotification(notification.id);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [driverProfile?.id]);
+
+  // Check for background accepted ride routes that bypassed Notifee launch intents
+  useEffect(() => {
+    async function checkPendingRoutes() {
+      if (!driverProfile?.id) return;
+      
+      try {
+        const pendingBookingId = await SecureStore.getItemAsync('pending_route_booking_id');
+        if (pendingBookingId) {
+          console.log('[NOTIFICATION CONTEXT] Found pending route booking from background:', pendingBookingId);
+          await SecureStore.deleteItemAsync('pending_route_booking_id');
+          router.push(`/ride/${pendingBookingId}`);
+        }
+      } catch (e) {
+        console.error('Error checking pending routes', e);
+      }
+    }
+    checkPendingRoutes();
+  }, [driverProfile?.id]);
+
+  // Handle killed state launch from Notifee actionable notification
+  useEffect(() => {
+    async function checkInitialNotification() {
+      if (!driverProfile?.id || hasHandledInitial.current) return;
+
+      const initialNotification = await notifee.getInitialNotification();
+
+      if (initialNotification) {
+        const { notification, pressAction } = initialNotification;
+        if (pressAction?.id) {
+          console.log('[NOTIFICATION CONTEXT] App opened from Notifee action (Initial):', pressAction.id);
+          const bookingId = notification?.data?.id;
+
+          if (bookingId && typeof bookingId === 'string') {
+            hasHandledInitial.current = true; // Mark as handled
+
+            if (pressAction.id === 'accept_ride') {
+               // First let's check if it's already accepted by this driver (via background task)
+               const { data: booking } = await getBookingById(bookingId);
+               if (booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+                  console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
+                  router.push(`/ride/${bookingId}`);
+               } else {
+                  await acceptRide(bookingId);
+               }
+            } else if (pressAction.id === 'decline_ride') {
+              // If declined in background, we might not need to do anything, but calling it is safe
+              await declineRide(bookingId);
+            }
+          }
+          
+          if (notification?.id) {
+            await notifee.cancelNotification(notification.id);
+          }
+        }
+      }
+    }
+
+    checkInitialNotification();
+  }, [driverProfile?.id]);
+
   const showNotification = (booking: Booking) => {
     setCurrentNotification(booking);
   };
@@ -120,22 +214,22 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     setCurrentNotification(null);
   };
 
-  const acceptRide = async () => {
-    if (!currentNotification || !driverProfile?.id) {
+  const acceptRide = async (bookingId: string) => {
+    if (!bookingId || !driverProfile?.id) {
       Alert.alert('Error', 'Unable to accept ride');
       return;
     }
 
-    console.log('[NOTIFICATION CONTEXT] Accepting ride:', currentNotification.id);
+    console.log('[NOTIFICATION CONTEXT] Accepting ride:', bookingId);
     
-    const { success, error } = await acceptBooking(currentNotification.id, driverProfile.id);
+    const { success, error } = await acceptBooking(bookingId, driverProfile.id);
     
     if (success) {
       console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
       hideNotification();
       
       // Navigate to ride screen
-      router.push(`/ride/${currentNotification.id}`);
+      router.push(`/ride/${bookingId}`);
       
       Alert.alert('Success', 'Ride accepted! Navigate to pickup location.');
     } else {
@@ -145,13 +239,12 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     }
   };
 
-  const declineRide = async () => {
-    if (!currentNotification) return;
+  const declineRide = async (bookingId: string) => {
+    if (!bookingId) return;
 
-    console.log('[NOTIFICATION CONTEXT] Declining ride:', currentNotification.id);
+    console.log('[NOTIFICATION CONTEXT] Declining ride:', bookingId);
     
     // Hide notification immediately
-    const bookingId = currentNotification.id;
     hideNotification();
 
     // Persist decline in background
@@ -163,7 +256,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
   return (
     <RideNotificationContext.Provider
       value={{
-        currentNotification,
+        currentNotification: null,
         showNotification,
         hideNotification,
         acceptRide,

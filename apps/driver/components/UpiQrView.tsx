@@ -118,8 +118,13 @@ const UpiQrView: React.FC<UpiQrViewProps> = ({ paymentSessionId, environment, am
               // Clear loading
               document.getElementById('qr-mount').innerHTML = '';
               
+              // Initialize Elements
+              const elements = cf.elements({
+                  paymentSessionId: "${paymentSessionId}"
+              });
+              
               // Create UPI QR component
-              const upiQr = cf.create('upiQr', {
+              const upiQr = elements.create('upiQr', {
                 values: {
                   size: "250px"
                 }
@@ -127,20 +132,19 @@ const UpiQrView: React.FC<UpiQrViewProps> = ({ paymentSessionId, environment, am
               
               upiQr.mount('#qr-mount');
               
-              // Also try to show using checkout if upiQr doesn't work
-              cf.checkout({
-                paymentSessionId: "${paymentSessionId}",
-                components: ["upiQr"],
-                onSuccess: function(data) {
-                  document.getElementById('qr-mount').innerHTML = '<div style="color:#16a34a;font-size:18px;font-weight:bold;">✅ Payment Received!</div>';
-                  // Notify React Native
+              // Await payment success/failure
+              cf.pay({
+                paymentMethod: upiQr,
+                paymentSessionId: "${paymentSessionId}"
+              }).then(function(result) {
+                if (result.error) {
                   if (window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_SUCCESS', data: data }));
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_FAILED', data: result.error }));
                   }
-                },
-                onFailure: function(data) {
+                } else {
+                  document.getElementById('qr-mount').innerHTML = '<div style="color:#16a34a;font-size:18px;font-weight:bold;text-align:center;padding:20px;">✅ Payment Received!</div>';
                   if (window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_FAILED', data: data }));
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_SUCCESS', data: result }));
                   }
                 }
               });

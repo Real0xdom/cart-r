@@ -7,6 +7,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline, AnimatedRegion } from 'react-native-maps';
+import MapViewDirections from "react-native-maps-directions";
 import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
@@ -340,15 +341,15 @@ const ActiveRide = () => {
                         </Marker>
 
                         {/* Route line from driver to target */}
-                        <Polyline
-                            coordinates={[
-                                driverLocation,
-                                { latitude: targetLat, longitude: targetLng }
-                            ]}
-                            strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
-                            strokeWidth={4}
-                            lineDashPattern={[10, 5]}
-                        />
+                        {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && (
+                            <MapViewDirections
+                                origin={driverLocation}
+                                destination={{ latitude: targetLat, longitude: targetLng }}
+                                apikey={process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY}
+                                strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
+                                strokeWidth={4}
+                            />
+                        )}
                     </MapView>
                 ) : (
                     <View className="flex-1 bg-gray-100 items-center justify-center">

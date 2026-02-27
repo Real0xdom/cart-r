@@ -6,8 +6,7 @@ import "react-native-reanimated";
 import { LogBox } from "react-native";
 
 import { AuthProvider } from "@/contexts/AuthContext";
-import { RideNotificationProvider, useRideNotification } from "@/contexts/RideNotificationContext";
-import RideNotification from "@/components/RideNotification";
+import { RideNotificationProvider } from "@/contexts/RideNotificationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 
 import { 
@@ -27,19 +26,7 @@ LogBox.ignoreLogs([
   "[Layout children]", // Expo router warning about nested routes
 ]);
 
-// Notification overlay component
-function GlobalNotifications() {
-  const { currentNotification, acceptRide, declineRide, hideNotification } = useRideNotification();
-  
-  return (
-    <RideNotification
-      booking={currentNotification}
-      onAccept={acceptRide}
-      onDecline={declineRide}
-      onDismiss={hideNotification}
-    />
-  );
-}
+// No global notifications overlay as we use system-level Notifee requests now
 
 export default function RootLayout() {
   const [loaded] = useFonts({
@@ -93,9 +80,6 @@ export default function RootLayout() {
             <Stack.Screen name="profile" options={{ headerShown: false }} />
             <Stack.Screen name="+not-found" />
           </Stack>
-          
-          {/* Global notification overlay */}
-          <GlobalNotifications />
         </RideNotificationProvider>
       </AuthProvider>
     </LanguageProvider>

@@ -4,7 +4,8 @@
 import * as Notifications from 'expo-notifications';
 import { Platform, Alert, Linking } from 'react-native';
 import * as TaskManager from 'expo-task-manager';
-import notifee, { AndroidImportance, AndroidVisibility, EventType } from '@notifee/react-native';
+import notifee, { AndroidImportance, AndroidVisibility, EventType, AndroidCategory } from '@notifee/react-native';
+import * as SecureStore from 'expo-secure-store';
 
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
 
@@ -32,7 +33,51 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
 
 notifee.onBackgroundEvent(async ({ type, detail }) => {
   console.log('Notifee Background Event:', type);
-  // Optional: handle background accept button presses here
+  const { notification, pressAction } = detail;
+
+  if (type === EventType.ACTION_PRESS && pressAction?.id && notification?.data?.id) {
+    const bookingId = String(notification.data.id);
+    console.log('[BACKGROUND] Action pressed:', pressAction.id, bookingId);
+
+    // Import Supabase inside handler to avoid initialization issues
+    const { supabase } = require('./supabase');
+
+    if (pressAction.id === 'accept_ride') {
+      // Fetch driver ID from Supabase Auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: driverData } = await supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (driverData?.id) {
+          console.log('[BACKGROUND] Accepting ride via background RPC');
+          const { error } = await supabase.rpc('accept_booking_atomic', {
+            p_booking_id: bookingId,
+            p_driver_id: driverData.id,
+          });
+          
+          if (!error) {
+            // Save to SecureStore so when the app UI spins up, it routes here
+            await SecureStore.setItemAsync('pending_route_booking_id', bookingId);
+          } else {
+             console.error('[BACKGROUND] Error accepting ride:', error);
+          }
+        }
+      }
+    } else if (pressAction.id === 'decline_ride') {
+      console.log('[BACKGROUND] Declining ride via background RPC');
+      await supabase.rpc('decline_booking', {
+        p_booking_id: bookingId
+      });
+    }
+
+    if (notification.id) {
+      await notifee.cancelNotification(notification.id);
+    }
+  }
 });
 
 // Notification channel for ride requests (Android)
@@ -105,15 +150,24 @@ export async function displayFullScreenRideRequest(data: any) {
     bypassDnd: true,
   });
 
+  const dataPayload: Record<string, string> = {
+    id: String(data?.id || data?.bookingId || data?.booking_id || ''),
+    type: String(data?.type || 'new_booking'),
+  };
+
+  const fare = data?.driver_payout || data?.total_fare || 'N/A';
+  const pickup = data?.origin_address ? String(data.origin_address).substring(0, 50) + '...' : 'Unknown Location';
+
   await notifee.displayNotification({
     title: '🚨 New Ride Request!',
-    body: `Tap to accept and view details`,
-    data: data,
+    body: `₹${fare} • ${pickup}\nTap to accept or decline.`,
+    data: dataPayload,
     android: {
       channelId,
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,
-      category: 'call', // Tricks Android into allowing full screen more reliably
+      category: AndroidCategory.CALL, // Tricks Android into allowing full screen more reliably
+      timeoutAfter: 30000, // 30 seconds before auto-dismissing
       fullScreenAction: {
         id: 'default',
       },
@@ -125,6 +179,10 @@ export async function displayFullScreenRideRequest(data: any) {
         {
           title: 'Accept Ride',
           pressAction: { id: 'accept_ride', launchActivity: 'default' },
+        },
+        {
+          title: 'Decline',
+          pressAction: { id: 'decline_ride', launchActivity: 'default' },
         },
       ],
     },

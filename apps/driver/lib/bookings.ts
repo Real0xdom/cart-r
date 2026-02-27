@@ -506,17 +506,23 @@ export function subscribeToAvailableBookings(
       },
       (payload) => {
         const b = payload.new as any;
+        
+        // If it's no longer pending or picked up by another driver
         if (b.status !== 'pending' || b.driver_id) {
           onDelete(b.id as string);
         } else if (
           !b.driver_id &&
           b.vehicle_type === driverVehicleType &&
-          onUpdate &&
-          b.expires_at &&
-          new Date(b.expires_at) > new Date()
+          b.status === 'pending'
         ) {
-          // Retry with tip: still pending, extended expires_at - show updated rate to drivers
-          onUpdate(payload.new as Booking);
+          // Check expiration
+          if (b.expires_at && new Date(b.expires_at) < new Date()) {
+             // It's expired
+             onDelete(b.id as string);
+          } else if (onUpdate) {
+             // Retry with tip: still pending, extended expires_at - show updated rate to drivers
+             onUpdate(payload.new as Booking);
+          }
         }
       }
     )

@@ -134,7 +134,7 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
         Animated.timing(opacity, {
           toValue: 1,
           duration: 500,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }).start();
         
         // Start pulse animation
@@ -143,12 +143,12 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
             Animated.timing(pulse, {
               toValue: 1.2,
               duration: 1500,
-              useNativeDriver: true,
+              useNativeDriver: false,
             }),
             Animated.timing(pulse, {
               toValue: 1,
               duration: 1500,
-              useNativeDriver: true,
+              useNativeDriver: false,
             }),
           ])
         ).start();
