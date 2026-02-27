@@ -9,7 +9,7 @@ import { initiateCashfreePayment, createPaymentOrder } from '@/lib/payment';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { images } from "@/constants";
-import { getWalletBalance, payWithWallet, calculatePaymentSplit, completePartialPayment } from '@/lib/walletPayment';
+import { getWalletBalance, payWithWallet, calculatePaymentSplit, completePartialPayment, rollbackPartialPayment } from '@/lib/walletPayment';
 
 // Icon Component
 const Icon = ({ name }: { name: any }) => (
@@ -102,6 +102,12 @@ const PayBooking = () => {
                     Alert.alert('Success', 'This booking is already paid.');
                     router.replace('/(tabs)/home');
                 }
+                
+                // If already partially paid, enforce wallet payment method (it was already used)
+                if (data.payment_status === 'partial_paid') {
+                    setPaymentMethod('wallet');
+                    setIsSplitPayment(true);
+                }
             } else {
                 Alert.alert('Error', 'Booking not found');
                 router.back();
@@ -160,7 +166,7 @@ const PayBooking = () => {
         const amount = booking.driver_payout || booking.total_fare;
         const { canPayFull, walletAmount, onlineAmount, needsOnlinePayment } = calculatePaymentSplit(walletBalance, amount);
 
-        if (paymentMethod === 'wallet' && walletBalance <= 0) {
+        if (paymentMethod === 'wallet' && walletBalance <= 0 && booking.payment_status !== 'partial_paid') {
              Alert.alert('Insufficient Balance', 'Please add money to your wallet or pay online.');
              return;
         }
@@ -250,7 +256,46 @@ const PayBooking = () => {
             }
 
         } catch (err: any) {
-            Alert.alert('Payment Failed', err.message);
+            // If it's a partial payment failure, prompt user to revert or retry
+            if (isSplitPayment || booking.payment_status === 'partial_paid') {
+                 Alert.alert(
+                    'Online Payment Error', 
+                    `${err.message}\n\nYou have already paid ₹${booking.wallet_amount_used || walletAmount} from your wallet.`,
+                    [
+                        { text: 'Retry Online', onPress: () => handlePayment() },
+                        { text: 'Revert Wallet Deduction', onPress: () => handleRollback(), style: 'destructive' },
+                    ]
+                );
+            } else {
+                Alert.alert('Payment Failed', err.message);
+            }
+            setIsPaying(false);
+        }
+    };
+
+    // ============================================================
+    // ROLLBACK HANDLER
+    // ============================================================
+    const handleRollback = async () => {
+        setIsLoading(true);
+        try {
+            const result = await rollbackPartialPayment(booking!.id);
+            if (result.success) {
+                // Refresh data
+                const balance = await getWalletBalance(user!.id);
+                setWalletBalance(balance);
+                
+                const { data } = await getBookingById(bookingId);
+                if (data) setBooking(data);
+                
+                Alert.alert('Wallet Restored', `₹${result.restored_amount} has been added back to your wallet.`);
+            } else {
+                Alert.alert('Rollback Failed', result.error || 'Failed to restore balance. Please contact support.');
+            }
+        } catch (e: any) {
+            Alert.alert('Error', e.message);
+        } finally {
+            setIsLoading(false);
             setIsPaying(false);
         }
     };
@@ -329,10 +374,15 @@ const PayBooking = () => {
             }
         } else {
             // Simulate failure - show clear message with retry option
+            const wAmount = booking?.wallet_amount_used || amount - onlineAmount;
+            
             Alert.alert(
                 '❌ Payment Failed', 
-                'The payment could not be processed. Your money has not been deducted.\n\nYou can try again or use a different payment method.',
-                [
+                isSplit ? `The online payment failed. ₹${wAmount} is already deducted from your wallet.\n\nYou can retry the online part or revert the wallet deduction.` : 'The payment could not be processed. Your money has not been deducted.',
+                isSplit ? [
+                    { text: 'Retry Online', onPress: () => handlePayment() },
+                    { text: 'Revert Wallet', style: 'destructive', onPress: () => handleRollback() },
+                ] : [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Try Again', style: 'default', onPress: () => handlePayment() }
                 ]
@@ -468,8 +518,15 @@ const PayBooking = () => {
     }
 
     const amount = booking.driver_payout || booking.total_fare;
-    const { walletAmount, onlineAmount, needsOnlinePayment } = calculatePaymentSplit(walletBalance, amount);
-    const canUseWalletOption = walletBalance > 0;
+    const isAlreadyPartial = booking.payment_status === 'partial_paid';
+    
+    // In partial state, we only care about the remaining online amount
+    const split = calculatePaymentSplit(walletBalance, amount);
+    const walletAmount = isAlreadyPartial ? booking.wallet_amount_used : split.walletAmount;
+    const onlineAmount = isAlreadyPartial ? (amount - (booking.wallet_amount_used || 0)) : split.onlineAmount;
+    const needsOnlinePayment = isAlreadyPartial ? true : split.needsOnlinePayment;
+    
+    const canUseWalletOption = walletBalance > 0 || isAlreadyPartial;
 
     // ============================================================
     // RENDER
@@ -519,8 +576,10 @@ const PayBooking = () => {
                 {/* Option 1: Pay Full Online */}
                 <TouchableOpacity 
                     onPress={() => setPaymentMethod('online')}
+                    disabled={isAlreadyPartial}
                     className={`p-4 rounded-xl border mb-3 flex-row items-center justify-between ${
-                        paymentMethod === 'online' ? 'bg-primary-50 border-primary-500' : 'bg-white border-gray-200'
+                        paymentMethod === 'online' ? 'bg-primary-50 border-primary-500' : 
+                        isAlreadyPartial ? 'bg-gray-100 border-gray-200 opacity-60' : 'bg-white border-gray-200'
                     }`}
                 >
                     <View className="flex-row items-center">
@@ -550,15 +609,24 @@ const PayBooking = () => {
                                 {needsOnlinePayment ? 'Split Payment' : 'Pay via Wallet'}
                             </Text>
                              
-                            {!canUseWalletOption ? (
+                            {!canUseWalletOption && !isAlreadyPartial ? (
                                 <Text className="text-xs text-red-500">Insufficient balance</Text>
+                            ) : isAlreadyPartial ? (
+                                <View>
+                                    <Text className="text-xs text-green-600 font-JakartaBold">
+                                        ₹{booking.wallet_amount_used} already paid from wallet
+                                    </Text>
+                                    <Text className="text-xs text-primary-500">
+                                        Remaining to pay: ₹{onlineAmount.toFixed(2)}
+                                    </Text>
+                                </View>
                             ) : needsOnlinePayment ? (
                                 <View>
                                     <Text className="text-xs text-gray-600">
                                         Use <Text className="font-JakartaBold text-green-600">₹{walletAmount}</Text> from Wallet
                                     </Text>
                                     <Text className="text-xs text-primary-500 font-JakartaBold">
-                                        + Pay ₹{onlineAmount} Online
+                                        + Pay ₹{onlineAmount.toFixed(2)} Online
                                     </Text>
                                 </View>
                             ) : (
@@ -572,9 +640,9 @@ const PayBooking = () => {
                 {/* Pay Button */}
                 <TouchableOpacity
                     onPress={handlePayment}
-                    disabled={isPaying || (paymentMethod === 'wallet' && !canUseWalletOption)}
+                    disabled={isPaying || (!isAlreadyPartial && paymentMethod === 'wallet' && !canUseWalletOption)}
                     className={`w-full py-4 rounded-full flex-row items-center justify-center shadow-md shadow-primary-300 ${
-                        isPaying || (paymentMethod === 'wallet' && !canUseWalletOption) ? 'bg-gray-400' : 'bg-primary-500'
+                        isPaying || (!isAlreadyPartial && paymentMethod === 'wallet' && !canUseWalletOption) ? 'bg-gray-400' : 'bg-primary-500'
                     }`}
                 >
                     {isPaying ? (

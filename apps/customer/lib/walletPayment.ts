@@ -154,6 +154,37 @@ export async function getWalletBalance(userId: string): Promise<number> {
 }
 
 // =====================================================
+// ROLLBACK PARTIAL PAYMENT
+// =====================================================
+/**
+ * Rollback a partial wallet payment if online payment fails
+ * @param bookingId - Booking ID to rollback
+ * @returns Result of the rollback operation
+ */
+export async function rollbackPartialPayment(
+  bookingId: string
+): Promise<{ success: boolean; error?: string; restored_amount?: number }> {
+  try {
+    console.log('[WALLET ROLLBACK] Rolling back partial payment...', { bookingId });
+
+    const { data, error } = await supabase.rpc('rollback_partial_wallet_payment', {
+      p_booking_id: bookingId
+    });
+
+    if (error) {
+      console.error('[WALLET ROLLBACK] RPC error:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log('[WALLET ROLLBACK] Result:', data);
+    return data as { success: boolean; error?: string; restored_amount?: number };
+  } catch (err: any) {
+    console.error('[WALLET ROLLBACK] Exception:', err);
+    return { success: false, error: err.message || 'Rollback failed' };
+  }
+}
+
+// =====================================================
 // CALCULATE PAYMENT SPLIT
 // =====================================================
 /**

@@ -174,13 +174,24 @@ const FindRide = () => {
     }
   }, [setDestinationLocation, validateDrop]);
 
-  // Also validate when pickup address changes (e.g. from map selection or current location)
   useEffect(() => {
     const { userLatitude, userLongitude } = useLocationStore.getState();
     if (userLatitude && userLongitude && userAddress) {
       validatePickup(userLatitude, userLongitude);
+    } else {
+      setPickupStatus('idle');
     }
-  }, [userAddress]);
+  }, [userAddress, validatePickup]);
+
+  // Also validate when destination address changes (e.g. from map selection or saved addresses)
+  useEffect(() => {
+    const { destinationLatitude, destinationLongitude } = useLocationStore.getState();
+    if (destinationLatitude && destinationLongitude && destinationAddress) {
+      validateDrop(destinationLatitude, destinationLongitude);
+    } else {
+      setDropStatus('idle');
+    }
+  }, [destinationAddress, validateDrop]);
 
   const handleNext = () => {
     if (canProceed) {

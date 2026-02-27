@@ -120,9 +120,17 @@ serve(async (req) => {
         .update({
           payout_reference: transferId,
           payout_status: 'INITIATED',
+          status: 'completed', // Mark as completed so it no longer blocks the driver
           updated_at: new Date().toISOString(),
         })
         .eq('id', withdrawal_id)
+        
+      // Also update the transaction status
+      await supabase
+        .from('driver_wallet_transactions')
+        .update({ status: 'completed' })
+        .eq('withdrawal_id', withdrawal_id)
+        .eq('type', 'withdrawal')
 
       return new Response(
         JSON.stringify({

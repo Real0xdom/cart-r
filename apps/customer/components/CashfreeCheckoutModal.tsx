@@ -264,8 +264,12 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
             <View style={styles.headerHandle} />
             <View style={styles.headerContent}>
               <Text style={styles.headerTitle}>Secure Payment</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Feather name="x" size={24} color="#666" />
+              <TouchableOpacity 
+                onPress={onClose} 
+                style={styles.closeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Feather name="x" size={24} color="#94A3B8" />
               </TouchableOpacity>
             </View>
           </View>
