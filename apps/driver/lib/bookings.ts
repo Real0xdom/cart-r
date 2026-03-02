@@ -297,8 +297,9 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
+  const channelName = `booking-${bookingId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   const subscription = supabase
-    .channel(`booking-${bookingId}`)
+    .channel(channelName)
     .on(
       'postgres_changes',
       {
@@ -481,8 +482,9 @@ export function subscribeToAvailableBookings(
   onDelete: (bookingId: string) => void,
   onUpdate?: (booking: Booking) => void
 ) {
+  const channelName = `available-bookings-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   const subscription = supabase
-    .channel('available-bookings')
+    .channel(channelName)
     .on(
       'postgres_changes',
       {
