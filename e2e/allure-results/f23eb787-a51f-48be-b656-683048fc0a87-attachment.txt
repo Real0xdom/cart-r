@@ -1,0 +1,29 @@
+TypeError: fetch failed
+    at node:internal/deps/undici/undici:13510:13
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at _handleRequest (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\@supabase\auth-js\src\lib\fetch.ts:184:14)
+    at _request (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\@supabase\auth-js\src\lib\fetch.ts:157:16)
+    at GoTrueAdminApi.createUser (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\@supabase\auth-js\src\GoTrueAdminApi.ts:194:14)
+    at Object.createTestCustomer (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\helpers\supabase-admin.ts:38:48)
+    at C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\tests\admin\bookings.test.ts:32:22
+    at C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\testInfo.js:320:11
+    at TimeoutManager.withRunnable (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\timeoutManager.js:67:14)
+    at TestInfoImpl._runWithTimeout (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\testInfo.js:318:7)
+    at FixtureRunner.resolveParametersAndRunFunction (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\fixtureRunner.js:232:5)
+    at C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:442:13
+    at TestInfoImpl._runAsStep (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\testInfo.js:309:7)
+    at WorkerMain._runAllHooksForSuite (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:437:9)
+    at WorkerMain._runBeforeAllHooksForSuite (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:431:5)
+    at C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:313:11
+    at TestInfoImpl._runAsStep (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\testInfo.js:309:7)
+    at C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:311:7
+    at WorkerMain._runTest (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:296:5)
+    at WorkerMain.runTestGroup (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\worker\workerMain.js:196:11)
+    at process.<anonymous> (C:\Users\pranav\Desktop\catr-latest\cart-r\e2e\node_modules\playwright\lib\common\process.js:72:22) {
+  [cause]: ConnectTimeoutError: Connect Timeout Error (attempted address: epevjbiymsvwmmzybzib.supabase.co:443, timeout: 10000ms)
+      at onConnectTimeout (node:internal/deps/undici/undici:2602:28)
+      at Immediate._onImmediate (node:internal/deps/undici/undici:2568:35)
+      at processImmediate (node:internal/timers:485:21) {
+    code: 'UND_ERR_CONNECT_TIMEOUT'
+  }
+}

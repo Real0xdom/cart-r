@@ -1,0 +1,253 @@
+# CARTR E2E Test Suite — CI/CD Pipeline
+# =====================================
+# Runs on push to main/develop, PRs, and nightly schedule.
+# Pipeline: Smoke → Admin E2E + Mobile E2E (parallel) → Load → Report
+
+name: E2E Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 21 * * *'  # 2:30 AM IST (nightly regression)
+  workflow_dispatch: {}    # Manual trigger
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  ADMIN_URL: ${{ secrets.ADMIN_URL }}
+  ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+  ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+  TEST_ENV: staging
+  CASHFREE_ENV: sandbox
+
+jobs:
+  # =====================================================
+  # STAGE 1: Smoke Tests (API + Quick Admin)
+  # =====================================================
+  smoke-tests:
+    name: 🔥 Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'e2e/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: e2e
+
+      - name: Run API smoke tests
+        run: npm run test:api
+        working-directory: e2e
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-allure-results
+          path: e2e/reports/allure-results/
+          retention-days: 7
+
+  # =====================================================
+  # STAGE 2A: Admin E2E Tests (Playwright)
+  # =====================================================
+  admin-e2e:
+    name: 🖥️ Admin E2E (Playwright)
+    needs: smoke-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Run Admin Playwright tests
+        run: npm run test:admin
+        working-directory: e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-playwright-report
+          path: |
+            e2e/reports/playwright-report/
+            e2e/reports/allure-results/
+          retention-days: 7
+
+  # =====================================================
+  # STAGE 2B: Multi-User Simulation Tests
+  # =====================================================
+  multi-user:
+    name: 👥 Multi-User Simulations
+    needs: smoke-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: e2e
+
+      - name: Run multi-user tests
+        run: npm run test:multi-user
+        working-directory: e2e
+
+      - name: Upload multi-user results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-user-results
+          path: e2e/reports/allure-results/
+          retention-days: 7
+
+  # =====================================================
+  # STAGE 2C: Mobile E2E Tests (Appium + Android Emulator)
+  # =====================================================
+  mobile-e2e:
+    name: 📱 Mobile E2E (Appium)
+    needs: smoke-tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Appium
+        run: npm install -g appium
+
+      - name: Install UiAutomator2 driver
+        run: appium driver install uiautomator2
+
+      - name: Install E2E dependencies
+        run: npm ci
+        working-directory: e2e
+
+      - name: Run Customer app tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            appium &
+            sleep 10
+            cd e2e && npm run test:customer
+
+      - name: Upload mobile results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-e2e-results
+          path: e2e/reports/allure-results/
+          retention-days: 7
+
+  # =====================================================
+  # STAGE 3: Load Tests (k6)
+  # =====================================================
+  load-tests:
+    name: 📊 Load Tests (k6)
+    needs: smoke-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run k6 booking load test
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: e2e/load/booking-load.js
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ env.SUPABASE_ANON_KEY }}
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: e2e/reports/k6-*.json
+          retention-days: 7
+
+  # =====================================================
+  # STAGE 4: Allure Report Generation
+  # =====================================================
+  report:
+    name: 📋 Generate Allure Report
+    needs: [admin-e2e, multi-user]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: allure-results-all
+          merge-multiple: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Allure CLI
+        run: npm install -g allure-commandline
+
+      - name: Generate Allure Report
+        run: allure generate allure-results-all -o allure-report --clean
+
+      - name: Upload Allure Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
+          retention-days: 30

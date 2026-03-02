@@ -1,0 +1,106 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Back to Drivers" [ref=e4] [cursor=pointer]:
+      - /url: /drivers
+      - img [ref=e5]
+      - text: Back to Drivers
+    - generic [ref=e7]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - img [ref=e12]
+          - heading "Pending Driver Test" [level=2] [ref=e15]
+          - generic [ref=e16]:
+            - img [ref=e17]
+            - generic [ref=e19]: "+91970002693161"
+          - generic [ref=e20]:
+            - img [ref=e21]
+            - generic [ref=e24]: driver_1772450271153@cartr.test
+        - generic [ref=e25]: PENDING
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - generic [ref=e28]:
+              - img [ref=e29]
+              - text: Rating
+            - generic [ref=e31]: "4.5"
+          - generic [ref=e32]:
+            - generic [ref=e33]:
+              - img [ref=e34]
+              - text: Total Trips
+            - generic [ref=e37]: "0"
+          - generic [ref=e38]:
+            - generic [ref=e39]:
+              - img [ref=e40]
+              - text: Earnings
+            - generic [ref=e42]: ₹0
+          - generic [ref=e43]:
+            - generic [ref=e44]:
+              - img [ref=e45]
+              - text: Member Since
+            - generic [ref=e47]: 3/2/2026
+          - generic [ref=e48]:
+            - generic [ref=e49]:
+              - img [ref=e50]
+              - text: Referrals
+            - generic [ref=e55]: "0"
+        - generic [ref=e56]:
+          - button "Processing..." [disabled] [ref=e57]
+          - button "✕ Reject Application" [disabled] [ref=e58]
+      - generic [ref=e59]:
+        - generic [ref=e61]:
+          - button "Details & Documents" [ref=e62]:
+            - img [ref=e63]
+            - text: Details & Documents
+          - button "Verification History" [ref=e66]:
+            - img [ref=e67]
+            - text: Verification History
+          - button "Wallet" [ref=e71]:
+            - img [ref=e72]
+            - text: Wallet
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - heading "Vehicle Information" [level=3] [ref=e77]
+            - button "Edit Details" [ref=e78]
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - paragraph [ref=e81]: Vehicle Type
+              - paragraph [ref=e82]: sedan
+            - generic [ref=e83]:
+              - paragraph [ref=e84]: Registration Number
+              - paragraph [ref=e85]: MH01AB6056
+            - generic [ref=e86]:
+              - paragraph [ref=e87]: Model
+              - paragraph [ref=e88]: Test Vehicle
+            - generic [ref=e89]:
+              - paragraph [ref=e90]: Color
+              - paragraph [ref=e91]: White
+        - generic [ref=e92]:
+          - heading "License Information" [level=3] [ref=e93]
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - paragraph [ref=e96]: License Number
+              - paragraph [ref=e97]: DL1772450271316
+            - generic [ref=e98]:
+              - paragraph [ref=e99]: Expiry Date
+              - paragraph [ref=e100]: 3/2/2027
+        - generic [ref=e101]:
+          - heading "Uploaded Documents" [level=3] [ref=e102]
+          - generic [ref=e103]:
+            - generic [ref=e104]:
+              - paragraph [ref=e105]: Driving License
+              - generic [ref=e106]: No file
+            - generic [ref=e107]:
+              - paragraph [ref=e108]: Vehicle RC
+              - generic [ref=e109]: No file
+            - generic [ref=e110]:
+              - paragraph [ref=e111]: Insurance
+              - generic [ref=e112]: No file
+            - generic [ref=e113]:
+              - paragraph [ref=e114]: Vehicle Photo
+              - generic [ref=e115]: No file
+  - button "Open Next.js Dev Tools" [ref=e121] [cursor=pointer]:
+    - img [ref=e122]
+  - alert [ref=e125]
+```

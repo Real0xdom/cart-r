@@ -1,0 +1,4 @@
+BROWSER CONSOLE [log]: CLIENT: Submitting login with: {email: admin@cartr.com, passwordLength: 13}
+BROWSER CONSOLE [error]: WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=VqjlFMv8UWkFYYHNRGlMf' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+BROWSER CONSOLE [error]: WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=VqjlFMv8UWkFYYHNRGlMf' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED
+BROWSER CONSOLE [error]: WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=VqjlFMv8UWkFYYHNRGlMf' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED

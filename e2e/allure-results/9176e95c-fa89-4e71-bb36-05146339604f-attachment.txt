@@ -1,0 +1,3 @@
+BROWSER CONSOLE [log]: CLIENT: Submitting login with: {email: admin@cartr.com, passwordLength: 13}
+BROWSER CONSOLE [error]: Failed to load resource: the server responded with a status of 406 ()
+BROWSER CONSOLE [error]: Error fetching booking: {code: PGRST116, details: The result contains 0 rows, hint: null, message: Cannot coerce the result to a single JSON object}

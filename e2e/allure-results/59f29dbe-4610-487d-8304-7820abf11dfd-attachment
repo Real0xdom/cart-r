@@ -1,0 +1,146 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - img "CARTR" [ref=e5]
+        - paragraph [ref=e6]: Rapid, Reliable, Responsible
+      - navigation [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]: Operations
+          - generic [ref=e10]:
+            - link "Dashboard" [ref=e11] [cursor=pointer]:
+              - /url: /
+              - img [ref=e12]
+              - generic [ref=e17]: Dashboard
+            - link "Bookings" [ref=e18] [cursor=pointer]:
+              - /url: /bookings
+              - img [ref=e19]
+              - generic [ref=e23]: Bookings
+              - img [ref=e24]
+            - link "Drivers" [ref=e26] [cursor=pointer]:
+              - /url: /drivers
+              - img [ref=e27]
+              - generic [ref=e32]: Drivers
+            - link "Users" [ref=e33] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e34]
+              - generic [ref=e39]: Users
+            - link "Ratings" [ref=e40] [cursor=pointer]:
+              - /url: /ratings
+              - img [ref=e41]
+              - generic [ref=e43]: Ratings
+        - generic [ref=e44]:
+          - generic [ref=e45]: Configuration
+          - generic [ref=e46]:
+            - link "Vehicle Types" [ref=e47] [cursor=pointer]:
+              - /url: /vehicle-types
+              - img [ref=e48]
+              - generic [ref=e52]: Vehicle Types
+            - link "Service Areas" [ref=e53] [cursor=pointer]:
+              - /url: /service-areas
+              - img [ref=e54]
+              - generic [ref=e57]: Service Areas
+            - link "Addon Services" [ref=e58] [cursor=pointer]:
+              - /url: /addons
+              - img [ref=e59]
+              - generic [ref=e61]: Addon Services
+            - link "Pricing" [ref=e62] [cursor=pointer]:
+              - /url: /pricing
+              - img [ref=e63]
+              - generic [ref=e66]: Pricing
+            - link "Legal" [ref=e67] [cursor=pointer]:
+              - /url: /legal
+              - img [ref=e68]
+              - generic [ref=e71]: Legal
+        - generic [ref=e72]:
+          - generic [ref=e73]: System
+          - generic [ref=e74]:
+            - link "Finance" [ref=e75] [cursor=pointer]:
+              - /url: /finance
+              - img [ref=e76]
+              - generic [ref=e79]: Finance
+            - link "Payouts" [ref=e80] [cursor=pointer]:
+              - /url: /payouts
+              - img [ref=e81]
+              - generic [ref=e84]: Payouts
+            - link "Notifications" [ref=e85] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e86]
+              - generic [ref=e89]: Notifications
+            - link "Support" [ref=e90] [cursor=pointer]:
+              - /url: /support
+              - img [ref=e91]
+              - generic [ref=e93]: Support
+            - link "Analytics" [ref=e94] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e95]
+              - generic [ref=e97]: Analytics
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e100]: AD
+          - generic [ref=e101]:
+            - paragraph [ref=e102]: Admin
+            - paragraph [ref=e103]: admin@cartr.com
+        - button "Sign Out" [ref=e104]:
+          - img [ref=e105]
+          - text: Sign Out
+    - generic [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - heading "Bookings" [level=1] [ref=e111]
+          - paragraph [ref=e112]: Manage and track all trip requests
+        - button "Refresh" [ref=e113]:
+          - img [ref=e114]
+          - text: Refresh
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - img [ref=e122]
+          - 'textbox "Search by booking #, address, name..." [active] [ref=e125]': CARTR-TEST-1772430941431-MMYG
+        - generic [ref=e126]:
+          - img [ref=e127]
+          - combobox [ref=e129] [cursor=pointer]:
+            - option "All Statuses" [selected]
+            - option "Pending"
+            - option "Accepted"
+            - option "Driver Arrived"
+            - option "In Progress"
+            - option "Completed"
+            - option "Cancelled"
+          - img
+      - table [ref=e132]:
+        - rowgroup [ref=e133]:
+          - row "Booking Info Route Details Status Fare Customer Actions" [ref=e134]:
+            - columnheader "Booking Info" [ref=e135]
+            - columnheader "Route Details" [ref=e136]
+            - columnheader "Status" [ref=e137]
+            - columnheader "Fare" [ref=e138]
+            - columnheader "Customer" [ref=e139]
+            - columnheader "Actions" [ref=e140]
+        - rowgroup [ref=e141]:
+          - row "CARTR-TEST-1772430941431-MMYG sedan Andheri West, Mumbai, Maharashtra Bandra West, Mumbai, Maharashtra accepted ₹90 pending Admin Test Customer +919700000001 View Details" [ref=e142]:
+            - cell "CARTR-TEST-1772430941431-MMYG sedan" [ref=e143]:
+              - generic [ref=e144]:
+                - img [ref=e146]
+                - generic [ref=e150]:
+                  - generic [ref=e151]: CARTR-TEST-1772430941431-MMYG
+                  - generic [ref=e152]: sedan
+            - cell "Andheri West, Mumbai, Maharashtra Bandra West, Mumbai, Maharashtra" [ref=e153]:
+              - generic [ref=e154]:
+                - generic [ref=e157]: Andheri West, Mumbai, Maharashtra
+                - generic [ref=e160]: Bandra West, Mumbai, Maharashtra
+            - cell "accepted" [ref=e161]
+            - cell "₹90 pending" [ref=e162]:
+              - generic [ref=e163]: ₹90
+              - generic [ref=e164]: pending
+            - cell "Admin Test Customer +919700000001" [ref=e165]:
+              - generic [ref=e166]: Admin Test Customer
+              - generic [ref=e167]: "+919700000001"
+            - cell "View Details" [ref=e168]:
+              - button "View Details" [ref=e169]
+  - button "Open Next.js Dev Tools" [ref=e175] [cursor=pointer]:
+    - img [ref=e176]
+  - alert [ref=e179]
+```

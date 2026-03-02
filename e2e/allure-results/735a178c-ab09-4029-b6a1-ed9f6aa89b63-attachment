@@ -1,0 +1,130 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - img "CARTR" [ref=e15]
+        - paragraph [ref=e16]: Rapid, Reliable, Responsible
+      - navigation [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: Operations
+          - generic [ref=e20]:
+            - link "Dashboard" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Dashboard
+              - img [ref=e28]
+            - link "Bookings" [ref=e30] [cursor=pointer]:
+              - /url: /bookings
+              - img [ref=e31]
+              - generic [ref=e35]: Bookings
+            - link "Drivers" [ref=e36] [cursor=pointer]:
+              - /url: /drivers
+              - img [ref=e37]
+              - generic [ref=e42]: Drivers
+            - link "Users" [ref=e43] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e44]
+              - generic [ref=e49]: Users
+            - link "Ratings" [ref=e50] [cursor=pointer]:
+              - /url: /ratings
+              - img [ref=e51]
+              - generic [ref=e53]: Ratings
+        - generic [ref=e54]:
+          - generic [ref=e55]: Configuration
+          - generic [ref=e56]:
+            - link "Vehicle Types" [ref=e57] [cursor=pointer]:
+              - /url: /vehicle-types
+              - img [ref=e58]
+              - generic [ref=e62]: Vehicle Types
+            - link "Service Areas" [ref=e63] [cursor=pointer]:
+              - /url: /service-areas
+              - img [ref=e64]
+              - generic [ref=e67]: Service Areas
+            - link "Addon Services" [ref=e68] [cursor=pointer]:
+              - /url: /addons
+              - img [ref=e69]
+              - generic [ref=e71]: Addon Services
+            - link "Pricing" [ref=e72] [cursor=pointer]:
+              - /url: /pricing
+              - img [ref=e73]
+              - generic [ref=e76]: Pricing
+            - link "Legal" [ref=e77] [cursor=pointer]:
+              - /url: /legal
+              - img [ref=e78]
+              - generic [ref=e81]: Legal
+        - generic [ref=e82]:
+          - generic [ref=e83]: System
+          - generic [ref=e84]:
+            - link "Finance" [ref=e85] [cursor=pointer]:
+              - /url: /finance
+              - img [ref=e86]
+              - generic [ref=e89]: Finance
+            - link "Payouts" [ref=e90] [cursor=pointer]:
+              - /url: /payouts
+              - img [ref=e91]
+              - generic [ref=e94]: Payouts
+            - link "Notifications" [ref=e95] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e96]
+              - generic [ref=e99]: Notifications
+            - link "Support" [ref=e100] [cursor=pointer]:
+              - /url: /support
+              - img [ref=e101]
+              - generic [ref=e103]: Support
+            - link "Analytics" [ref=e104] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e105]
+              - generic [ref=e107]: Analytics
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e110]: AD
+          - generic [ref=e111]:
+            - paragraph [ref=e112]: Admin
+            - paragraph [ref=e113]: admin@cartr.com
+        - button "Sign Out" [ref=e114]:
+          - img [ref=e115]
+          - text: Sign Out
+    - generic [ref=e118]:
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - heading "Dashboard" [level=1] [ref=e121]
+          - paragraph [ref=e122]: Welcome back, here's what's happening today.
+        - generic [ref=e124]: "Last updated: 11:48:39 AM"
+      - generic [ref=e125]:
+        - generic [ref=e126]:
+          - generic [ref=e127]:
+            - img [ref=e129]
+            - generic [ref=e134]: Active
+          - heading "Total Users" [level=3] [ref=e135]
+          - paragraph [ref=e136]: "0"
+        - generic [ref=e137]:
+          - generic [ref=e138]:
+            - img [ref=e140]
+            - generic [ref=e145]: 65 Online
+          - heading "Drivers" [level=3] [ref=e146]
+          - paragraph [ref=e147]: "65"
+        - generic [ref=e148]:
+          - img [ref=e151]
+          - heading "Total Bookings" [level=3] [ref=e155]
+          - paragraph [ref=e156]: "0"
+        - generic [ref=e157]:
+          - generic [ref=e158]:
+            - img [ref=e160]
+            - generic [ref=e163]: +12%
+          - heading "Total Revenue" [level=3] [ref=e164]
+          - paragraph [ref=e165]: ₹0
+      - generic [ref=e166]:
+        - generic [ref=e167]:
+          - generic [ref=e168]:
+            - heading "Recent Bookings" [level=2] [ref=e169]
+            - paragraph [ref=e170]: Latest ride requests and updates
+          - link "View All Bookings" [ref=e171] [cursor=pointer]:
+            - /url: /bookings
+        - generic [ref=e172]: No bookings yet
+```

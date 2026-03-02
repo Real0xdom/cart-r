@@ -1,0 +1,29 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - img "CARTR" [ref=e6]
+      - paragraph [ref=e7]: Rapid, Reliable, Responsible
+    - generic [ref=e8]:
+      - heading "Welcome Back" [level=2] [ref=e9]
+      - paragraph [ref=e10]: Enter your credentials to access the dashboard
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: Email Address
+          - textbox "admin@cartr.in" [ref=e14]
+        - generic [ref=e15]:
+          - generic [ref=e16]: Password
+          - textbox "••••••••" [ref=e17]
+        - button "Sign In" [ref=e18]
+    - paragraph [ref=e19]: © 2024 CARTR. Secure Admin Portal.
+  - button "Open Next.js Dev Tools" [ref=e25] [cursor=pointer]:
+    - generic [ref=e28]:
+      - text: Rendering
+      - generic [ref=e29]:
+        - generic [ref=e30]: .
+        - generic [ref=e31]: .
+        - generic [ref=e32]: .
+  - alert [ref=e33]
+```

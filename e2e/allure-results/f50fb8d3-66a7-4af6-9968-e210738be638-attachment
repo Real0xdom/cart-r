@@ -1,0 +1,190 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - img "CARTR" [ref=e5]
+        - paragraph [ref=e6]: Rapid, Reliable, Responsible
+      - navigation [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]: Operations
+          - generic [ref=e10]:
+            - link "Dashboard" [ref=e11] [cursor=pointer]:
+              - /url: /
+              - img [ref=e12]
+              - generic [ref=e17]: Dashboard
+            - link "Bookings" [ref=e18] [cursor=pointer]:
+              - /url: /bookings
+              - img [ref=e19]
+              - generic [ref=e23]: Bookings
+            - link "Drivers" [ref=e24] [cursor=pointer]:
+              - /url: /drivers
+              - img [ref=e25]
+              - generic [ref=e30]: Drivers
+            - link "Users" [ref=e31] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e32]
+              - generic [ref=e37]: Users
+            - link "Ratings" [ref=e38] [cursor=pointer]:
+              - /url: /ratings
+              - img [ref=e39]
+              - generic [ref=e41]: Ratings
+        - generic [ref=e42]:
+          - generic [ref=e43]: Configuration
+          - generic [ref=e44]:
+            - link "Vehicle Types" [ref=e45] [cursor=pointer]:
+              - /url: /vehicle-types
+              - img [ref=e46]
+              - generic [ref=e50]: Vehicle Types
+            - link "Service Areas" [ref=e51] [cursor=pointer]:
+              - /url: /service-areas
+              - img [ref=e52]
+              - generic [ref=e55]: Service Areas
+            - link "Addon Services" [ref=e56] [cursor=pointer]:
+              - /url: /addons
+              - img [ref=e57]
+              - generic [ref=e59]: Addon Services
+            - link "Pricing" [ref=e60] [cursor=pointer]:
+              - /url: /pricing
+              - img [ref=e61]
+              - generic [ref=e64]: Pricing
+            - link "Legal" [ref=e65] [cursor=pointer]:
+              - /url: /legal
+              - img [ref=e66]
+              - generic [ref=e69]: Legal
+        - generic [ref=e70]:
+          - generic [ref=e71]: System
+          - generic [ref=e72]:
+            - link "Finance" [ref=e73] [cursor=pointer]:
+              - /url: /finance
+              - img [ref=e74]
+              - generic [ref=e77]: Finance
+            - link "Payouts" [ref=e78] [cursor=pointer]:
+              - /url: /payouts
+              - img [ref=e79]
+              - generic [ref=e82]: Payouts
+              - img [ref=e83]
+            - link "Notifications" [ref=e85] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e86]
+              - generic [ref=e89]: Notifications
+            - link "Support" [ref=e90] [cursor=pointer]:
+              - /url: /support
+              - img [ref=e91]
+              - generic [ref=e93]: Support
+            - link "Analytics" [ref=e94] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e95]
+              - generic [ref=e97]: Analytics
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e100]: AD
+          - generic [ref=e101]:
+            - paragraph [ref=e102]: Admin
+            - paragraph [ref=e103]: admin@cartr.com
+        - button "Sign Out" [ref=e104]:
+          - img [ref=e105]
+          - text: Sign Out
+    - generic [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - heading "Payouts Management" [level=1] [ref=e111]
+          - paragraph [ref=e112]: Manage driver withdrawal requests and bank transfers
+        - button "Refresh" [ref=e113]:
+          - img [ref=e114]
+          - text: Refresh
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - img [ref=e123]
+            - generic [ref=e126]: Pending
+          - paragraph [ref=e127]: ₹700
+          - paragraph [ref=e128]: 2 requests
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - img [ref=e132]
+            - generic [ref=e135]: Approved
+          - paragraph [ref=e136]: ₹0
+          - paragraph [ref=e137]: 0 in process
+        - generic [ref=e138]:
+          - generic [ref=e139]:
+            - img [ref=e141]
+            - generic [ref=e144]: Paid Out
+          - paragraph [ref=e145]: ₹0
+          - paragraph [ref=e146]: 0 transfers
+        - generic [ref=e147]:
+          - generic [ref=e148]:
+            - img [ref=e150]
+            - generic [ref=e152]: Total Liability
+          - paragraph [ref=e153]: ₹700
+          - paragraph [ref=e154]: Pending + Approved
+      - generic [ref=e155]:
+        - generic [ref=e156]:
+          - img [ref=e157]
+          - textbox "Search by driver name or phone..." [ref=e160]
+        - generic [ref=e161]:
+          - button "All" [ref=e162]
+          - button "Pending" [ref=e163]
+          - button "Approved" [ref=e164]
+          - button "Paid" [ref=e165]
+          - button "Rejected" [ref=e166]
+      - table [ref=e168]:
+        - rowgroup [ref=e169]:
+          - row "Driver Amount Bank Status Date Payout Actions" [ref=e170]:
+            - columnheader "Driver" [ref=e171]
+            - columnheader "Amount" [ref=e172]
+            - columnheader "Bank" [ref=e173]
+            - columnheader "Status" [ref=e174]
+            - columnheader "Date" [ref=e175]
+            - columnheader "Payout" [ref=e176]
+            - columnheader "Actions" [ref=e177]
+        - rowgroup [ref=e178]:
+          - row "Payout Test Driver +91970003378493 ₹200 N/A PENDING 3/2/2026 4:49:18 PM — Approve Reject" [ref=e179]:
+            - cell "Payout Test Driver +91970003378493" [ref=e180]:
+              - generic [ref=e181]: Payout Test Driver
+              - generic [ref=e182]: "+91970003378493"
+            - cell "₹200" [ref=e183]
+            - cell "N/A" [ref=e184]
+            - cell "PENDING" [ref=e185]:
+              - generic [ref=e186]:
+                - img [ref=e187]
+                - text: PENDING
+            - cell "3/2/2026 4:49:18 PM" [ref=e190]:
+              - generic [ref=e191]: 3/2/2026
+              - generic [ref=e192]: 4:49:18 PM
+            - cell "—" [ref=e193]
+            - cell "Approve Reject" [ref=e194]:
+              - generic [ref=e195]:
+                - button "Approve" [ref=e196]
+                - button "Reject" [ref=e197]
+          - row "Payout Test Driver +91970003378493 ₹500 N/A PENDING 3/2/2026 4:49:17 PM — Approve Reject" [ref=e198]:
+            - cell "Payout Test Driver +91970003378493" [ref=e199]:
+              - generic [ref=e200]: Payout Test Driver
+              - generic [ref=e201]: "+91970003378493"
+            - cell "₹500" [ref=e202]
+            - cell "N/A" [ref=e203]
+            - cell "PENDING" [ref=e204]:
+              - generic [ref=e205]:
+                - img [ref=e206]
+                - text: PENDING
+            - cell "3/2/2026 4:49:17 PM" [ref=e209]:
+              - generic [ref=e210]: 3/2/2026
+              - generic [ref=e211]: 4:49:17 PM
+            - cell "—" [ref=e212]
+            - cell "Approve Reject" [ref=e213]:
+              - generic [ref=e214]:
+                - button "Approve" [ref=e215]
+                - button "Reject" [ref=e216]
+    - generic [ref=e218]:
+      - heading "Reject Withdrawal" [level=3] [ref=e219]
+      - paragraph [ref=e220]: The amount will be refunded to the driver's available balance.
+      - textbox "Reason for rejection..." [active] [ref=e221]: Insufficient verification
+      - generic [ref=e222]:
+        - button "Cancel" [ref=e223]
+        - button "Reject & Refund" [ref=e224]
+  - button "Open Next.js Dev Tools" [ref=e230] [cursor=pointer]:
+    - img [ref=e231]
+  - alert [ref=e234]
+```

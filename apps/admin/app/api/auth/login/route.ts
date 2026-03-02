@@ -4,7 +4,23 @@ import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = await request.json();
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    console.log(`Login request headers:`, JSON.stringify(headers, null, 2));
+    
+    const bodyText = await request.text();
+    console.log(`Login request body text: "${bodyText}"`);
+
+    if (!bodyText) {
+      return NextResponse.json(
+        { error: 'Empty request body' },
+        { status: 400 }
+      );
+    }
+
+    const { email, password } = JSON.parse(bodyText);
 
     if (!email || !password) {
       return NextResponse.json(

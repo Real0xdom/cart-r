@@ -1,0 +1,47 @@
+{
+  "name": "cartr-e2e-tests",
+  "version": "1.0.0",
+  "description": "CARTR — Fully Automated E2E Testing System",
+  "private": true,
+  "scripts": {
+    "test:customer": "wdio run config/wdio.customer.conf.ts",
+    "test:driver": "wdio run config/wdio.driver.conf.ts",
+    "test:admin": "npx playwright test tests/admin/",
+    "test:api": "npx jest tests/api/ --config jest.config.ts --forceExit",
+    "test:multi-user": "npx jest tests/multi-user/ --config jest.config.ts --forceExit",
+    "test:load:booking": "k6 run load/booking-load.js",
+    "test:load:driver-location": "k6 run load/driver-location-load.js",
+    "test:load:payment": "k6 run load/payment-load.js",
+    "test:smoke": "npm run test:api && npx playwright test tests/admin/ --grep @smoke",
+    "test:regression": "npm run test:api && npm run test:admin && npm run test:multi-user",
+    "report:generate": "allure generate reports/allure-results -o reports/allure-report --clean",
+    "report:open": "allure open reports/allure-report",
+    "lint": "eslint tests/ helpers/ page-objects/ --ext .ts",
+    "clean": "rimraf reports/allure-results reports/allure-report"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.42.0",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.11.0",
+    "@wdio/allure-reporter": "^8.29.0",
+    "@wdio/appium-service": "^8.29.0",
+    "@wdio/cli": "^8.29.0",
+    "@wdio/local-runner": "^8.29.0",
+    "@wdio/mocha-framework": "^8.29.0",
+    "@wdio/spec-reporter": "^8.29.0",
+    "allure-commandline": "^2.27.0",
+    "allure-playwright": "^2.15.0",
+    "jest": "^29.7.0",
+    "jest-allure2-reporter": "^1.2.0",
+    "playwright": "^1.42.0",
+    "rimraf": "^5.0.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0",
+    "webdriverio": "^8.29.0"
+  }
+}

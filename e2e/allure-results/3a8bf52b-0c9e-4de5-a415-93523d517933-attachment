@@ -1,0 +1,112 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - img "CARTR" [ref=e5]
+        - paragraph [ref=e6]: Rapid, Reliable, Responsible
+      - navigation [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]: Operations
+          - generic [ref=e10]:
+            - link "Dashboard" [ref=e11] [cursor=pointer]:
+              - /url: /
+              - img [ref=e12]
+              - generic [ref=e17]: Dashboard
+            - link "Bookings" [ref=e18] [cursor=pointer]:
+              - /url: /bookings
+              - img [ref=e19]
+              - generic [ref=e23]: Bookings
+            - link "Drivers" [ref=e24] [cursor=pointer]:
+              - /url: /drivers
+              - img [ref=e25]
+              - generic [ref=e30]: Drivers
+              - img [ref=e31]
+            - link "Users" [ref=e33] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e34]
+              - generic [ref=e39]: Users
+            - link "Ratings" [ref=e40] [cursor=pointer]:
+              - /url: /ratings
+              - img [ref=e41]
+              - generic [ref=e43]: Ratings
+        - generic [ref=e44]:
+          - generic [ref=e45]: Configuration
+          - generic [ref=e46]:
+            - link "Vehicle Types" [ref=e47] [cursor=pointer]:
+              - /url: /vehicle-types
+              - img [ref=e48]
+              - generic [ref=e52]: Vehicle Types
+            - link "Service Areas" [ref=e53] [cursor=pointer]:
+              - /url: /service-areas
+              - img [ref=e54]
+              - generic [ref=e57]: Service Areas
+            - link "Addon Services" [ref=e58] [cursor=pointer]:
+              - /url: /addons
+              - img [ref=e59]
+              - generic [ref=e61]: Addon Services
+            - link "Pricing" [ref=e62] [cursor=pointer]:
+              - /url: /pricing
+              - img [ref=e63]
+              - generic [ref=e66]: Pricing
+            - link "Legal" [ref=e67] [cursor=pointer]:
+              - /url: /legal
+              - img [ref=e68]
+              - generic [ref=e71]: Legal
+        - generic [ref=e72]:
+          - generic [ref=e73]: System
+          - generic [ref=e74]:
+            - link "Finance" [ref=e75] [cursor=pointer]:
+              - /url: /finance
+              - img [ref=e76]
+              - generic [ref=e79]: Finance
+            - link "Payouts" [ref=e80] [cursor=pointer]:
+              - /url: /payouts
+              - img [ref=e81]
+              - generic [ref=e84]: Payouts
+            - link "Notifications" [ref=e85] [cursor=pointer]:
+              - /url: /notifications
+              - img [ref=e86]
+              - generic [ref=e89]: Notifications
+            - link "Support" [ref=e90] [cursor=pointer]:
+              - /url: /support
+              - img [ref=e91]
+              - generic [ref=e93]: Support
+            - link "Analytics" [ref=e94] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e95]
+              - generic [ref=e97]: Analytics
+      - generic [ref=e98]:
+        - generic [ref=e99]:
+          - generic [ref=e100]: AD
+          - generic [ref=e101]:
+            - paragraph [ref=e102]: Admin
+            - paragraph [ref=e103]: admin@cartr.com
+        - button "Sign Out" [ref=e104]:
+          - img [ref=e105]
+          - text: Sign Out
+    - generic [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - heading "Drivers" [level=1] [ref=e111]
+          - paragraph [ref=e112]: Manage and verify driver applications
+        - button "Refresh" [ref=e114]:
+          - img [ref=e115]
+          - text: Refresh
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - img [ref=e122]
+          - textbox "Search by name, phone, email, or vehicle number..." [ref=e125]
+        - generic [ref=e126]:
+          - button "All" [ref=e127]
+          - button "Pending" [ref=e128]
+          - button "Approved" [ref=e129]
+          - button "Rejected" [active] [ref=e130]
+          - button "Resubmissions" [ref=e131]
+      - generic [ref=e133]: No drivers found matching your criteria.
+  - button "Open Next.js Dev Tools" [ref=e139] [cursor=pointer]:
+    - img [ref=e140]
+  - alert [ref=e143]
+```
