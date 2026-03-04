@@ -63,6 +63,7 @@ const InvoiceScreen = () => {
         await Sharing.shareAsync(pdfUri, {
           mimeType: "application/pdf",
           dialogTitle: `Share Invoice ${invoice.invoice_number}`,
+          UTI: "com.adobe.pdf",
         });
       } else {
         // Fallback for platforms where expo-sharing isn't available

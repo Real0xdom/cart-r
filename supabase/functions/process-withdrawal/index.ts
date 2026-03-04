@@ -18,9 +18,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const payoutsAppId = Deno.env.get('CASHFREE_PG_APP_ID') || Deno.env.get('CASHFREE_APP_ID')
-    const payoutsSecretKey = Deno.env.get('CASHFREE_PG_SECRET_KEY') || Deno.env.get('CASHFREE_SECRET_KEY')
-    const payoutsEnv = Deno.env.get('CASHFREE_PG_ENV') || Deno.env.get('CASHFREE_ENV') || 'sandbox'
+    // Cashfree Payouts credentials - try multiple variable name formats
+    const payoutsAppId = Deno.env.get('CASHFREE_PAYOUT_APP_ID') || Deno.env.get('CASHFREE_PG_APP_ID')
+    const payoutsSecretKey = Deno.env.get('CASHFREE_PAYOUT_SECRET_KEY') || Deno.env.get('CASHFREE_PG_SECRET_KEY')
+    const payoutsEnv = Deno.env.get('CASHFREE_ENV') || Deno.env.get('CASHFREE_PG_ENV') || Deno.env.get('CASHFREE_ENVIRONMENT') || 'sandbox'
 
     const supabase = createClient(supabaseUrl, supabaseKey)
     const { withdrawal_id } = await req.json()
@@ -83,44 +84,121 @@ serve(async (req) => {
       )
     }
 
-    // Initiate payout via Cashfree
+    // Initiate payout via Cashfree Payouts V2 API
+    // V2 API uses direct client-id/secret authentication (no /authorize needed)
     const baseUrl = payoutsEnv === 'production'
-      ? 'https://payout-api.cashfree.com'
-      : 'https://payout-gamma.cashfree.com'
+      ? 'https://api.cashfree.com'
+      : 'https://sandbox.cashfree.com'
 
     const transferId = `CARTR_WD_${withdrawal_id.substring(0, 8)}_${Date.now()}`
 
+    console.log('Initiating payout with V2 API:', transferId, 'Amount:', withdrawal.amount, 'BeneId:', driver.beneficiary_id)
+
+    // Generate RSA signature for V2 API authentication
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    
+    // Read the public key from the PEM file (for signature generation)
+    const publicKeyPem = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzMg9C1Kcf1/RjfKq2O7S
+fgaVvwxE76wq9mlYku7Gp4Z4iyrFRmnaEPqPW/+6MfPJn6Yj8GkTNsnrg1gK1C79
+sOCb4wc3kAcHlTT5QIdgxQ04tCAYPPMBJ242dpBWlFxe/dVY700bZRTmtf1vwTLo
+q8zOuE819Ei0DFdxao92GeaKznWQR8wRDk+LswKIjYKY3mXrJfh1jVZB0uFbed8p
+Avbgiq+5HX5tihKUeD90j1t8dMHVq/oZtHL4Xcc1dNstFK1UWwFpef8taWlfIz8o
+rz38ws0JnIHlljJYf5H5bwT1yhiMKiHfdFbnoZ+wv9oXRuvhi/FuBq3YXUDm8MLX
+AQIDAQAB
+-----END PUBLIC KEY-----`
+    
+    // Import the public key
+    const pemContents = publicKeyPem
+      .replace('-----BEGIN PUBLIC KEY-----', '')
+      .replace('-----END PUBLIC KEY-----', '')
+      .replace(/\s/g, '')
+    
+    const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0))
+    
+    const publicKey = await crypto.subtle.importKey(
+      'spki',
+      binaryDer,
+      {
+        name: 'RSA-OAEP',
+        hash: 'SHA-1',
+      },
+      false,
+      ['encrypt']
+    )
+    
+    // Create the signature string: clientId.timestamp
+    const signatureString = `${payoutsAppId}.${timestamp}`
+    const encoder = new TextEncoder()
+    const data = encoder.encode(signatureString)
+    
+    // Encrypt with RSA-OAEP
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      {
+        name: 'RSA-OAEP',
+      },
+      publicKey,
+      data
+    )
+    
+    // Base64 encode the encrypted result
+    const encryptedArray = new Uint8Array(encryptedBuffer)
+    const signature = btoa(String.fromCharCode(...encryptedArray))
+    
+    console.log('Generated signature for timestamp:', timestamp)
+
+    // V2 Transfer payload
     const payoutPayload = {
-      bene_id: driver.beneficiary_id,
-      amount: String(withdrawal.amount),
       transfer_id: transferId,
+      transfer_amount: withdrawal.amount,
       transfer_mode: 'banktransfer',
-      remarks: `CartR driver payout - Withdrawal #${withdrawal_id.substring(0, 8)}`,
+      beneficiary_details: {
+        beneficiary_id: driver.beneficiary_id
+      },
+      transfer_remarks: 'CartR driver payout'
     }
 
-    console.log('Initiating payout:', transferId, 'Amount:', withdrawal.amount)
+    console.log('Transfer payload:', JSON.stringify(payoutPayload, null, 2))
 
-    const cfResponse = await fetch(`${baseUrl}/payout/v1/requestTransfer`, {
+    // Call Cashfree Payouts V2 Transfer API with signature
+    const cfResponse = await fetch(`${baseUrl}/payout/transfers`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Client-Id': payoutsAppId,
-        'X-Client-Secret': payoutsSecretKey,
+        'x-client-id': payoutsAppId,
+        'x-client-secret': payoutsSecretKey,
+        'x-cf-signature': signature,
+        'x-api-version': '2024-01-01',
       },
       body: JSON.stringify(payoutPayload),
     })
 
     const cfResult = await cfResponse.json()
-    console.log('Cashfree payout response:', cfResult)
+    console.log('Cashfree V2 payout response:', JSON.stringify(cfResult, null, 2))
 
-    if (cfResponse.ok || cfResult?.subCode === '200') {
+    // Check if transfer was successful
+    // V2 API returns status: RECEIVED (pending), SUCCESS, FAILED, REVERSED
+    // RECEIVED means Cashfree accepted the transfer for processing
+    const validStatuses = ['RECEIVED', 'SUCCESS', 'PENDING']
+    const transferStatus = cfResult.status || cfResult.status_code
+    
+    if (cfResponse.ok && validStatuses.includes(transferStatus)) {
       // Transfer initiated successfully
+      const referenceId = cfResult.cf_transfer_id || cfResult.transfer_id || transferId
+      
+      console.log('Transfer successful:', { 
+        referenceId, 
+        status: transferStatus,
+        description: cfResult.status_description 
+      })
+      
       await supabase
         .from('withdrawals')
         .update({
-          payout_reference: transferId,
-          payout_status: 'INITIATED',
-          status: 'completed', // Mark as completed so it no longer blocks the driver
+          payout_reference: referenceId,
+          payout_status: transferStatus,
+          status: 'paid',
+          processed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', withdrawal_id)
@@ -136,18 +214,23 @@ serve(async (req) => {
         JSON.stringify({
           success: true,
           mode: 'automatic',
-          transfer_id: transferId,
-          message: 'Bank transfer initiated via Cashfree',
+          transfer_id: referenceId,
+          transfer_status: transferStatus,
+          message: cfResult.status_description || 'Bank transfer initiated via Cashfree V2',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     } else {
       // Payout failed
+      const errorMessage = cfResult.status_description || cfResult.message || cfResult.error?.message || 'Transfer failed'
+      
+      console.error('Transfer failed:', errorMessage)
+      
       await supabase
         .from('withdrawals')
         .update({
-          payout_reference: transferId,
-          payout_status: 'FAILED',
+          payout_reference: cfResult.cf_transfer_id || transferId,
+          payout_status: transferStatus || 'FAILED',
           payout_error: JSON.stringify(cfResult),
           updated_at: new Date().toISOString(),
         })
@@ -156,8 +239,9 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: 'Cashfree payout failed',
+          message: errorMessage,
           details: cfResult,
-          transfer_id: transferId,
+          transfer_id: cfResult.cf_transfer_id || transferId,
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )

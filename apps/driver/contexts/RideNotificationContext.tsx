@@ -188,13 +188,17 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
                const { data: booking } = await getBookingById(bookingId);
                if (booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
                   console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
-                  router.push(`/ride/${bookingId}`);
+                  // Use a timeout to ensure router is ready, especially on cold start
+                  setTimeout(() => {
+                    router.push(`/ride/${bookingId}`);
+                  }, 0);
                } else {
                   await acceptRide(bookingId);
                }
             } else if (pressAction.id === 'decline_ride') {
-              // If declined in background, we might not need to do anything, but calling it is safe
-              await declineRide(bookingId);
+              // Cancel pressed from killed state — do nothing, just cancel the notification.
+              // We do NOT persist this to the backend so other drivers can still see the booking.
+              console.log('[NOTIFICATION CONTEXT] Decline from killed state — notification dismissed, no action taken.');
             }
           }
           

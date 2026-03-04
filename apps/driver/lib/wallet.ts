@@ -96,3 +96,35 @@ export async function getPlatformSetting(key: string): Promise<{ data: any | nul
     return { data: null, error };
   }
 }
+
+export interface WithdrawalRequest {
+  id: string;
+  driver_id: string;
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected' | 'paid' | 'failed' | 'reversed';
+  payout_reference: string | null;
+  payout_status: string | null;
+  payout_error: string | null;
+  notes: string | null;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at: string | null;
+}
+
+export async function getDriverWithdrawals(driverId: string, limit = 20): Promise<{ data: WithdrawalRequest[] | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('withdrawals')
+      .select('*')
+      .eq('driver_id', driverId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    
+    if (error) throw error;
+    return { data: data as WithdrawalRequest[], error: null };
+  } catch (error: any) {
+    console.error('Error fetching withdrawals:', error);
+    return { data: null, error };
+  }
+}

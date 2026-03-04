@@ -8,6 +8,7 @@ import { getDriverWalletInfo, requestWithdrawal, getPlatformSetting, WalletInfo 
 import { getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import WithdrawalHistory from '@/components/WithdrawalHistory';
 
 const { width } = Dimensions.get('window');
 
@@ -48,11 +49,13 @@ const DriverEarnings = () => {
     const [payoutSettings, setPayoutSettings] = useState<any>(null);
     const [trips, setTrips] = useState<Booking[]>([]);
     const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');
+    const [activeTab, setActiveTab] = useState<'earnings' | 'history'>('earnings');
     
     // UI states
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -136,9 +139,10 @@ const DriverEarnings = () => {
         setIsSubmitting(false);
 
         if (success) {
-            Alert.alert(t('success') || 'Success', t('withdrawalRequestedSuccess') || 'Withdrawal requested successfully');
             setShowWithdrawModal(false);
             setWithdrawAmount('');
+            // Show success modal instead of alert
+            setTimeout(() => setShowSuccessModal(true), 300);
             fetchData();
         } else {
             Alert.alert(t('error') || 'Error', error || t('withdrawalRequestFailed') || 'Withdrawal request failed');
@@ -223,7 +227,7 @@ const DriverEarnings = () => {
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22c55e" />
                 }
             >
-                {/* Header Context */}
+                {/* Balance Card */}
                 <View className="p-5 flex-row justify-between items-center bg-green-500 rounded-b-3xl mb-6">
                     <View>
                         <Text className="text-white text-3xl font-JakartaBold mb-1">
@@ -238,18 +242,59 @@ const DriverEarnings = () => {
                     </View>
                     
                     <TouchableOpacity 
-                        onPress={() => setShowWithdrawModal(true)}
-                        disabled={!wallet || wallet.available_balance <= 0 || wallet.pending_withdrawals > 0}
+                        onPress={() => {
+                            // Check if balance is available
+                            if (!wallet || wallet.available_balance <= 0) {
+                                Alert.alert('No Balance', 'You have no available balance to withdraw.');
+                                return;
+                            }
+                            
+                            // Check if there are pending withdrawals
+                            if ((wallet.pending_withdrawals || 0) > 0) {
+                                Alert.alert(
+                                    'Pending Withdrawal',
+                                    'You already have a pending withdrawal request. Please wait for it to be processed before requesting another.',
+                                    [{ text: 'OK' }]
+                                );
+                                return;
+                            }
+                            
+                            // Check if bank details are added
+                            if (!wallet.bank_details || !wallet.bank_details.account_number) {
+                                Alert.alert(
+                                    'Bank Account Required',
+                                    'Please add your bank account details first to enable withdrawals.',
+                                    [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        { text: 'Add Bank', onPress: () => router.push('/profile/bank') }
+                                    ]
+                                );
+                                return;
+                            }
+                            
+                            // Check if bank KYC is verified
+                            if (wallet.verification_status !== 'approved') {
+                                Alert.alert(
+                                    'KYC Verification Required',
+                                    'Your bank account is pending verification. Please wait for admin approval or contact support.',
+                                    [{ text: 'OK' }]
+                                );
+                                return;
+                            }
+                            
+                            // All checks passed - show withdrawal modal
+                            setShowWithdrawModal(true);
+                        }}
                         className={`py-2 px-4 rounded-xl flex-row items-center justify-center gap-2 ${
-                            (!wallet || wallet.available_balance <= 0 || wallet.pending_withdrawals > 0) 
+                            (!wallet || wallet.available_balance <= 0 || (wallet.pending_withdrawals || 0) > 0) 
                             ? 'bg-green-600/50' 
                             : 'bg-white'
                         }`}
                     >
                         <Text className={`font-JakartaBold ${
-                            (!wallet || wallet.available_balance <= 0 || wallet.pending_withdrawals > 0) ? 'text-green-100/50' : 'text-green-600'
+                            (!wallet || wallet.available_balance <= 0 || (wallet.pending_withdrawals || 0) > 0) ? 'text-green-100/70' : 'text-green-600'
                         }`}>
-                            {t('withdraw') || 'Withdraw'}
+                            {(wallet?.pending_withdrawals || 0) > 0 ? '⏳ Pending...' : (t('withdraw') || 'Withdraw')}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -289,6 +334,32 @@ const DriverEarnings = () => {
                     ))}
                 </View>
 
+                {/* Tab Selector */}
+                <View className="flex-row mx-5 bg-gray-100 rounded-xl p-1 mb-6">
+                    <TouchableOpacity
+                        onPress={() => setActiveTab('earnings')}
+                        className={`flex-1 py-3 rounded-lg ${activeTab === 'earnings' ? 'bg-green-500' : ''}`}
+                    >
+                        <Text className={`text-center font-JakartaSemiBold ${activeTab === 'earnings' ? 'text-white' : 'text-gray-600'}`}>
+                            {t('earnings') || 'Earnings'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => setActiveTab('history')}
+                        className={`flex-1 py-3 rounded-lg ${activeTab === 'history' ? 'bg-green-500' : ''}`}
+                    >
+                        <Text className={`text-center font-JakartaSemiBold ${activeTab === 'history' ? 'text-white' : 'text-gray-600'}`}>
+                            {t('history') || 'Withdrawals'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Content based on active tab */}
+                {activeTab === 'history' ? (
+                    <WithdrawalHistory driverId={driverProfile?.id || ''} />
+                ) : (
+                    <>
+                        {/* Earnings content */}
                 {/* Total Earnings Card */}
                 <View className="mx-5 bg-green-50 border border-green-200 rounded-2xl p-6 mb-6">
                     <Text className="text-green-700 text-sm mb-1">{t('totalEarningsPeriod') || 'Earnings'} ({t(period) || period})</Text>
@@ -353,9 +424,17 @@ const DriverEarnings = () => {
                                                 {isCash ? 'Cash / UPI' : 'Wallet / Online'}
                                             </Text>
                                         </View>
-                                        <Text className="text-[10px] text-gray-500 italic">
-                                            {isCash ? 'Already collected by you' : 'Credited to wallet'}
-                                        </Text>
+                                        <View className="flex-row items-center">
+                                            <Text className="text-[10px] text-gray-500 italic mr-3">
+                                                {isCash ? 'Already collected by you' : 'Credited to wallet'}
+                                            </Text>
+                                            <TouchableOpacity 
+                                                onPress={() => router.push(`/(stack)/invoice?bookingId=${trip.id}` as any)}
+                                                className="bg-gray-100 px-2 py-1 rounded"
+                                            >
+                                                <Text className="text-blue-500 text-xs font-JakartaMedium">{t('viewInvoice') || 'Invoice'}</Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
                                 </View>
                             );
@@ -367,6 +446,8 @@ const DriverEarnings = () => {
                         </View>
                     )}
                 </View>
+                    </>
+                )}
             </ScrollView>
 
             {/* Withdrawal Modal */}
@@ -418,6 +499,61 @@ const DriverEarnings = () => {
                             ) : (
                                 <Text className="text-white text-lg font-JakartaBold">Confirm Withdrawal</Text>
                             )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Success Modal */}
+            <Modal
+                visible={showSuccessModal}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowSuccessModal(false)}
+            >
+                <View className="flex-1 justify-center items-center bg-black/50 px-6">
+                    <View className="bg-white rounded-3xl p-8 w-full max-w-sm items-center">
+                        {/* Success Icon */}
+                        <View className="bg-green-100 rounded-full p-4 mb-4">
+                            <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
+                        </View>
+                        
+                        {/* Success Message */}
+                        <Text className="text-2xl font-JakartaBold text-gray-900 mb-2 text-center">
+                            Withdrawal Requested!
+                        </Text>
+                        <Text className="text-gray-600 text-center mb-6 font-JakartaMedium leading-relaxed">
+                            Your withdrawal request has been submitted successfully. The amount will be transferred to your bank account within 1-2 business days after approval.
+                        </Text>
+
+                        {/* Amount Display */}
+                        <View className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6 w-full">
+                            <Text className="text-gray-600 text-sm text-center mb-1">Withdrawal Amount</Text>
+                            <Text className="text-3xl font-JakartaBold text-green-600 text-center">
+                                ₹{Number(withdrawAmount).toLocaleString()}
+                            </Text>
+                        </View>
+
+                        {/* Action Buttons */}
+                        <TouchableOpacity
+                            onPress={() => {
+                                setShowSuccessModal(false);
+                                setActiveTab('history');
+                            }}
+                            className="w-full bg-green-500 py-4 rounded-xl mb-3"
+                        >
+                            <Text className="text-white text-center font-JakartaBold text-base">
+                                View Withdrawal History
+                            </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            onPress={() => setShowSuccessModal(false)}
+                            className="w-full py-3"
+                        >
+                            <Text className="text-gray-600 text-center font-JakartaSemiBold">
+                                Close
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </View>

@@ -69,8 +69,28 @@ export default function BankDetails() {
   };
 
   const saveBankDetails = async () => {
+    // Validate required fields
     if (!bankDetails.account_number || !bankDetails.ifsc_code || !bankDetails.account_holder_name) {
         Alert.alert(t('error'), t('pleaseFillAllFields'));
+        return;
+    }
+
+    // Validate IFSC format (11 characters: 4 letters + 0 + 6 alphanumeric)
+    const ifscPattern = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+    if (!ifscPattern.test(bankDetails.ifsc_code.toUpperCase())) {
+        Alert.alert(
+            t('error'), 
+            'Invalid IFSC code format. IFSC should be 11 characters (e.g., HDFC0001234).\n\nFormat: 4 letters + 0 + 6 characters'
+        );
+        return;
+    }
+
+    // Validate account number (typically 9-18 digits)
+    if (bankDetails.account_number.length < 9 || bankDetails.account_number.length > 18) {
+        Alert.alert(
+            t('error'), 
+            'Account number should be between 9 and 18 digits'
+        );
         return;
     }
 
@@ -92,18 +112,40 @@ export default function BankDetails() {
             body: { driver_id: driverProfile?.id }
         });
 
+        console.log('Edge function response:', data); // Log full response
+
         if (funcError) throw funcError;
         
-        if (data && data.error) {
-            Alert.alert(t('error') || 'Error', data.error || 'Failed to register bank for payouts');
+        if (data && (data.error || !data.success)) {
+            // Use the human-readable `message` the edge function now returns
+            const errorMessage = data.message || data.error || 'Failed to register bank for payouts';
+            
+            // Show Cashfree response for debugging
+            console.error('Cashfree error:', data.cashfree_response);
+            
+            // Provide user-friendly error messages based on Cashfree error codes
+            let userMessage = errorMessage;
+            if (data.cashfree_response?.code === 'bank_ifsc_invalid') {
+                userMessage = 'The IFSC code you entered is not recognized by the bank. Please verify your IFSC code and try again.\n\nYou can find your IFSC code on your bank passbook or cheque.';
+            } else if (data.cashfree_response?.code === 'bank_account_invalid') {
+                userMessage = 'The account number appears to be invalid. Please check and try again.';
+            } else if (data.cashfree_response?.code === 'beneficiary_already_exists') {
+                userMessage = 'This bank account is already registered.';
+            }
+            
+            Alert.alert(t('error') || 'Error', userMessage);
         } else {
+            // Show success with Cashfree response
+            console.log('Cashfree success:', data.cashfree_response);
             Alert.alert(t('success'), t('bankDetailsSaved'));
             setIsEditing(false);
             fetchData(); // Refresh UI
         }
     } catch (err: any) {
         console.error('Error creating beneficiary:', err);
-        Alert.alert(t('error') || 'Error', err.message || 'Failed to register bank for payouts');
+        // Sometimes the edge function throws an error with a context object
+        const errorMessage = err?.context?.message || err.message || 'Failed to register bank for payouts';
+        Alert.alert(t('error') || 'Error', errorMessage);
     } finally {
         setIsLoading(false);
     }
@@ -178,8 +220,8 @@ export default function BankDetails() {
               />
               <TouchableOpacity
                 onPress={handleWithdraw}
-                disabled={isWithdrawing || balance <= 0}
-                className={`p-3 rounded-r-xl w-24 items-center justify-center ${balance > 0 ? 'bg-green-600' : 'bg-gray-600'}`}
+                disabled={isWithdrawing || balance <= 0 || !amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || parseFloat(amount) > balance}
+                className={`p-3 rounded-r-xl w-24 items-center justify-center ${(balance > 0 && amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && parseFloat(amount) <= balance) ? 'bg-green-600' : 'bg-gray-400'}`}
               >
                   {isWithdrawing ? (
                       <ActivityIndicator size="small" color="#fff" />
@@ -188,6 +230,9 @@ export default function BankDetails() {
                   )}
               </TouchableOpacity>
           </View>
+          {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > balance && (
+              <Text className="text-red-500 text-xs mt-2">{t('insufficientBalance')}</Text>
+          )}
         </View>
 
         {/* Bank Account Section */}
@@ -229,18 +274,26 @@ export default function BankDetails() {
                         placeholder="e.g. 1234567890"
                         placeholderTextColor="#999"
                         keyboardType="numeric"
+                        maxLength={18}
                     />
+                    <Text className="text-gray-400 text-xs mt-1">
+                        9-18 digits
+                    </Text>
                 </View>
                 <View>
                     <Text className="text-gray-400 text-xs mb-1">{t('ifscCode')}</Text>
                     <TextInput
                         value={bankDetails.ifsc_code}
-                        onChangeText={(val) => setBankDetails({...bankDetails, ifsc_code: val})}
+                        onChangeText={(val) => setBankDetails({...bankDetails, ifsc_code: val.toUpperCase()})}
                         className="bg-gray-50 p-3 rounded-xl text-gray-900 border border-gray-200"
                         placeholder="e.g. HDFC0001234"
                         placeholderTextColor="#999"
                         autoCapitalize="characters"
+                        maxLength={11}
                     />
+                    <Text className="text-gray-400 text-xs mt-1">
+                        11 characters: 4 letters + 0 + 6 alphanumeric
+                    </Text>
                 </View>
                 <TouchableOpacity 
                     onPress={saveBankDetails}

@@ -289,6 +289,12 @@ const CollectPayment = () => {
     const handleShowQR = async () => {
         if (!booking || qrLoading) return;
         
+        // If we already have a QR URL, just show it without re-fetching
+        if (qrPageUrl) {
+            setShowQr(true);
+            return;
+        }
+        
         setQrLoading(true);
         try {
             const { data, error } = await supabase.functions.invoke('create-upi-qr', {
@@ -315,7 +321,7 @@ const CollectPayment = () => {
 
     // Poll payment status while QR is shown
     useEffect(() => {
-        if (!showQr || !bookingId || qrPaid) return;
+        if (!showQr || !bookingId || !qrPageUrl || qrPaid) return;
         
         const pollInterval = setInterval(async () => {
             try {
@@ -332,7 +338,7 @@ const CollectPayment = () => {
         }, 3000); // Poll every 3 seconds
         
         return () => clearInterval(pollInterval);
-    }, [showQr, bookingId, qrPaid]);
+    }, [showQr, bookingId, qrPaid, qrPageUrl]);
 
     // Trigger push notification to sender
     const requestOnlinePayment = async () => {
@@ -537,7 +543,7 @@ const CollectPayment = () => {
                                         isPolling={showQr && !qrPaid}
                                     />
                                     
-                                    {/* Hide QR */}
+                            {/* Hide QR - only hides view, keeps URL cached for re-show */}
                                     {!qrPaid && (
                                         <TouchableOpacity
                                             onPress={() => setShowQr(false)}

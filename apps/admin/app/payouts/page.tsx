@@ -184,6 +184,42 @@ export default function PayoutsPage() {
     }
   }
 
+  async function handleCheckStatus(withdrawalId: string) {
+    setActionLoading(withdrawalId);
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/check-transfer-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({ withdrawal_id: withdrawalId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to check status');
+      }
+
+      const result = data.results?.[0];
+      if (result?.updated) {
+        toast.success(`Status updated: ${result.old_status} → ${result.new_status}`);
+      } else {
+        toast.success(`Status: ${result?.status || 'No change'}`);
+      }
+      
+      fetchWithdrawals();
+    } catch (error: any) {
+      toast.error('Failed to check status: ' + error.message);
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   const fmt = (n: number) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 0 });
 
   const getStatusBadge = (status: string) => {
@@ -192,11 +228,32 @@ export default function PayoutsPage() {
       approved: { bg: 'bg-blue-100', text: 'text-blue-800', icon: <ArrowUpRight size={14} /> },
       paid: { bg: 'bg-green-100', text: 'text-green-800', icon: <CheckCircle size={14} /> },
       rejected: { bg: 'bg-red-100', text: 'text-red-800', icon: <XCircle size={14} /> },
+      failed: { bg: 'bg-red-100', text: 'text-red-800', icon: <XCircle size={14} /> },
+      reversed: { bg: 'bg-orange-100', text: 'text-orange-800', icon: <XCircle size={14} /> },
     };
     const s = map[status] || map.pending;
     return (
       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${s.bg} ${s.text}`}>
         {s.icon} {status.toUpperCase()}
+      </span>
+    );
+  };
+
+  const getPayoutStatusBadge = (payoutStatus: string | null) => {
+    if (!payoutStatus) return <span className="text-gray-300">—</span>;
+    
+    const map: Record<string, { bg: string; text: string }> = {
+      RECEIVED: { bg: 'bg-blue-50', text: 'text-blue-700' },
+      PENDING: { bg: 'bg-yellow-50', text: 'text-yellow-700' },
+      SUCCESS: { bg: 'bg-green-50', text: 'text-green-700' },
+      FAILED: { bg: 'bg-red-50', text: 'text-red-700' },
+      ERROR: { bg: 'bg-red-50', text: 'text-red-700' },
+      REVERSED: { bg: 'bg-orange-50', text: 'text-orange-700' },
+    };
+    const s = map[payoutStatus] || { bg: 'bg-gray-50', text: 'text-gray-700' };
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${s.bg} ${s.text}`}>
+        {payoutStatus}
       </span>
     );
   };
@@ -323,10 +380,13 @@ export default function PayoutsPage() {
                     <td className="py-3 px-4">
                       {w.payout_reference ? (
                         <div>
-                          <div className="text-xs font-mono text-gray-500">{w.payout_reference}</div>
-                          <div className={`text-xs font-bold ${w.payout_status === 'INITIATED' ? 'text-blue-600' : w.payout_status === 'FAILED' ? 'text-red-600' : 'text-gray-500'}`}>
-                            {w.payout_status || '—'}
-                          </div>
+                          <div className="text-xs font-mono text-gray-500 mb-1">{w.payout_reference}</div>
+                          {getPayoutStatusBadge(w.payout_status)}
+                          {w.payout_error && (
+                            <div className="text-xs text-red-500 mt-1" title={w.payout_error}>
+                              Error: {w.payout_error.substring(0, 30)}...
+                            </div>
+                          )}
                         </div>
                       ) : <span className="text-gray-300">—</span>}
                     </td>
@@ -357,6 +417,15 @@ export default function PayoutsPage() {
                             className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1"
                           >
                             <Banknote size={14} /> Mark Paid
+                          </button>
+                        )}
+                        {(w.payout_status === 'RECEIVED' || w.payout_status === 'PENDING' || w.payout_status === 'ERROR' || w.status === 'paid') && (
+                          <button
+                            onClick={() => handleCheckStatus(w.id)}
+                            disabled={actionLoading === w.id}
+                            className="px-3 py-1.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-lg hover:bg-purple-200 disabled:opacity-50 transition-colors flex items-center gap-1"
+                          >
+                            <RefreshCw size={14} /> Check Status
                           </button>
                         )}
                       </div>
