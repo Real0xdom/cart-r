@@ -75,7 +75,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
 
   if (!booking) return null;
 
-  const fareAmount = booking.driver_payout || booking.total_fare;
+  const fareAmount = booking.total_fare;
   const hasIncreasedFare = (booking.tip_amount && booking.tip_amount > 0) || (booking.fare_multiplier && booking.fare_multiplier > 1);
   const addons = booking.booking_addons?.filter(ba => ba.addon_services) ?? [];
   const hasAddons = addons.length > 0;

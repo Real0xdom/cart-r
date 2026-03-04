@@ -36,9 +36,9 @@ const CollectPayment = () => {
     // UPI QR State
     const [showQr, setShowQr] = useState(false);
     const [qrLoading, setQrLoading] = useState(false);
-    const [qrSessionId, setQrSessionId] = useState('');
+    const [qrPageUrl, setQrPageUrl] = useState('');
     const [qrAmount, setQrAmount] = useState(0);
-    const [qrEnvironment, setQrEnvironment] = useState<'sandbox' | 'production'>('sandbox');
+    const [qrPaid, setQrPaid] = useState(false);
 
     // SMS is now sent automatically by the backend edge function
     // No manual SMS sending needed
@@ -108,6 +108,7 @@ const CollectPayment = () => {
             
             setBooking(updatedBooking);
             if (updatedBooking.payment_status === 'paid') {
+                 setQrPaid(true);
                  Alert.alert('Payment Received! 💰', 'The payment has been confirmed online.');
             }
         });
@@ -295,13 +296,13 @@ const CollectPayment = () => {
             });
             
             if (error) throw error;
-            if (!data || !data.payment_session_id) {
+            if (!data || !data.qr_page_url) {
                 throw new Error(data?.error || 'Failed to generate QR code');
             }
             
-            setQrSessionId(data.payment_session_id);
+            setQrPageUrl(data.qr_page_url);
             setQrAmount(data.amount);
-            setQrEnvironment(data.environment || 'sandbox');
+            setQrPaid(false);
             setShowQr(true);
             
         } catch (err: any) {
@@ -311,6 +312,27 @@ const CollectPayment = () => {
             setQrLoading(false);
         }
     };
+
+    // Poll payment status while QR is shown
+    useEffect(() => {
+        if (!showQr || !bookingId || qrPaid) return;
+        
+        const pollInterval = setInterval(async () => {
+            try {
+                const { data } = await getBookingById(bookingId);
+                if (data && (data.payment_status === 'paid' || data.payment_status === 'completed')) {
+                    setQrPaid(true);
+                    setBooking(data);
+                    clearInterval(pollInterval);
+                    Alert.alert('Payment Received! 💰', `₹${qrAmount} has been paid successfully.`);
+                }
+            } catch (e) {
+                console.log('[QR Poll] Error checking payment status:', e);
+            }
+        }, 3000); // Poll every 3 seconds
+        
+        return () => clearInterval(pollInterval);
+    }, [showQr, bookingId, qrPaid]);
 
     // Trigger push notification to sender
     const requestOnlinePayment = async () => {
@@ -509,18 +531,21 @@ const CollectPayment = () => {
                                 <View className="items-center">
                                     {/* UPI QR Display */}
                                     <UpiQrView
-                                        paymentSessionId={qrSessionId}
-                                        environment={qrEnvironment}
+                                        qrUrl={qrPageUrl}
                                         amount={qrAmount}
+                                        isPaid={qrPaid}
+                                        isPolling={showQr && !qrPaid}
                                     />
                                     
                                     {/* Hide QR */}
-                                    <TouchableOpacity
-                                        onPress={() => setShowQr(false)}
-                                        className="mt-3 py-2 px-4"
-                                    >
-                                        <Text className="text-gray-500 text-xs font-JakartaMedium">Hide QR Code</Text>
-                                    </TouchableOpacity>
+                                    {!qrPaid && (
+                                        <TouchableOpacity
+                                            onPress={() => setShowQr(false)}
+                                            className="mt-3 py-2 px-4"
+                                        >
+                                            <Text className="text-gray-500 text-xs font-JakartaMedium">Hide QR Code</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                             )}
                         </View>

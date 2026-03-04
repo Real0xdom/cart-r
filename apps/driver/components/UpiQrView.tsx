@@ -1,190 +1,89 @@
 // UPI QR View Component
-// Renders a Cashfree UPI QR code inside a WebView for the driver to show to customers.
-// The customer scans the QR with any UPI app (GPay, PhonePe, etc.)
+// Renders a native QR code for the Cashfree checkout URL.
+// Customer scans with their phone camera → opens payment page → pays.
+// Payment confirmation comes via Cashfree webhook → updates booking → real-time subscription picks it up.
 
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 
-// Only load WebView on native platforms
-let WebView: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    WebView = require('react-native-webview').default;
-  } catch (e) {
-    console.log('[UpiQrView] WebView not available');
-  }
+// Import QR code component (works in Expo Go and dev builds)
+let QRCode: any = null;
+try {
+  QRCode = require('react-native-qrcode-svg').default;
+} catch (e) {
+  console.log('[UpiQrView] QRCode library not available:', e);
 }
 
 interface UpiQrViewProps {
-  paymentSessionId: string;
-  environment: 'sandbox' | 'production';
+  /** The URL to encode in the QR code (checkout page URL) */
+  qrUrl: string;
+  /** Amount to display above the QR */
   amount: number;
+  /** Whether payment has been received */
+  isPaid?: boolean;
+  /** Whether we're waiting for payment confirmation */
+  isPolling?: boolean;
 }
 
-const UpiQrView: React.FC<UpiQrViewProps> = ({ paymentSessionId, environment, amount }) => {
-  if (!WebView) {
+const UpiQrView: React.FC<UpiQrViewProps> = ({ qrUrl, amount, isPaid = false, isPolling = false }) => {
+  if (isPaid) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>QR display requires WebView</Text>
+        <View style={styles.successCard}>
+          <Text style={styles.successIcon}>✅</Text>
+          <Text style={styles.successTitle}>Payment Received!</Text>
+          <Text style={styles.successAmount}>₹{amount}</Text>
+        </View>
       </View>
     );
   }
 
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-        <title>UPI QR Payment</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            background: #f8fafc;
-            padding: 20px;
-          }
-          .amount {
-            font-size: 28px;
-            font-weight: 800;
-            color: #16a34a;
-            margin-bottom: 8px;
-          }
-          .subtitle {
-            font-size: 14px;
-            color: #6b7280;
-            margin-bottom: 24px;
-          }
-          #qr-mount {
-            background: white;
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 280px;
-            min-height: 280px;
-          }
-          .loading {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
-            color: #6b7280;
-          }
-          .spinner {
-            width: 32px; height: 32px;
-            border: 3px solid #e5e7eb;
-            border-top: 3px solid #16a34a;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-          }
-          @keyframes spin { to { transform: rotate(360deg); } }
-          .hint {
-            font-size: 12px;
-            color: #9ca3af;
-            margin-top: 16px;
-            text-align: center;
-          }
-          .error {
-            color: #ef4444;
-            font-size: 14px;
-            text-align: center;
-          }
-        </style>
-        <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-      </head>
-      <body>
-        <div class="amount">₹${amount}</div>
-        <div class="subtitle">Scan to Pay</div>
-        <div id="qr-mount">
-          <div class="loading">
-            <div class="spinner"></div>
-            <span>Generating QR...</span>
-          </div>
-        </div>
-        <div class="hint">Customer can scan with GPay, PhonePe, Paytm or any UPI app</div>
-        <script>
-          window.onload = function() {
-            try {
-              const cf = Cashfree({ mode: "${environment}" });
-              
-              // Clear loading
-              document.getElementById('qr-mount').innerHTML = '';
-              
-              // Initialize Elements
-              const elements = cf.elements({
-                  paymentSessionId: "${paymentSessionId}"
-              });
-              
-              // Create UPI QR component
-              const upiQr = elements.create('upiQr', {
-                values: {
-                  size: "250px"
-                }
-              });
-              
-              upiQr.mount('#qr-mount');
-              
-              // Await payment success/failure
-              cf.pay({
-                paymentMethod: upiQr,
-                paymentSessionId: "${paymentSessionId}"
-              }).then(function(result) {
-                if (result.error) {
-                  if (window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_FAILED', data: result.error }));
-                  }
-                } else {
-                  document.getElementById('qr-mount').innerHTML = '<div style="color:#16a34a;font-size:18px;font-weight:bold;text-align:center;padding:20px;">✅ Payment Received!</div>';
-                  if (window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAYMENT_SUCCESS', data: result }));
-                  }
-                }
-              });
-            } catch(e) {
-              document.getElementById('qr-mount').innerHTML = '<div class="error">Failed to load QR: ' + e.message + '</div>';
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: e.message }));
-              }
-            }
-          }
-        </script>
-      </body>
-    </html>
-  `;
+  if (!QRCode) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>QR code library not available. Please restart the app.</Text>
+      </View>
+    );
+  }
+
+  if (!qrUrl) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#16a34a" />
+        <Text style={styles.loadingText}>Generating QR Code...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <WebView
-        source={{ html }}
-        style={styles.webview}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        startInLoadingState={true}
-        renderLoading={() => (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#16a34a" />
-            <Text style={styles.loadingText}>Loading QR Code...</Text>
-          </View>
-        )}
-        onMessage={(event: any) => {
-          try {
-            const data = JSON.parse(event.nativeEvent.data);
-            console.log('[UpiQrView] Message from WebView:', data);
-          } catch (e) {
-            console.log('[UpiQrView] Raw message:', event.nativeEvent.data);
-          }
-        }}
-        scrollEnabled={false}
-        bounces={false}
-      />
+      {/* Amount header */}
+      <Text style={styles.amount}>₹{amount}</Text>
+      <Text style={styles.subtitle}>Scan to Pay</Text>
+
+      {/* QR Code */}
+      <View style={styles.qrCard}>
+        <QRCode
+          value={qrUrl}
+          size={220}
+          color="#000"
+          backgroundColor="#fff"
+        />
+      </View>
+
+      {/* Polling indicator */}
+      {isPolling && (
+        <View style={styles.pollingRow}>
+          <ActivityIndicator size="small" color="#3b82f6" />
+          <Text style={styles.pollingText}>Waiting for payment...</Text>
+        </View>
+      )}
+
+      {/* Instructions */}
+      <Text style={styles.hint}>
+        Customer scans this QR with their phone camera{'\n'}
+        Opens payment page in browser → Pays via UPI / Card
+      </Text>
     </View>
   );
 };
@@ -192,21 +91,52 @@ const UpiQrView: React.FC<UpiQrViewProps> = ({ paymentSessionId, environment, am
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    height: 420,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#f8fafc',
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
     backgroundColor: '#f8fafc',
+    borderRadius: 16,
+  },
+  amount: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#16a34a',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 20,
+  },
+  qrCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pollingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  pollingText: {
+    fontSize: 13,
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  hint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 16,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 16,
   },
   loadingText: {
     marginTop: 8,
@@ -218,6 +148,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     padding: 20,
+  },
+  successCard: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  successIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#16a34a',
+    marginBottom: 4,
+  },
+  successAmount: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#16a34a',
   },
 });
 

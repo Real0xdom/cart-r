@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
 
 export interface InvoiceData {
   booking_id: string;
@@ -229,4 +231,20 @@ export function invoiceToHtml(invoice: InvoiceData): string {
 </body>
 </html>
   `.trim();
+}
+
+/**
+ * Generate a PDF file from invoice data and return the file URI.
+ * Uses expo-print to convert HTML → PDF, then renames to a readable filename.
+ */
+export async function generatePdfUri(invoice: InvoiceData): Promise<string> {
+  const html = invoiceToHtml(invoice);
+  const { uri } = await Print.printToFileAsync({ html });
+
+  // Rename to a human-readable filename
+  const safeName = formatInvoiceNumber(invoice.invoice_number).replace(/[^a-zA-Z0-9-]/g, '');
+  const newUri = `${FileSystem.cacheDirectory}${safeName}.pdf`;
+
+  await FileSystem.moveAsync({ from: uri, to: newUri });
+  return newUri;
 }

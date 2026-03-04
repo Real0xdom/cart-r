@@ -68,10 +68,8 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
         }
       }
     } else if (pressAction.id === 'decline_ride') {
-      console.log('[BACKGROUND] Declining ride via background RPC');
-      await supabase.rpc('decline_booking', {
-        p_booking_id: bookingId
-      });
+      // Just dismiss — don't persist decline so other drivers can still see the booking
+      console.log('[BACKGROUND] Decline pressed — dismissing notification only');
     }
 
     if (notification.id) {
@@ -155,12 +153,13 @@ export async function displayFullScreenRideRequest(data: any) {
     type: String(data?.type || 'new_booking'),
   };
 
-  const fare = data?.driver_payout || data?.total_fare || 'N/A';
+  const fare = data?.total_fare || 'N/A';
+  const tipInfo = data?.tip_amount && Number(data.tip_amount) > 0 ? ` (+₹${data.tip_amount} tip)` : '';
   const pickup = data?.origin_address ? String(data.origin_address).substring(0, 50) + '...' : 'Unknown Location';
 
   await notifee.displayNotification({
     title: '🚨 New Ride Request!',
-    body: `₹${fare} • ${pickup}\nTap to accept or decline.`,
+    body: `₹${fare}${tipInfo} • ${pickup}\nTap to accept or decline.`,
     data: dataPayload,
     android: {
       channelId,

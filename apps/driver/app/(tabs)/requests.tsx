@@ -93,7 +93,7 @@ const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking, on
                     </Text>
                 </View>
                 <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
-                    <Text className="text-green-700 font-JakartaBold">₹{request.driver_payout || request.total_fare}</Text>
+                    <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
                 </View>
             </View>
 

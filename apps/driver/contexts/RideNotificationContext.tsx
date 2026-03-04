@@ -2,7 +2,7 @@
 // Global state for showing ride request notifications on any screen
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { acceptBooking, declineBooking, subscribeToAvailableBookings, getBookingById, Booking } from '@/lib/bookings';
+import { acceptBooking, subscribeToAvailableBookings, getBookingById, Booking } from '@/lib/bookings';
 import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
@@ -132,7 +132,9 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
                 await acceptRide(bookingId);
              }
           } else if (pressAction.id === 'decline_ride') {
-            await declineRide(bookingId);
+            // Just dismiss the notification — don't persist decline
+            console.log('[NOTIFICATION CONTEXT] Decline pressed — dismissing notification only');
+            hideNotification();
           }
         }
         
@@ -242,15 +244,12 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
   const declineRide = async (bookingId: string) => {
     if (!bookingId) return;
 
-    console.log('[NOTIFICATION CONTEXT] Declining ride:', bookingId);
+    console.log('[NOTIFICATION CONTEXT] Dismissing ride notification:', bookingId);
     
-    // Hide notification immediately
+    // Just hide notification — don't persist decline so other drivers can still see it
     hideNotification();
-
-    // Persist decline in background
-    await declineBooking(bookingId);
     
-    console.log('[NOTIFICATION CONTEXT] Ride declined');
+    console.log('[NOTIFICATION CONTEXT] Ride notification dismissed');
   };
 
   return (

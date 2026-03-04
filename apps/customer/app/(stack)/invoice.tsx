@@ -10,8 +10,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import * as Sharing from "expo-sharing";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
-import { generateInvoice, getInvoice, invoiceToHtml, InvoiceData } from "@/lib/invoiceUtils";
+import { generateInvoice, getInvoice, generatePdfUri, InvoiceData } from "@/lib/invoiceUtils";
 
 const InvoiceScreen = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -46,83 +47,98 @@ const InvoiceScreen = () => {
     setLoading(false);
   };
 
+  /**
+   * Share invoice as PDF file
+   */
   const handleShare = async () => {
     if (!invoice) return;
 
     setIsSharing(true);
 
     try {
-      // Create shareable text
-      const shareText = `
-Cart-R Invoice
-${invoice.invoice_number}
+      const pdfUri = await generatePdfUri(invoice);
 
-Customer: ${invoice.customer_name}
-Driver: ${invoice.driver_name}
-Vehicle: ${invoice.vehicle_type} - ${invoice.vehicle_number}
-
-From: ${invoice.pickup_address}
-To: ${invoice.dropoff_address}
-
-Total Amount: ₹${invoice.total_amount}
-Payment: ${invoice.payment_method} (${invoice.payment_status})
-
-Thank you for using Cart-R!
-      `.trim();
-
-      await Share.share({
-        message: shareText,
-        title: `Invoice ${invoice.invoice_number}`,
-      });
+      const isSharingAvailable = await Sharing.isAvailableAsync();
+      if (isSharingAvailable) {
+        await Sharing.shareAsync(pdfUri, {
+          mimeType: "application/pdf",
+          dialogTitle: `Share Invoice ${invoice.invoice_number}`,
+        });
+      } else {
+        // Fallback for platforms where expo-sharing isn't available
+        await Share.share({
+          url: pdfUri,
+          title: `Invoice ${invoice.invoice_number}`,
+        });
+      }
     } catch (error: any) {
-      console.error('Error sharing invoice:', error);
-      Alert.alert("Error", "Failed to share invoice");
+      console.error("Error sharing invoice PDF:", error);
+      // Fallback to text share if PDF generation fails
+      try {
+        const shareText = buildShareText(invoice);
+        await Share.share({
+          message: shareText,
+          title: `Invoice ${invoice.invoice_number}`,
+        });
+      } catch (fallbackError) {
+        Alert.alert("Error", "Failed to share invoice");
+      }
     } finally {
       setIsSharing(false);
     }
   };
 
+  /**
+   * Download / save invoice as PDF
+   */
   const handleDownload = async () => {
     if (!invoice) return;
 
     setIsGeneratingPdf(true);
     try {
-      // Load native modules only when needed (avoids crash in Expo Go / dev builds without rebuild)
-      const Print = await import("expo-print");
-      const Sharing = await import("expo-sharing");
-
-      const html = invoiceToHtml(invoice);
-      const { uri } = await Print.printToFileAsync({
-        html,
-        baseUrl: undefined,
-      });
+      const pdfUri = await generatePdfUri(invoice);
 
       const isSharingAvailable = await Sharing.isAvailableAsync();
       if (isSharingAvailable) {
-        await Sharing.shareAsync(uri, {
+        await Sharing.shareAsync(pdfUri, {
           mimeType: "application/pdf",
+          UTI: "com.adobe.pdf",
           dialogTitle: `Save Invoice ${invoice.invoice_number}`,
         });
       } else {
         await Share.share({
-          url: uri,
-          type: "application/pdf",
+          url: pdfUri,
           title: `Invoice ${invoice.invoice_number}`,
         });
       }
     } catch (error: any) {
-      console.warn("PDF not available, falling back to share:", error?.message);
-      // Native module missing (Expo Go / unrebuilt app) or other error — share as text
+      console.error("Error generating PDF:", error);
       Alert.alert(
-        "Download as PDF",
-        "PDF download requires a full app build. Share the invoice as text instead?",
+        "PDF Error",
+        "Could not generate PDF. Would you like to share the invoice as text instead?",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Share invoice", onPress: handleShare },
+          { text: "Share as Text", onPress: () => handleTextShare() },
         ]
       );
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  /**
+   * Fallback: share invoice as plain text
+   */
+  const handleTextShare = async () => {
+    if (!invoice) return;
+    try {
+      const shareText = buildShareText(invoice);
+      await Share.share({
+        message: shareText,
+        title: `Invoice ${invoice.invoice_number}`,
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to share invoice");
     }
   };
 
@@ -194,5 +210,27 @@ Thank you for using Cart-R!
     </SafeAreaView>
   );
 };
+
+/**
+ * Build a plain-text version of the invoice for fallback sharing
+ */
+function buildShareText(invoice: InvoiceData): string {
+  return `
+Cart-R Invoice
+${invoice.invoice_number}
+
+Customer: ${invoice.customer_name}
+Driver: ${invoice.driver_name}
+Vehicle: ${invoice.vehicle_type} - ${invoice.vehicle_number}
+
+From: ${invoice.pickup_address}
+To: ${invoice.dropoff_address}
+
+Total Amount: ₹${invoice.total_amount}
+Payment: ${invoice.payment_method} (${invoice.payment_status})
+
+Thank you for using Cart-R!
+  `.trim();
+}
 
 export default InvoiceScreen;
