@@ -66,11 +66,11 @@ export default function PayoutsPage() {
 
       setWithdrawals(data || []);
 
-      // Calculate stats
+      // Calculate stats - use payout_status as source of truth
       const all = data || [];
       const pending = all.filter((w: Withdrawal) => w.status === 'pending');
       const approved = all.filter((w: Withdrawal) => w.status === 'approved');
-      const paid = all.filter((w: Withdrawal) => w.status === 'paid');
+      const paid = all.filter((w: Withdrawal) => w.payout_status === 'SUCCESS' || w.payout_status === 'RECEIVED' || w.payout_status === 'PENDING');
       
       setStats({
         pendingCount: pending.length,
@@ -372,10 +372,18 @@ export default function PayoutsPage() {
                     <td className="py-3 px-4">
                       <span className="text-xs text-gray-500 font-mono">{maskAccount(w.driver?.bank_details)}</span>
                     </td>
-                    <td className="py-3 px-4">{getStatusBadge(w.status)}</td>
                     <td className="py-3 px-4">
-                      <div className="text-sm text-gray-700">{new Date(w.created_at).toLocaleDateString()}</div>
-                      <div className="text-xs text-gray-400">{new Date(w.created_at).toLocaleTimeString()}</div>
+                      {w.payout_reference ? (
+                        <div>
+                          <div className="text-xs font-mono text-gray-500 mb-1">{w.payout_reference}</div>
+                          {getPayoutStatusBadge(w.payout_status)}
+                          {w.payout_error && (
+                            <div className="text-xs text-red-500 mt-1" title={w.payout_error}>
+                              Error: {w.payout_error.substring(0, 30)}...
+                            </div>
+                          )}
+                        </div>
+                      ) : getStatusBadge(w.status)}
                     </td>
                     <td className="py-3 px-4">
                       {w.payout_reference ? (
@@ -419,7 +427,7 @@ export default function PayoutsPage() {
                             <Banknote size={14} /> Mark Paid
                           </button>
                         )}
-                        {(w.payout_status === 'RECEIVED' || w.payout_status === 'PENDING' || w.payout_status === 'ERROR' || w.status === 'paid') && (
+                        {(w.payout_status === 'RECEIVED' || w.payout_status === 'PENDING' || w.payout_status === 'ERROR' || (w.payout_reference && !w.payout_status)) && (
                           <button
                             onClick={() => handleCheckStatus(w.id)}
                             disabled={actionLoading === w.id}

@@ -81,7 +81,7 @@ serve(async (req) => {
       ? 'https://api.cashfree.com'
       : 'https://sandbox.cashfree.com'
 
-    // Generate RSA signature
+    // Generate RSA signature for V2 API authentication
     const timestamp = Math.floor(Date.now() / 1000).toString()
     
     const publicKeyPem = `-----BEGIN PUBLIC KEY-----
@@ -104,10 +104,7 @@ AQIDAQAB
     const publicKey = await crypto.subtle.importKey(
       'spki',
       binaryDer,
-      {
-        name: 'RSA-OAEP',
-        hash: 'SHA-1',
-      },
+      { name: 'RSA-OAEP', hash: 'SHA-1' },
       false,
       ['encrypt']
     )
@@ -117,15 +114,33 @@ AQIDAQAB
     const data = encoder.encode(signatureString)
     
     const encryptedBuffer = await crypto.subtle.encrypt(
-      {
-        name: 'RSA-OAEP',
-      },
+      { name: 'RSA-OAEP' },
       publicKey,
       data
     )
     
     const encryptedArray = new Uint8Array(encryptedBuffer)
     const signature = btoa(String.fromCharCode(...encryptedArray))
+    
+    console.log('Generated signature for timestamp:', timestamp)
+
+    // Get bearer token for V1 API
+    const authResponse = await fetch(`${baseUrl}/payout/v1/authorize`, {
+      method: 'POST',
+      headers: {
+        'x-client-id': payoutsAppId,
+        'x-client-secret': payoutsSecretKey,
+        'x-cf-signature': signature,
+        'x-cf-timestamp': timestamp,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const authResult = await authResponse.json()
+    console.log('Auth response:', JSON.stringify(authResult))
+    
+    const bearerToken = authResult.data?.token || authResult.token
+    console.log('Got bearer token:', bearerToken ? 'yes' : 'no')
 
     const results = []
 
@@ -134,38 +149,73 @@ AQIDAQAB
       try {
         console.log(`Checking status for: ${withdrawal.payout_reference}`)
         
-        const statusResponse = await fetch(
-          `${baseUrl}/payout/transfers/${withdrawal.payout_reference}`,
+        // Try V2 API first - try cf_transfer_id parameter
+        let statusResponse = await fetch(
+          `${baseUrl}/payout/transfers?cf_transfer_id=${withdrawal.payout_reference}`,
           {
             method: 'GET',
             headers: {
               'x-client-id': payoutsAppId,
               'x-client-secret': payoutsSecretKey,
               'x-cf-signature': signature,
+              'x-cf-timestamp': timestamp,
               'x-api-version': '2024-01-01',
             },
           }
         )
 
-        const statusResult = await statusResponse.json()
+        let statusResult = await statusResponse.json()
+        console.log(`V2 cf_transfer_id response for ${withdrawal.payout_reference}:`, JSON.stringify(statusResult))
+        
+        // If not found with cf_transfer_id, try with transfer_id
+        if (statusResult.code === 'transfer_id_not_found' || statusResult.type === 'invalid_request_error') {
+          statusResponse = await fetch(
+            `${baseUrl}/payout/transfers?transfer_id=${withdrawal.payout_reference}`,
+            {
+              method: 'GET',
+              headers: {
+                'x-client-id': payoutsAppId,
+                'x-client-secret': payoutsSecretKey,
+                'x-cf-signature': signature,
+                'x-cf-timestamp': timestamp,
+                'x-api-version': '2024-01-01',
+              },
+            }
+          )
+          statusResult = await statusResponse.json()
+          console.log(`V2 transfer_id response for ${withdrawal.payout_reference}:`, JSON.stringify(statusResult))
+        }
         
         // Log full response for debugging
-        console.log(`Full status response for ${withdrawal.payout_reference}:`, JSON.stringify(statusResult))
+        console.log(`Final status response for ${withdrawal.payout_reference}:`, JSON.stringify(statusResult))
         
-        // Check if API returned an error
-        if (!statusResponse.ok || statusResult.error) {
-          console.error(`API error for ${withdrawal.payout_reference}:`, statusResult)
+        // Check if this is an API error (not a transfer status)
+        if (statusResult.status === 'ERROR' && statusResult.subCode) {
+          console.error(`API authentication error for ${withdrawal.payout_reference}:`, statusResult.message)
           results.push({
             withdrawal_id: withdrawal.id,
             payout_reference: withdrawal.payout_reference,
-            error: statusResult.message || statusResult.error || 'API request failed',
+            error: `API Error: ${statusResult.message}`,
             api_error: true,
           })
           continue
         }
         
-        // Extract status - Cashfree V2 API uses 'status' field in data object
-        const newStatus = statusResult.data?.status || statusResult.status || statusResult.status_code
+        // Check if API returned an error response
+        if (!statusResponse.ok) {
+          console.error(`API request failed for ${withdrawal.payout_reference}:`, statusResult)
+          results.push({
+            withdrawal_id: withdrawal.id,
+            payout_reference: withdrawal.payout_reference,
+            error: statusResult.message || 'API request failed',
+            api_error: true,
+          })
+          continue
+        }
+        
+        // Extract status from V2 API response structure
+        const transferData = statusResult.data || statusResult
+        const newStatus = transferData.status || transferData.status_code
         
         console.log(`Extracted status for ${withdrawal.payout_reference}:`, newStatus)
         
@@ -188,9 +238,9 @@ AQIDAQAB
               .update({ status: 'completed' })
               .eq('withdrawal_id', withdrawal.id)
               .eq('type', 'withdrawal')
-          } else if (newStatus === 'FAILED' || newStatus === 'REVERSED' || newStatus === 'ERROR') {
+          } else if (newStatus === 'FAILED' || newStatus === 'REVERSED' || newStatus === 'ERROR' || newStatus === 'REJECTED') {
             updateData.status = 'failed'
-            updateData.payout_error = statusResult.data?.status_description || statusResult.status_description || statusResult.reason || 'Transfer failed'
+            updateData.payout_error = transferData.status_description || transferData.reason || transferData.remarks || 'Transfer failed'
             
             // Refund to driver's wallet
             const { data: driver } = await supabase
@@ -213,7 +263,7 @@ AQIDAQAB
                   driver_id: withdrawal.driver_id,
                   type: 'refund',
                   amount: withdrawal.amount,
-                  description: `Withdrawal refund - ${statusResult.data?.status_description || statusResult.status_description || statusResult.reason || 'Transfer failed'}`,
+                  description: `Withdrawal refund - ${transferData.status_description || transferData.reason || transferData.remarks || 'Transfer failed'}`,
                   status: 'completed',
                   withdrawal_id: withdrawal.id,
                 })

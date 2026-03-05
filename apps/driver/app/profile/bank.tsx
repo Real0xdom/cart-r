@@ -192,13 +192,22 @@ export default function BankDetails() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getPayoutStatusColor = (status: string | null) => {
+      if (!status) return 'text-yellow-400';
       switch(status) {
-          case 'approved': return 'text-green-400';
-          case 'paid': return 'text-green-500';
-          case 'rejected': return 'text-red-400';
+          case 'SUCCESS': return 'text-green-500';
+          case 'RECEIVED': return 'text-blue-400';
+          case 'PENDING': return 'text-yellow-400';
+          case 'FAILED': return 'text-red-400';
+          case 'REVERSED': return 'text-orange-400';
           default: return 'text-yellow-400';
       }
+  };
+
+  const getPayoutStatusLabel = (item: any) => {
+      // Use payout_status as source of truth, fallback to local status
+      if (item.payout_status) return item.payout_status;
+      return item.status;
   };
 
   return (
@@ -342,7 +351,7 @@ export default function BankDetails() {
                     </View>
                     <View className="items-end">
                         <Text className="text-gray-900 font-JakartaBold text-base">- ₹{item.amount}</Text>
-                        <Text className={`text-xs capitalize ${getStatusColor(item.status)}`}>{item.status}</Text>
+                        <Text className={`text-xs capitalize ${getPayoutStatusColor(item.payout_status || item.status)}`}>{getPayoutStatusLabel(item)}</Text>
                     </View>
                 </View>
             ))
