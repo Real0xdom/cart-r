@@ -555,6 +555,15 @@ const PayBooking = () => {
                     <Text className="text-gray-500 font-JakartaMedium mb-2">Total Amount</Text>
                     <Text className="text-4xl font-JakartaBold text-primary-500">₹{amount}</Text>
                 </View>
+
+                {/* Sandbox Testing Helper */}
+                {__DEV__ && (
+                  <View className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 mx-1">
+                    <Text className="text-xs font-JakartaBold text-amber-800 mb-1">🧪 SANDBOX MODE — Test Credentials</Text>
+                    <Text className="text-[10px] text-amber-700">UPI: <Text className="font-JakartaBold">testsuccess@gocash</Text> (success) • <Text className="font-JakartaBold">testfailure@gocash</Text> (fail)</Text>
+                    <Text className="text-[10px] text-amber-700">Card: <Text className="font-JakartaBold">4111 1111 1111 1111</Text> • CVV: 123 • OTP: <Text className="font-JakartaBold">111000</Text></Text>
+                  </View>
+                )}
                 
                 {/* Booking Info */}
                 <View className="bg-gray-50 p-5 rounded-2xl mb-8">

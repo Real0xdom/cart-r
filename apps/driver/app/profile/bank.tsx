@@ -244,6 +244,17 @@ export default function BankDetails() {
           )}
         </View>
 
+        {/* Sandbox Testing Helper */}
+        {__DEV__ && (
+          <View className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+            <Text className="text-xs font-JakartaBold text-amber-800 mb-1">🧪 SANDBOX MODE — Test Bank Details</Text>
+            <Text className="text-[10px] text-amber-700">Name: <Text className="font-JakartaBold">John Doe</Text></Text>
+            <Text className="text-[10px] text-amber-700">Account: <Text className="font-JakartaBold">026291800001191</Text></Text>
+            <Text className="text-[10px] text-amber-700">IFSC: <Text className="font-JakartaBold">YESB0000262</Text></Text>
+            <Text className="text-[10px] text-amber-700 mt-1">Withdrawals will be simulated, no real transfer occurs</Text>
+          </View>
+        )}
+
         {/* Bank Account Section */}
         <View className="flex-row justify-between items-center mb-2">
             <Text className="text-gray-400 font-JakartaMedium">{t('bankDetails')}</Text>
