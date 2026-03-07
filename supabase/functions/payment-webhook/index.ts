@@ -3,7 +3,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { createHmac } from 'https://deno.land/std@0.168.0/crypto/mod.ts'
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,8 +93,28 @@ serve(async (req) => {
     const webhookSignature = req.headers.get('x-webhook-signature') || ''
     const webhookTimestamp = req.headers.get('x-webhook-timestamp') || ''
 
-    // Verify signature in production
-    if (Deno.env.get('CASHFREE_ENV') === 'production') {
+    // 1. Check if this is just a Cashfree configuration test ping
+    let payload: Partial<CashfreeWebhookPayload> = {}
+    try {
+      payload = JSON.parse(rawPayload)
+    } catch (e) {
+      console.log('Failed to parse webhook JSON:', e)
+    }
+
+    if (
+      payload.type === 'WEBHOOK_TEST' || 
+      payload.type === 'WEBHOOK_VERIFICATION' || 
+      rawPayload.includes('WEBHOOK_TEST')
+    ) {
+      console.log('Received Cashfree dashboard test ping - automatically acknowledging')
+      return new Response(JSON.stringify({ status: 'OK' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // 2. FOR ALL OTHER EVENTS: Verify webhook signature strictly
+    if (webhookSignature && webhookTimestamp) {
       const isValid = await verifySignature(rawPayload, webhookSignature, webhookTimestamp, cashfreeSecretKey)
       if (!isValid) {
         console.error('Invalid webhook signature')
@@ -103,11 +123,21 @@ serve(async (req) => {
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
+    } else {
+      // Cashfree dashboard test pings often don't include signature headers at all,
+      // and their payload can be completely empty or malformed.
+      // We unconditionally return 200 OK to satisfy their URL verification, but we
+      // RETURN EARLY so no actual payment processing logic is ever executed without a valid signature.
+      console.log('Webhook received without signature headers. Unconditionally accepting as Dashboard Test Ping. Payload:', rawPayload)
+      return new Response(
+        JSON.stringify({ status: 'OK', message: 'Test ping acknowledged' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
-    const payload: CashfreeWebhookPayload = JSON.parse(rawPayload)
-    
-    console.log('Received webhook:', payload.type, payload.data.order.order_id)
+    // Re-parse payload after signature check, ensuring it's valid JSON for further processing
+    // This is safe because we've already handled malformed/test payloads above.
+    payload = JSON.parse(rawPayload) as CashfreeWebhookPayload;
 
     // Handle payment success
     if (payload.type === 'PAYMENT_SUCCESS' || payload.data.payment.payment_status === 'SUCCESS') {
@@ -116,7 +146,34 @@ serve(async (req) => {
       // Check if this is a wallet top-up (order starts with WALLET_)
       if (orderId.startsWith('WALLET_')) {
         console.log('Wallet top-up payment confirmed via webhook:', orderId)
-        // Wallet top-ups are handled by verify-payment, just acknowledge
+        
+        // Find the wallet transaction to get the user ID
+        const { data: txn, error: txnError } = await supabase
+          .from('wallet_transactions')
+          .select('id, user_id, status')
+          .eq('payment_order_id', orderId)
+          .single()
+
+        if (txn) {
+          // Use atomic RPC with built-in idempotency checks
+          const { data: wasCredited, error: creditError } = await supabase.rpc('atomic_credit_wallet_idempotent', {
+            p_user_id: txn.user_id,
+            p_amount: payload.data.payment.payment_amount,
+            p_order_id: orderId
+          })
+
+          if (creditError) {
+             console.error('Failed to credit wallet from webhook:', creditError)
+          } else if (wasCredited) {
+             console.log('Successfully credited wallet for top-up via webhook:', orderId)
+          } else {
+             console.log('Wallet already credited for top-up via webhook:', orderId)
+          }
+        } else {
+          console.error('Wallet transaction not found for top-up:', orderId)
+        }
+
+        // Wallet top-ups are handled, acknowledge
         return new Response(
           JSON.stringify({ success: true, type: 'wallet_topup' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -198,10 +255,13 @@ serve(async (req) => {
     }
 
     // Handle payment failure
-    if (payload.type === 'PAYMENT_FAILED' || payload.data.payment.payment_status === 'FAILED') {
-      const orderId = payload.data.order.order_id
+    if (payload.type === 'PAYMENT_FAILED' || payload.data?.payment?.payment_status === 'FAILED') {
+      const orderId = payload.data?.order?.order_id
+      if (!orderId) {
+         return new Response(JSON.stringify({ status: 'OK' }), { status: 200, headers: corsHeaders })
+      }
       
-      console.log('Payment failed for order:', orderId, payload.data.payment.payment_message)
+      console.log('Payment failed for order:', orderId, payload.data?.payment?.payment_message)
       
       // Optionally update booking or create notification
       const { data: booking } = await supabase
@@ -211,6 +271,17 @@ serve(async (req) => {
         .single()
 
       if (booking) {
+        // Update booking payment status to 'failed' so UI reflects the failure
+        // Guard: never overwrite a successful payment with 'failed'
+        await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', booking.id)
+          .neq('payment_status', 'paid')
+
         await supabase.from('notifications').insert({
           user_id: booking.customer_id,
           title: 'Payment Failed',

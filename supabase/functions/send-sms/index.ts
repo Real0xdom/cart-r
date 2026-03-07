@@ -111,13 +111,19 @@ serve(async (req) => {
       } catch (error: any) {
         console.error(`[${new Date().toISOString()}] [ReqID:${requestId}] 💥 Failed:`, error);
         
+        const errorMessage = error.message || String(error);
+        const isPermanentError = errorMessage.includes('User fetch failed') || 
+                                 errorMessage.includes('Customer does not have a valid Expo Push') || 
+                                 errorMessage.includes('Booking not found') ||
+                                 errorMessage.includes('DeviceNotRegistered');
+        
         await supabase
           .from('sms_queue')
           .update({
-            status: 'failed',
+            status: isPermanentError ? 'failed_permanent' : 'failed',
             attempts: item.attempts + 1,
             last_attempt_at: new Date().toISOString(),
-            error_message: error.message?.substring(0, 1000), 
+            error_message: errorMessage.substring(0, 1000), 
           })
           .eq('id', item.id);
 
@@ -139,7 +145,7 @@ serve(async (req) => {
     console.error('Error in function:', error);
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 });

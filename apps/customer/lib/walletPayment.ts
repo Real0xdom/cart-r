@@ -52,7 +52,7 @@ export async function payWithWallet(
       paymentSessionId
     });
 
-    const { data, error } = await supabase.rpc('pay_with_wallet', {
+    const { data, error } = await (supabase.rpc as any)('pay_with_wallet', {
       p_booking_id: bookingId,
       p_user_id: userId,
       p_use_full_wallet: useFullWallet,
@@ -68,7 +68,7 @@ export async function payWithWallet(
     }
 
     console.log('[WALLET PAY] Result:', data);
-    return data as WalletPaymentResult;
+    return data as any;
   } catch (err: any) {
     console.error('[WALLET PAY] Exception:', err);
     return {
@@ -100,7 +100,7 @@ export async function completePartialPayment(
       amountPaid
     });
 
-    const { data, error } = await supabase.rpc('complete_partial_payment', {
+    const { data, error } = await (supabase.rpc as any)('complete_partial_payment', {
       p_booking_id: bookingId,
       p_payment_order_id: paymentOrderId,
       p_amount_paid: amountPaid
@@ -115,7 +115,7 @@ export async function completePartialPayment(
     }
 
     console.log('[COMPLETE PARTIAL] Success:', data);
-    return data as PartialPaymentResult;
+    return data as any;
   } catch (err: any) {
     console.error('[COMPLETE PARTIAL] Exception:', err);
     return {
@@ -167,7 +167,7 @@ export async function rollbackPartialPayment(
   try {
     console.log('[WALLET ROLLBACK] Rolling back partial payment...', { bookingId });
 
-    const { data, error } = await supabase.rpc('rollback_partial_wallet_payment', {
+    const { data, error } = await (supabase.rpc as any)('rollback_partial_wallet_payment', {
       p_booking_id: bookingId
     });
 
@@ -177,7 +177,7 @@ export async function rollbackPartialPayment(
     }
 
     console.log('[WALLET ROLLBACK] Result:', data);
-    return data as { success: boolean; error?: string; restored_amount?: number };
+    return data as any;
   } catch (err: any) {
     console.error('[WALLET ROLLBACK] Exception:', err);
     return { success: false, error: err.message || 'Rollback failed' };

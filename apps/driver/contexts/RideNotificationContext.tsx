@@ -2,7 +2,7 @@
 // Global state for showing ride request notifications on any screen
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { acceptBooking, subscribeToAvailableBookings, getBookingById, Booking } from '@/lib/bookings';
+import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, Booking } from '@/lib/bookings';
 import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
@@ -47,6 +47,16 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       driverProfile.vehicle_type,
       async (newBooking: Booking) => {
         console.log('[NOTIFICATION CONTEXT] New booking received:', newBooking.id);
+
+        // Suppress notifications if driver already has an active ride
+        if (driverProfile?.id) {
+          const { data: activeRide } = await getDriverActiveBooking(driverProfile.id);
+          if (activeRide) {
+            console.log('[NOTIFICATION CONTEXT] Driver has active ride, suppressing notification for:', newBooking.id);
+            return;
+          }
+        }
+
         // Fetch full booking so we have addons and correct total for display
         const { data: fullBooking } = await getBookingById(newBooking.id);
         const bookingToShow = fullBooking || newBooking;

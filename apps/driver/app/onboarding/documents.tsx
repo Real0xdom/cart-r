@@ -118,20 +118,6 @@ const Documents = () => {
     );
 
     try {
-      // For local testing, just save the local URI without uploading
-      // TODO: In production, uncomment the Supabase upload code below
-      
-      // Just use local URI for now (works for testing the flow)
-      setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId ? { ...d, uri: uri, uploading: false } : d
-        )
-      );
-      Alert.alert("Success", "Document saved successfully!");
-      return;
-
-      /* 
-      // Production Supabase upload code:
       // Read file as base64
       const response = await fetch(uri);
       const blob = await response.blob();
@@ -173,7 +159,6 @@ const Documents = () => {
       );
 
       Alert.alert("Success", "Document uploaded successfully!");
-      */
     } catch (error: any) {
       console.error("Upload error:", error);
       Alert.alert("Upload Failed", error.message || "Failed to upload document");
@@ -212,10 +197,9 @@ const Documents = () => {
           license_image_url: documents.find((d) => d.id === "license")?.uri,
           rc_image_url: documents.find((d) => d.id === "rc")?.uri,
           insurance_image_url: documents.find((d) => d.id === "insurance")?.uri,
-          vehicle_image_url: documents.find((d) => d.id === "vehicle")?.uri,
           verification_status: "pending",
           rejection_reason: null, // Clear rejection reason on resubmission
-        },
+        } as any,
         { onConflict: "user_id" } // Match on user_id for rejected drivers resubmitting
       );
 

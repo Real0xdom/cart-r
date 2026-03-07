@@ -1,7 +1,7 @@
 // Customer App - Notification Setup
 // Handles push notification registration and listeners
 
-import { Platform } from 'react-native';
+import { Platform, Alert, Linking } from 'react-native';
 import { supabase } from './supabase';
 
 // Helper to safely load the module
@@ -99,6 +99,30 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 }
 
 /**
+ * [G2] Show alert when notification permission is denied
+ * Warns user they may miss ride updates and offers settings link
+ */
+export function showNotificationDeniedAlert() {
+  Alert.alert(
+    'Notifications Disabled',
+    'You may miss important ride updates like driver assignment, arrival, and delivery completion. Enable notifications for the best experience.',
+    [
+      { text: 'Maybe Later', style: 'cancel' },
+      {
+        text: 'Open Settings',
+        onPress: () => {
+          if (Platform.OS === 'ios') {
+            Linking.openURL('app-settings:');
+          } else {
+            Linking.openSettings();
+          }
+        }
+      }
+    ]
+  );
+}
+
+/**
  * Get the Expo Push Token
  */
 export async function getExpoPushToken(): Promise<string | null> {
@@ -144,6 +168,7 @@ export async function getExpoPushToken(): Promise<string | null> {
 
 /**
  * Register push token with Supabase user record
+ * [G5] Now also upserts into push_tokens table for multi-device support
  */
 export async function registerPushToken(userId: string): Promise<boolean> {
   try {
@@ -154,6 +179,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
 
     console.log('🔑 [registerPushToken] Got token:', token.substring(0, 30) + '...');
 
+    // Backward compatibility: update users table
     const { error } = await supabase
       .from('users')
       .update({ expo_push_token: token })
@@ -162,6 +188,36 @@ export async function registerPushToken(userId: string): Promise<boolean> {
     if (error) {
       console.error('❌ [registerPushToken] Supabase update error:', error);
       return false;
+    }
+
+    // [G5] Also upsert into push_tokens table for multi-device support
+    try {
+      let deviceId = 'unknown';
+      try {
+        const Constants = require('expo-constants').default;
+        deviceId = Constants.installationId || Constants.sessionId || 'default-device';
+      } catch {
+        // expo-constants not available
+        deviceId = `device-${Date.now()}`;
+      }
+
+      await supabase
+        .from('push_tokens')
+        .upsert(
+          {
+            user_id: userId,
+            token,
+            device_id: deviceId,
+            platform: Platform.OS,
+            is_active: true,
+          },
+          { onConflict: 'user_id,device_id' }
+        );
+
+      console.log('✅ [registerPushToken] Token saved to push_tokens table');
+    } catch (pushTokenError) {
+      // Non-critical — legacy path still works
+      console.warn('⚠️ [registerPushToken] push_tokens upsert failed (non-critical):', pushTokenError);
     }
 
     console.log('✅ [registerPushToken] Token saved to database successfully');

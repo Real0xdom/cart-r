@@ -29,10 +29,17 @@ interface DriverResult {
   }
 }
 
+import { checkRateLimit, getClientIp, rateLimitedResponse } from '../_shared/rate-limiter.ts'
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  // Rate limiting: 10 requests per minute for driver assignment
+  if (!checkRateLimit(getClientIp(req), { maxRequests: 10 })) {
+    return rateLimitedResponse(corsHeaders)
   }
 
   try {

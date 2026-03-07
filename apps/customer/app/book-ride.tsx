@@ -1,5 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { Image, Text, View } from "react-native";
+import { Image, Text, View, TouchableOpacity, ScrollView } from "react-native";
+import { useState } from "react";
 
 import RideLayout from "@/components/RideLayout";
 import { icons } from "@/constants";
@@ -11,6 +12,8 @@ const BookRide = () => {
   const { profile } = useAuth();
   const { userAddress, destinationAddress } = useLocationStore();
   const { drivers, selectedDriver } = useDriverStore();
+  
+  const [scheduledOffset, setScheduledOffset] = useState<number | null>(null);
 
   const driverDetails = drivers?.filter(
     (driver) => +driver.id === selectedDriver,
@@ -24,6 +27,13 @@ const BookRide = () => {
    */
   const estimatedDistance = 12.5; // km
   const estimatedDuration = 25; // mins
+
+  let scheduledAt: string | undefined = undefined;
+  if (scheduledOffset) {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + scheduledOffset);
+    scheduledAt = d.toISOString();
+  }
 
   return (
     <RideLayout title="Book Ride">
@@ -95,6 +105,37 @@ const BookRide = () => {
           </View>
         </View>
 
+        {/* Schedule Ride Options */}
+        <View className="mt-5 mb-2 w-full">
+          <Text className="text-lg font-JakartaSemiBold mb-3">Schedule Ride</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
+            <TouchableOpacity
+              onPress={() => setScheduledOffset(null)}
+              className={`px-5 py-2 rounded-full mr-3 ${scheduledOffset === null ? 'bg-primary-500' : 'bg-gray-200'}`}
+            >
+              <Text className={`font-JakartaSemiBold ${scheduledOffset === null ? 'text-white' : 'text-gray-700'}`}>Now</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setScheduledOffset(30)}
+              className={`px-5 py-2 rounded-full mr-3 ${scheduledOffset === 30 ? 'bg-primary-500' : 'bg-gray-200'}`}
+            >
+              <Text className={`font-JakartaSemiBold ${scheduledOffset === 30 ? 'text-white' : 'text-gray-700'}`}>+30 Min</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setScheduledOffset(60)}
+              className={`px-5 py-2 rounded-full mr-3 ${scheduledOffset === 60 ? 'bg-primary-500' : 'bg-gray-200'}`}
+            >
+              <Text className={`font-JakartaSemiBold ${scheduledOffset === 60 ? 'text-white' : 'text-gray-700'}`}>+1 Hour</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setScheduledOffset(120)}
+              className={`px-5 py-2 rounded-full mr-3 ${scheduledOffset === 120 ? 'bg-primary-500' : 'bg-gray-200'}`}
+            >
+              <Text className={`font-JakartaSemiBold ${scheduledOffset === 120 ? 'text-white' : 'text-gray-700'}`}>+2 Hours</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+
         {/* Cashfree Payment Component */}
         <CashfreePayment
           amount={Number(driverDetails?.price) || 0}
@@ -102,6 +143,7 @@ const BookRide = () => {
           estimatedDistance={estimatedDistance}
           estimatedDuration={estimatedDuration}
           driverId={driverDetails?.id ? String(driverDetails.id) : undefined}
+          scheduledAt={scheduledAt}
         />
       </>
     </RideLayout>

@@ -8,13 +8,16 @@ import { LogBox } from "react-native";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { NetworkBanner } from "../../../packages/shared/components/NetworkBanner";
 
 import { 
   initializeNotifications, 
   requestNotificationPermissions,
+  showNotificationDeniedAlert,
   addNotificationReceivedListener,
   addNotificationResponseListener 
 } from "@/lib/notifications";
+import { checkBatterySaverAndWarn } from "@/lib/batterySaver";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -32,11 +35,10 @@ export default function RootLayout() {
     Jakarta: require("../assets/fonts/PlusJakartaSans-Regular.ttf"),
     "Jakarta-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
   });
-  console.log('[SplashDebug] useFonts loaded:', loaded);
+
 
   useEffect(() => {
     if (loaded) {
-      console.log('[SplashDebug] Fonts loaded, hiding splash screen.');
       // Hide splash screen immediately when fonts are loaded
       SplashScreen.hideAsync();
       // Setup notifications
@@ -44,7 +46,12 @@ export default function RootLayout() {
       let notificationResponseSubscription: any;
       try {
         initializeNotifications();
-        requestNotificationPermissions();
+        // [G2] Check notification permission result and warn if denied
+        requestNotificationPermissions().then((granted) => {
+          if (!granted) {
+            showNotificationDeniedAlert();
+          }
+        });
         // Setup notification listeners
         notificationReceivedSubscription = addNotificationReceivedListener((notification) => {
           console.log('📬 [RootLayout] Notification received:', notification.request.content.title);
@@ -55,12 +62,12 @@ export default function RootLayout() {
       } catch (e) {
         console.warn('Error initializing notifications:', e);
       }
+      // [G6] Check battery saver status and warn if active
+      checkBatterySaverAndWarn();
       return () => {
         notificationReceivedSubscription?.remove?.();
         notificationResponseSubscription?.remove?.();
       };
-    } else {
-      console.log('[SplashDebug] Fonts not loaded yet.');
     }
   }, [loaded]);
 
@@ -72,6 +79,7 @@ export default function RootLayout() {
     <LanguageProvider>
       <LocationProvider>
         <AuthProvider>
+          <NetworkBanner />
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="welcome" options={{ headerShown: false }} />
@@ -86,6 +94,9 @@ export default function RootLayout() {
             <Stack.Screen name="saved-addresses" options={{ headerShown: false }} />
             <Stack.Screen name="terms" options={{ headerShown: false }} />
             <Stack.Screen name="help" options={{ headerShown: false }} />
+            <Stack.Screen name="waiting-for-driver" options={{ headerShown: false, gestureEnabled: false }} />
+            <Stack.Screen name="track-ride" options={{ headerShown: false, gestureEnabled: false }} />
+            <Stack.Screen name="pay-booking" options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="+not-found" />
           </Stack>
         </AuthProvider>

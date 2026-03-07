@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import * as Location from 'expo-location';
-import { Alert, Linking, Platform } from 'react-native';
+import { Alert, Linking, Platform, AppState, AppStateStatus } from 'react-native';
 import { useLocationStore } from '@/store';
 
 interface LocationContextType {
@@ -29,9 +29,31 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   
   const { setUserLocation, userLatitude, userLongitude } = useLocationStore();
 
+  // Track previous AppState to detect background → active transitions
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
   // Check and request location permission on mount
   useEffect(() => {
     checkAndRequestLocation();
+  }, []);
+
+  // [G1] Re-check location permission when app returns to foreground
+  // This handles the case where user enables location in OS settings and returns
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        // App came to foreground — re-check permission
+        checkAndRequestLocation();
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   const checkAndRequestLocation = async () => {
@@ -85,6 +107,27 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
+  // [G3] Show alert when GPS/location services are disabled at OS level
+  const showGPSDisabledAlert = () => {
+    Alert.alert(
+      'Location Services Disabled',
+      'GPS is turned off. Please enable location services in your device settings for the best delivery experience.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Open Settings',
+          onPress: () => {
+            if (Platform.OS === 'ios') {
+              Linking.openURL('app-settings:');
+            } else {
+              Linking.openSettings();
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const fetchAndSetCurrentLocation = async () => {
     try {
       let location: Location.LocationObject | null = null;
@@ -102,6 +145,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!location) {
         console.warn('⚠️ No location available — location services may be disabled on device');
         setErrorMessage('Location services are disabled. Please enable them in device settings for the best experience.');
+        showGPSDisabledAlert(); // [G3] Prompt user with actionable settings button
         return;
       }
 

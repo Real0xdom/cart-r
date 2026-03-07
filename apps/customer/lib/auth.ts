@@ -119,8 +119,10 @@ export const verifyPhoneOTP = async (phone: string, otp: string) => {
   }
 };
 
-// Generate booking OTP (for pickup verification)
+// Generate booking OTP (for pickup verification) — cryptographically secure
 export const generateBookingOTP = (): string => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  return (1000 + (array[0] % 9000)).toString();
 };
 

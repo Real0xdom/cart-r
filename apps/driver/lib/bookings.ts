@@ -15,6 +15,7 @@ export interface CreateBookingParams {
   vehicleType: 'bike' | 'tempo' | 'sedan' | 'truck';
   estimatedDistance?: number;
   estimatedDuration?: number;
+  idempotencyKey?: string;
 }
 
 export interface Booking {
@@ -84,23 +85,63 @@ export interface Booking {
   }>;
 }
 
-// Fare configuration per vehicle type (in INR)
-const FARE_CONFIG = {
+// Fare configuration — fetched from database `fare_config` table at runtime
+// Fallback values used only if DB fetch fails (should match DB defaults)
+const FARE_CONFIG_FALLBACK: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number }> = {
   bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
   tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
   sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
   truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
 };
 
+// Cache for DB fare config (refreshed every 5 minutes)
+let fareConfigCache: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number }> | null = null;
+let fareConfigCacheExpiry = 0;
+
+async function getFareConfig(): Promise<typeof FARE_CONFIG_FALLBACK> {
+  const now = Date.now();
+  if (fareConfigCache && now < fareConfigCacheExpiry) {
+    return fareConfigCache;
+  }
+  
+  try {
+    const { data, error } = await supabase
+      .from('fare_config')
+      .select('vehicle_type, base_fare, per_km_rate, per_minute_rate, minimum_fare')
+      .eq('is_active', true);
+    
+    if (!error && data && data.length > 0) {
+      fareConfigCache = {};
+      for (const row of data) {
+        fareConfigCache[row.vehicle_type] = {
+          baseFare: Number(row.base_fare),
+          perKmRate: Number(row.per_km_rate),
+          perMinRate: Number(row.per_minute_rate),
+          minimumFare: Number(row.minimum_fare),
+        };
+      }
+      fareConfigCacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
+      return fareConfigCache;
+    }
+  } catch (err) {
+    console.error('Failed to fetch fare config from DB, using fallback:', err);
+  }
+  
+  return FARE_CONFIG_FALLBACK;
+}
+
 /**
  * Calculate fare based on distance, duration, and vehicle type
  */
-export function calculateFare(
+export async function calculateFare(
   distanceKm: number,
   durationMinutes: number,
-  vehicleType: keyof typeof FARE_CONFIG
-): number {
-  const config = FARE_CONFIG[vehicleType];
+  vehicleType: string
+): Promise<number> {
+  const fareConfig = await getFareConfig();
+  const config = fareConfig[vehicleType] || FARE_CONFIG_FALLBACK[vehicleType];
+  if (!config) return 0;
+  
   const distanceFare = distanceKm * config.perKmRate;
   const timeFare = durationMinutes * config.perMinRate;
   const totalFare = config.baseFare + distanceFare + timeFare;
@@ -125,7 +166,9 @@ function generateBookingNumber(): string {
  * Generate a 4-digit OTP for pickup verification
  */
 function generateOTP(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  return (1000 + (array[0] % 9000)).toString();
 }
 
 /**
@@ -133,14 +176,17 @@ function generateOTP(): string {
  */
 export async function createBooking(params: CreateBookingParams): Promise<{ data: Booking | null; error: string | null }> {
   try {
-    const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0 } = params;
+    const { customerId, vehicleType, estimatedDistance = 0, estimatedDuration = 0, idempotencyKey } = params;
     
-    // Calculate fare
-    const totalFare = calculateFare(estimatedDistance, estimatedDuration, vehicleType);
+    // Calculate fare from DB config
+    const totalFare = await calculateFare(estimatedDistance, estimatedDuration, vehicleType);
     
-    const { data, error } = await supabase
-      .from('bookings')
-      .insert({
+    // Get fare breakdown for DB insert
+    const fareConfig = await getFareConfig();
+    const config = fareConfig[vehicleType] || FARE_CONFIG_FALLBACK[vehicleType];
+    // Default payload without idempotency key to prevent conflicts on retries 
+    // unless explicitly provided by the driver UI caller
+    const payload: any = {
         booking_number: generateBookingNumber(),
         customer_id: customerId,
         origin_address: params.originAddress,
@@ -153,14 +199,22 @@ export async function createBooking(params: CreateBookingParams): Promise<{ data
         estimated_distance: estimatedDistance,
         estimated_duration: estimatedDuration,
         total_fare: totalFare,
-        base_fare: FARE_CONFIG[vehicleType].baseFare,
-        distance_fare: estimatedDistance * FARE_CONFIG[vehicleType].perKmRate,
-        time_fare: estimatedDuration * FARE_CONFIG[vehicleType].perMinRate,
+        base_fare: config?.baseFare || 0,
+        distance_fare: estimatedDistance * (config?.perKmRate || 0),
+        time_fare: estimatedDuration * (config?.perMinRate || 0),
         pickup_otp: generateOTP(),
         status: 'pending',
         payment_status: 'pending',
         payment_method: 'cash',
-      })
+    };
+
+    if (idempotencyKey) {
+        payload.idempotency_key = idempotencyKey;
+    }
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert(payload)
       .select()
       .single();
     
@@ -200,7 +254,7 @@ export async function getCustomerBookings(customerId: string): Promise<{ data: B
       return { data: [], error: error.message };
     }
     
-    return { data: data as Booking[], error: null };
+    return { data: data as unknown as Booking[], error: null };
   } catch (err: any) {
     return { data: [], error: err.message };
   }
@@ -246,7 +300,7 @@ export async function getBookingById(bookingId: string): Promise<{ data: Booking
     }
     
     console.log('[getBookingById] Booking data:', JSON.stringify(data, null, 2));
-    return { data: data as Booking, error: null };
+    return { data: data as unknown as Booking, error: null };
   } catch (err: any) {
     console.error('[getBookingById] Exception:', err);
     return { data: null, error: err.message };
@@ -367,7 +421,7 @@ export async function getAvailableBookings(
           )
         `)
         .eq('status', 'pending')
-        .eq('vehicle_type', driverVehicleType)
+        .eq('vehicle_type', driverVehicleType as any)
         .is('driver_id', null)
         .is('cancelled_at', null)
         .order('created_at', { ascending: false })
@@ -408,7 +462,7 @@ export async function getAvailableBookings(
       });
       
       console.log(`[getAvailableBookings] Found ${filtered.length} bookings after filtering`);
-      return { data: filtered as Booking[], error: null };
+      return { data: filtered as unknown as Booking[], error: null };
     } catch (err: any) {
       console.error('[getAvailableBookings] Exception:', err);
       return { data: [], error: err.message };
@@ -420,7 +474,7 @@ export async function getAvailableBookings(
    */
   export async function declineBooking(bookingId: string): Promise<{ success: boolean; error: string | null }> {
     try {
-      const { data, error } = await supabase.rpc('decline_booking', {
+      const { data, error } = await supabase.rpc('decline_booking' as any, {
         p_booking_id: bookingId
       });
   
@@ -429,7 +483,7 @@ export async function getAvailableBookings(
         return { success: false, error: error.message };
       }
   
-      const result = data as { success: boolean; message?: string };
+      const result = data as any;
       if (!result.success) {
         return { success: false, error: result.message || 'Failed to decline booking' };
       }
@@ -449,7 +503,7 @@ export async function acceptBooking(
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     // Use atomic database function for proper race condition handling
-    const { data, error } = await supabase.rpc('accept_booking_atomic', {
+    const { data, error } = await supabase.rpc('accept_booking_atomic' as any, {
       p_booking_id: bookingId,
       p_driver_id: driverId,
     });
@@ -460,7 +514,7 @@ export async function acceptBooking(
     }
 
     // Parse the result from the RPC function
-    const result = data as { success: boolean; message: string };
+    const result = data as any;
     
     if (!result.success) {
       return { success: false, error: result.message };
@@ -598,7 +652,8 @@ export async function verifyPickupOTPAndStartTrip(
 export async function completeTrip(
   bookingId: string,
   paymentMethod: 'cash' | 'online' = 'cash',
-  deliveryOTPVerified: boolean = false
+  deliveryOTPVerified: boolean = false,
+  actualDistanceKm?: number
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const additionalData: Record<string, any> = {
@@ -609,6 +664,30 @@ export async function completeTrip(
     
     if (deliveryOTPVerified) {
       additionalData.delivery_otp_verified = true;
+    }
+
+    if (actualDistanceKm !== undefined) {
+      additionalData.actual_distance_km = actualDistanceKm;
+
+      // Log fare discrepancy if actual distance exceeds estimate by 30%
+      const { data: booking } = await getBookingById(bookingId);
+      if (booking?.estimated_distance) {
+        const ratio = actualDistanceKm / booking.estimated_distance;
+        if (ratio > 1.3) {
+          const deviationPercentage = ((ratio - 1) * 100).toFixed(2);
+          console.warn(
+            `⚠️ [FARE DISCREPANCY] Booking ${bookingId}: actual ${actualDistanceKm.toFixed(1)} km vs estimated ${booking.estimated_distance.toFixed(1)} km (${deviationPercentage}% overshoot)`
+          );
+          
+          // Insert into database for admin audit
+          await supabase.from('fare_discrepancies' as any).insert({
+            booking_id: bookingId,
+            estimated_distance_km: booking.estimated_distance,
+            actual_distance_km: actualDistanceKm,
+            deviation_percentage: parseFloat(deviationPercentage)
+          });
+        }
+      }
     }
     
     return updateBookingStatus(bookingId, 'completed', additionalData);
@@ -626,7 +705,7 @@ export async function cancelBookingByDriver(
   reason: string
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    const { data, error } = await supabase.rpc('cancel_booking_by_driver', {
+    const { data, error } = await supabase.rpc('cancel_booking_by_driver' as any, {
       p_booking_id: bookingId,
       p_driver_id: driverId,
       p_reason: reason
@@ -637,7 +716,7 @@ export async function cancelBookingByDriver(
       return { success: false, error: error.message };
     }
 
-    const result = data as { success: boolean; error?: string };
+    const result = data as any;
     if (!result.success) {
       return { success: false, error: result.error || 'Failed to cancel booking' };
     }

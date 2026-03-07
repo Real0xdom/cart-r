@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { cookies } from 'next/headers';
+import crypto from 'crypto';
+
+// HMAC secret for signing session tokens — falls back to service role key
+const SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'change-this-in-production';
+
+function signSession(payload: object): string {
+  const payloadStr = JSON.stringify(payload);
+  const payloadB64 = Buffer.from(payloadStr).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(payloadB64)
+    .digest('base64url');
+  return `${payloadB64}.${signature}`;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const headers: Record<string, string> = {};
-    request.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-    console.log(`Login request headers:`, JSON.stringify(headers, null, 2));
-    
     const bodyText = await request.text();
-    console.log(`Login request body text: "${bodyText}"`);
 
     if (!bodyText) {
       return NextResponse.json(
@@ -43,10 +50,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Simple password comparison
-    // Note: In production, use bcrypt.compare(password, admin.password_hash)
-    // For now, we'll do a direct comparison assuming passwords are stored as-is
-    // or you can implement bcrypt if the passwords are hashed
+    // Password comparison
+    // In production, use bcrypt: await bcrypt.compare(password, admin.password_hash)
     if (admin.password_hash !== password) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
@@ -54,15 +59,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session token (simple approach - in production use JWT)
-    const sessionToken = Buffer.from(
-      JSON.stringify({
-        id: admin.id,
-        email: admin.email,
-        role: admin.role,
-        exp: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
-      })
-    ).toString('base64');
+    // Create HMAC-signed session token
+    const sessionPayload = {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role,
+      iat: Date.now(),
+      exp: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+    };
+    const sessionToken = signSession(sessionPayload);
 
     // Set cookie
     const cookieStore = await cookies();

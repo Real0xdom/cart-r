@@ -8,11 +8,7 @@ export async function POST(request: Request) {
     const signature = request.headers.get('x-webhook-signature');
     const timestamp = request.headers.get('x-webhook-timestamp');
     
-    console.log('Cashfree webhook received:', {
-      signature: signature?.substring(0, 20) + '...',
-      timestamp,
-      bodyLength: body.length
-    });
+    console.log('Cashfree payout webhook received');
 
     // Verify webhook signature (recommended for production)
     const secretKey = process.env.CASHFREE_PAYOUT_SECRET_KEY;
@@ -29,7 +25,7 @@ export async function POST(request: Request) {
     }
 
     const webhookData = JSON.parse(body);
-    console.log('Webhook data:', JSON.stringify(webhookData, null, 2));
+
 
     const { event, transfer } = webhookData;
     
@@ -43,12 +39,12 @@ export async function POST(request: Request) {
     const status = transfer.status;
     const statusDescription = transfer.status_description;
 
-    console.log('Processing webhook:', { event, transferId, cfTransferId, status });
+
     
     // Find withdrawal by payout_reference (could be transfer_id or cf_transfer_id)
     const { data: withdrawal, error: findError } = await supabaseAdmin
       .from('withdrawals')
-      .select('id, driver_id, amount, status as current_status')
+      .select('id, driver_id, amount, status')
       .or(`payout_reference.eq.${transferId},payout_reference.eq.${cfTransferId}`)
       .single();
     
@@ -58,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true, message: 'Withdrawal not found' });
     }
 
-    console.log('Found withdrawal:', withdrawal.id, 'Current status:', withdrawal.current_status);
+
 
     // Update based on event type
     let updateData: any = {
@@ -71,7 +67,7 @@ export async function POST(request: Request) {
       updateData.status = 'paid';
       updateData.processed_at = new Date().toISOString();
       
-      console.log('Transfer successful - marking as paid');
+
       
       await supabaseAdmin
         .from('withdrawals')
@@ -85,15 +81,28 @@ export async function POST(request: Request) {
         .eq('withdrawal_id', withdrawal.id)
         .eq('type', 'withdrawal');
 
-      // TODO: Send notification to driver app
-      // You can use Supabase Realtime, push notifications, or in-app notifications here
+      // Send notification to driver about successful payout
+      const { data: driverUser } = await supabaseAdmin
+        .from('drivers')
+        .select('user_id')
+        .eq('id', withdrawal.driver_id)
+        .single();
+      
+      if (driverUser) {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: driverUser.user_id,
+          title: '💰 Payout Successful',
+          body: `₹${withdrawal.amount} has been transferred to your bank account.`,
+          data: { type: 'payout_success', withdrawal_id: withdrawal.id },
+        });
+      }
       
     } else if (event === 'TRANSFER_FAILED' || event === 'TRANSFER_REJECTED' || status === 'FAILED' || status === 'ERROR') {
       // Transfer failed - refund to driver's wallet
       updateData.status = 'failed';
       updateData.payout_error = statusDescription || transfer.reason || 'Transfer failed';
       
-      console.log('Transfer failed - refunding to wallet');
+
       
       await supabaseAdmin
         .from('withdrawals')
@@ -128,14 +137,28 @@ export async function POST(request: Request) {
           });
       }
       
-      // TODO: Send notification to driver app about failure
+      // Notify driver about failed payout
+      const { data: failedDriverUser } = await supabaseAdmin
+        .from('drivers')
+        .select('user_id')
+        .eq('id', withdrawal.driver_id)
+        .single();
+      
+      if (failedDriverUser) {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: failedDriverUser.user_id,
+          title: '⚠️ Payout Failed',
+          body: `₹${withdrawal.amount} payout failed. Amount refunded to wallet. Reason: ${statusDescription || 'Transfer failed'}`,
+          data: { type: 'payout_failed', withdrawal_id: withdrawal.id },
+        });
+      }
       
     } else if (event === 'TRANSFER_REVERSED' || status === 'REVERSED') {
       // Transfer reversed - refund to driver's wallet
       updateData.status = 'reversed';
       updateData.payout_error = statusDescription || 'Transfer reversed by bank';
       
-      console.log('Transfer reversed - refunding to wallet');
+
       
       await supabaseAdmin
         .from('withdrawals')
@@ -169,11 +192,25 @@ export async function POST(request: Request) {
           });
       }
       
-      // TODO: Send notification to driver app about reversal
+      // Notify driver about reversal
+      const { data: reversedDriverUser } = await supabaseAdmin
+        .from('drivers')
+        .select('user_id')
+        .eq('id', withdrawal.driver_id)
+        .single();
+      
+      if (reversedDriverUser) {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: reversedDriverUser.user_id,
+          title: '🔄 Payout Reversed',
+          body: `₹${withdrawal.amount} payout was reversed by your bank. Amount refunded to wallet.`,
+          data: { type: 'payout_reversed', withdrawal_id: withdrawal.id },
+        });
+      }
       
     } else {
       // Other status updates (PENDING, etc.)
-      console.log('Status update:', status);
+
       
       await supabaseAdmin
         .from('withdrawals')
@@ -181,7 +218,7 @@ export async function POST(request: Request) {
         .eq('id', withdrawal.id);
     }
 
-    console.log('Webhook processed successfully');
+
     return NextResponse.json({ received: true, event, status });
     
   } catch (error: any) {

@@ -62,7 +62,9 @@ export async function createBooking(
     }
 
     // Generate 4-digit OTP for pickup verification
-    const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const otpArray = new Uint32Array(1);
+    crypto.getRandomValues(otpArray);
+    const otpCode = (1000 + (otpArray[0] % 9000)).toString();
 
     const { data, error } = await supabase
       .from('bookings')
@@ -161,14 +163,28 @@ export function subscribeToBooking(
 export async function cancelBooking(
   bookingId: string,
   reason?: string
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<{ success: boolean; cancellationFee?: number; error: string | null }> {
   try {
+    // Check if driver is already assigned — apply cancellation fee
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('status, driver_id, total_fare')
+      .eq('id', bookingId)
+      .single();
+
+    let cancellationFee = 0;
+    if (booking?.status === 'accepted' && booking?.driver_id) {
+      // Driver already on the way — charge cancellation fee (₹50 or 10% of fare, whichever is higher)
+      cancellationFee = Math.max(50, Math.round((booking.total_fare || 0) * 0.1));
+    }
+
     const { error } = await supabase
       .from('bookings')
       .update({
         status: 'cancelled',
         cancellation_reason: reason,
         cancelled_at: new Date().toISOString(),
+        ...(cancellationFee > 0 && { cancellation_fee: cancellationFee }),
       })
       .eq('id', bookingId)
       .in('status', ['pending', 'accepted']); // Can only cancel before trip starts
@@ -177,7 +193,7 @@ export async function cancelBooking(
       return { success: false, error: error.message };
     }
 
-    return { success: true, error: null };
+    return { success: true, cancellationFee: cancellationFee > 0 ? cancellationFee : undefined, error: null };
   } catch (err: any) {
     return { success: false, error: err.message };
   }

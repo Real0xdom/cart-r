@@ -20,9 +20,16 @@ interface PaymentOrderRequest {
   return_url?: string
 }
 
+import { checkRateLimit, getClientIp, rateLimitedResponse } from '../_shared/rate-limiter.ts'
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  // Rate limiting: 5 requests per minute for payment order creation
+  if (!checkRateLimit(getClientIp(req), { maxRequests: 5 })) {
+    return rateLimitedResponse(corsHeaders)
   }
 
   try {
@@ -93,7 +100,7 @@ serve(async (req) => {
 
       if (booking.payment_status === 'paid') {
         return new Response(
-          JSON.stringify({ error: 'Payment already completed' }),
+          JSON.stringify({ error: 'Payment already completed for this booking' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }

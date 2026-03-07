@@ -36,7 +36,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     const body: VerifyPaymentRequest = await req.json()
-    const { order_id, force_fail } = body
+    const { order_id } = body
 
     if (!order_id) {
       return new Response(
@@ -92,7 +92,7 @@ serve(async (req) => {
         
         // Logic requested by user:
         // Check if ANY payment is SUCCESS -> Success
-        // Else if ANY payment is PENDING -> Pending (unless forced failure)
+        // Else if ANY payment is PENDING -> Pending
         // Else -> Failure
         
         const successTxns = paymentsData.filter((t: any) => t.payment_status === "SUCCESS");
@@ -102,12 +102,7 @@ serve(async (req) => {
             status = 'PAID';
             paymentDetails = successTxns[0];
         } else if (pendingTxns.length > 0) {
-             // If explicit failure requested (e.g. user cancelled), override pending to failed
-            if (force_fail) {
-               status = 'FAILED';
-            } else {
-               status = 'PENDING';
-            }
+            status = 'PENDING';
         } else {
             status = 'FAILED';
         }
@@ -132,37 +127,25 @@ serve(async (req) => {
     // If payment is successful, update the DB
     if (status === 'PAID') {
       if (type === 'wallet' && cid) {
-        // Update wallet balance
-        // Check if transaction is already completed to avoid double credit
-        const { data: txn } = await supabase
-            .from('wallet_transactions')
-            .select('status')
-            .eq('payment_order_id', order_id)
-            .single();
+        // Update wallet balance using atomic RPC with built-in idempotency
+        const { data: wasCredited, error: creditError } = await supabase.rpc('atomic_credit_wallet_idempotent', {
+          p_user_id: cid,
+          p_amount: paymentAmount,
+          p_order_id: order_id
+        })
 
-        if (txn && txn.status !== 'completed') {
-            const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('balance')
-            .eq('id', cid)
-            .single()
-
-            if (!userError && userData) {
-                const newBalance = (userData.balance || 0) + paymentAmount
-                await supabase
-                    .from('users')
-                    .update({ balance: newBalance })
-                    .eq('id', cid)
-
+        if (!creditError) {
+            if (paymentDetails) {
+                // If we got the specific method, update the description
                 await supabase
                     .from('wallet_transactions')
                     .update({ 
-                        status: 'completed',
-                        // Store payment method if available (e.g., 'upi', 'card')
-                        description: paymentDetails ? `Wallet top-up via ${paymentDetails.payment_group || 'online'}` : 'Wallet top-up'
+                        description: `Wallet top-up via ${paymentDetails.payment_group || 'online'}` 
                     })
                     .eq('payment_order_id', order_id)
             }
+        } else {
+            console.error('Failed to credit wallet atomically:', creditError)
         }
       } else if (type === 'booking' && bid && bid !== 'none') {
         // Update booking

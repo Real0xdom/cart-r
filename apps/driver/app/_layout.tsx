@@ -8,6 +8,7 @@ import { LogBox } from "react-native";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { RideNotificationProvider } from "@/contexts/RideNotificationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { NetworkBanner } from "../../../packages/shared/components/NetworkBanner";
 
 import { 
   setupNotificationChannels, 
@@ -72,6 +73,7 @@ export default function RootLayout() {
     <LanguageProvider>
       <AuthProvider>
         <RideNotificationProvider>
+          <NetworkBanner />
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />

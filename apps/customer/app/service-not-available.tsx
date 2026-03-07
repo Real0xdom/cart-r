@@ -76,10 +76,10 @@ const ServiceNotAvailableScreen = () => {
           {/* Message */}
           <View className="mb-6">
             <Text className="text-2xl font-JakartaBold text-gray-900 text-center mb-3">
-              Service Not Available Yet
+              {t("serviceNotAvailableTitle") || "Service Not Available Yet"}
             </Text>
             <Text className="text-base text-gray-600 font-JakartaMedium text-center leading-6">
-              Your current GPS location is outside our service zones. You can still book by manually selecting a supported pickup location.
+              {t("serviceNotAvailableDescription") || "Your current GPS location is outside our service zones. You can still book by manually selecting a supported pickup location."}
             </Text>
           </View>
 
@@ -89,7 +89,7 @@ const ServiceNotAvailableScreen = () => {
               <View className="flex-row items-center mb-2">
                 <MaterialIcons name="location-off" size={18} color="#EF4444" />
                 <Text className="ml-2 text-sm font-JakartaBold text-red-700">
-                  Your GPS Location (Not Supported)
+                  {t("yourGPSLocation") || "Your GPS Location (Not Supported)"}
                 </Text>
               </View>
               <Text className="text-sm text-red-600 font-JakartaMedium">
@@ -128,7 +128,7 @@ const ServiceNotAvailableScreen = () => {
           >
             <MaterialIcons name="edit-location" size={20} color="white" />
             <Text className="text-white font-JakartaBold ml-2 text-base">
-              Select a Supported Location
+              {t("selectSupportedLocation") || "Select a Supported Location"}
             </Text>
           </TouchableOpacity>
 
@@ -140,14 +140,14 @@ const ServiceNotAvailableScreen = () => {
           >
             <Feather name="arrow-left" size={18} color="#555" />
             <Text className="text-gray-700 font-JakartaMedium ml-2">
-              Go Back
+              {t("goBack") || "Go Back"}
             </Text>
           </TouchableOpacity>
 
           {/* Divider */}
           <View className="flex-row items-center mb-5">
             <View className="flex-1 h-px bg-gray-200" />
-            <Text className="mx-3 text-gray-400 text-xs font-JakartaMedium">OR</Text>
+            <Text className="mx-3 text-gray-400 text-xs font-JakartaMedium">{t("or") || "OR"}</Text>
             <View className="flex-1 h-px bg-gray-200" />
           </View>
 

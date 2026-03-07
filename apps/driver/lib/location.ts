@@ -5,6 +5,7 @@ import { supabase } from './supabase';
 
 const LOCATION_TASK_NAME = 'cartr-driver-location';
 const LOCATION_UPDATE_INTERVAL = 10000; // 10 seconds
+const MIN_ACCURACY_THRESHOLD = 50; // meters — skip positions less accurate than this
 
 // Define the background task
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
@@ -22,7 +23,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         location.coords.latitude,
         location.coords.longitude,
         location.coords.heading || undefined,
-        location.coords.speed || undefined
+        location.coords.speed || undefined,
+        location.coords.accuracy || undefined
       );
     }
   }
@@ -33,9 +35,16 @@ async function updateDriverLocation(
   latitude: number,
   longitude: number,
   heading?: number,
-  speed?: number
+  speed?: number,
+  accuracy?: number
 ): Promise<void> {
   try {
+    // Skip low-accuracy positions to prevent misleading ETA/location data
+    if (accuracy !== undefined && accuracy > MIN_ACCURACY_THRESHOLD) {
+      console.log(`⚠️ Skipping low-accuracy position: ${accuracy.toFixed(0)}m (threshold: ${MIN_ACCURACY_THRESHOLD}m)`);
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 

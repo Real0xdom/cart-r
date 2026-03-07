@@ -29,10 +29,17 @@ interface ExpoPushMessage {
   priority?: 'default' | 'normal' | 'high'
 }
 
+import { checkRateLimit, getClientIp, rateLimitedResponse } from '../_shared/rate-limiter.ts'
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  // Rate limiting: 20 requests per minute for notifications
+  if (!checkRateLimit(getClientIp(req), { maxRequests: 20 })) {
+    return rateLimitedResponse(corsHeaders)
   }
 
   try {

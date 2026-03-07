@@ -17,7 +17,7 @@ interface RideNotificationProps {
 
 export default function RideNotification({ booking, onAccept, onDecline, onDismiss }: RideNotificationProps) {
   const slideAnim = useRef(new Animated.Value(-200)).current;
-  const [countdown, setCountdown] = useState(20); // 20 seconds auto-dismiss
+  const [countdown, setCountdown] = useState(30); // 30 seconds auto-dismiss (matches Notifee timeoutAfter)
 
   useEffect(() => {
     if (booking) {
@@ -30,7 +30,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
       }).start();
 
       // Start countdown
-      setCountdown(20);
+      setCountdown(30);
       const timer = setInterval(() => {
         setCountdown((prev) => {
           if (prev <= 1) {

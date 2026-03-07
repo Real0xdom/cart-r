@@ -265,8 +265,35 @@ export async function shareTripWithContacts(
     // Share via native share dialog
     const shareMessage = `🚗 ${profile?.name || 'I'} is on a CARTR trip\n\nDriver: ${driverName}\nVehicle: ${vehicleNumber}\nDestination: ${destination}\n\nLive tracking: cartr://track/${bookingId}`;
 
-    // For each contact, could send SMS
-    // For now, show confirmation
+    // Try to send SMS to each emergency contact
+    let sentCount = 0;
+    for (const contact of contacts) {
+      try {
+        const smsUrl = Platform.OS === 'ios'
+          ? `sms:${contact.phone}&body=${encodeURIComponent(shareMessage)}`
+          : `sms:${contact.phone}?body=${encodeURIComponent(shareMessage)}`;
+        
+        const canOpen = await Linking.canOpenURL(smsUrl);
+        if (canOpen) {
+          await Linking.openURL(smsUrl);
+          sentCount++;
+          break; // Open one at a time to avoid overwhelming the user
+        }
+      } catch (smsError) {
+        console.error('SMS send error:', smsError);
+      }
+    }
+
+    // If SMS failed, fall back to native share
+    if (sentCount === 0) {
+      try {
+        const { Share } = require('react-native');
+        await Share.share({ message: shareMessage });
+      } catch (shareError) {
+        // Ignore if user cancels share
+      }
+    }
+
     Alert.alert(
       '✅ Trip Shared',
       `Your trip details have been shared with ${contacts.length} emergency contact(s).`,

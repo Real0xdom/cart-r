@@ -19,6 +19,10 @@ const ActiveRide = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
     const [driverLocation, setDriverLocation] = useState<{latitude: number, longitude: number} | null>(null);
+    const [liveETA, setLiveETA] = useState<number | null>(null); // minutes
+    const [liveDistance, setLiveDistance] = useState<number | null>(null); // km
+    const [cachedRouteCoords, setCachedRouteCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
+    const [useDirectionsFallback, setUseDirectionsFallback] = useState(false);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
 
@@ -341,13 +345,34 @@ const ActiveRide = () => {
                         </Marker>
 
                         {/* Route line from driver to target */}
-                        {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && (
+                        {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && !useDirectionsFallback && (
                             <MapViewDirections
                                 origin={driverLocation}
                                 destination={{ latitude: targetLat, longitude: targetLng }}
                                 apikey={process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY}
                                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
                                 strokeWidth={4}
+                                onReady={(result) => {
+                                    setLiveETA(Math.round(result.duration));
+                                    setLiveDistance(Math.round(result.distance * 10) / 10);
+                                    setCachedRouteCoords(result.coordinates);
+                                    setUseDirectionsFallback(false);
+                                }}
+                                onError={(error) => {
+                                    console.log('[ActiveRide] Directions API error, using cached route:', error);
+                                    setUseDirectionsFallback(true);
+                                }}
+                                resetOnChange={false}
+                            />
+                        )}
+
+                        {/* Fallback: cached route polyline when directions API unavailable (offline) */}
+                        {useDirectionsFallback && cachedRouteCoords.length > 0 && (
+                            <Polyline
+                                coordinates={cachedRouteCoords}
+                                strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
+                                strokeWidth={4}
+                                lineDashPattern={[6, 3]}
                             />
                         )}
                     </MapView>
@@ -451,13 +476,13 @@ const ActiveRide = () => {
                             <View className="flex-1">
                                 <Text className="text-gray-500 text-xs">Distance</Text>
                                 <Text className="text-gray-900 font-JakartaSemiBold">
-                                    {booking.estimated_distance?.toFixed(1) || '0'} km
+                                    {liveDistance ?? booking.estimated_distance?.toFixed(1) ?? '0'} km
                                 </Text>
                             </View>
                             <View className="flex-1">
-                                <Text className="text-gray-500 text-xs">Est. Time</Text>
+                                <Text className="text-gray-500 text-xs">ETA</Text>
                                 <Text className="text-gray-900 font-JakartaSemiBold">
-                                    {booking.estimated_duration?.toFixed(0) || '0'} min
+                                    {liveETA ?? booking.estimated_duration?.toFixed(0) ?? '0'} min
                                 </Text>
                             </View>
                             <View className="flex-1">

@@ -429,7 +429,7 @@ const DriverEarnings = () => {
                                                 {isCash ? 'Already collected by you' : 'Credited to wallet'}
                                             </Text>
                                             <TouchableOpacity 
-                                                onPress={() => router.push(`/(stack)/invoice?bookingId=${trip.id}` as any)}
+                                                onPress={() => router.push(`/ride/invoice?bookingId=${trip.id}` as any)}
                                                 className="bg-gray-100 px-2 py-1 rounded"
                                             >
                                                 <Text className="text-blue-500 text-xs font-JakartaMedium">{t('viewInvoice') || 'Invoice'}</Text>

@@ -3,10 +3,10 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions } from '@/lib/location';
-import { getDriverActiveBookings, getDriverCompletedTrips, Booking } from '@/lib/bookings';
+import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking } from '@/lib/bookings';
 
 const DriverHome = () => {
     const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
@@ -17,6 +17,7 @@ const DriverHome = () => {
     const [isRidesExpanded, setIsRidesExpanded] = useState(true);
     const [todayStats, setTodayStats] = useState({ earnings: 0, trips: 0 });
     const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const hasAutoNavigated = useRef(false);
 
     useEffect(() => {
         setIsOnline(driverProfile?.is_online || false);
@@ -31,6 +32,13 @@ const DriverHome = () => {
             const { data: activeRides } = await getDriverActiveBookings(driverProfile.id);
             if (activeRides) {
                 setActiveBookings(activeRides);
+
+                // Auto-navigate to active ride on app launch/crash recovery
+                if (!hasAutoNavigated.current && activeRides.length === 1) {
+                    hasAutoNavigated.current = true;
+                    console.log('[HOME] Auto-navigating to active ride:', activeRides[0].id);
+                    router.push(`/ride/${activeRides[0].id}` as any);
+                }
             }
 
             // Fetch today's stats
@@ -58,11 +66,29 @@ const DriverHome = () => {
     }, [driverProfile?.id]);
 
     const handleToggleOnline = async (value: boolean) => {
+        // [G5] Block suspended / unverified drivers from going online
+        if (value && driverProfile?.verification_status !== 'approved') {
+            Alert.alert(
+                t('error'),
+                t('accountNotApproved') || 'Your account is not approved. Please contact support.'
+            );
+            return;
+        }
+
+        // [G6] Require vehicle type before going online
+        if (value && !driverProfile?.vehicle_type) {
+            Alert.alert(
+                t('error'),
+                t('vehicleTypeRequired') || 'Please set your vehicle type before going online.'
+            );
+            return;
+        }
+
         setIsTogglingStatus(true);
-        
+
         try {
             if (value) {
-                // Going online - request permissions and start tracking
+                // Going online — request permissions and start tracking
                 const hasPermissions = await requestLocationPermissions();
                 if (!hasPermissions) {
                     Alert.alert(
@@ -73,19 +99,18 @@ const DriverHome = () => {
                     setIsTogglingStatus(false);
                     return;
                 }
-                
-                // First toggle online status so location updates can be saved
-                await toggleDriverOnline(value);
-                setIsOnline(value);
-                
-                // Get and save current location immediately (don't wait for background task)
+
+                // Update DB first, then start tracking ([G3] rollback if tracking fails)
+                await toggleDriverOnline(true);
+                setIsOnline(true);
+
+                // Get and save current location immediately
                 try {
                     const Location = require('expo-location');
                     const location = await Location.getCurrentPositionAsync({
                         accuracy: Location.Accuracy.Balanced,
                     });
                     if (location && profile?.id) {
-                        // Update location in database
                         const { supabase } = require('@/lib/supabase');
                         await supabase
                             .from('drivers')
@@ -100,7 +125,7 @@ const DriverHome = () => {
                 } catch (locError) {
                     console.error('Failed to set initial location:', locError);
                 }
-                
+
                 // Register push token for notifications
                 try {
                     const { registerPushToken } = require('@/lib/notifications');
@@ -111,22 +136,57 @@ const DriverHome = () => {
                 } catch (pushError) {
                     console.error('Failed to register push token:', pushError);
                 }
-                
-                // Start background location tracking
-                await startLocationTracking();
+
+                // [G3] Start background location tracking — rollback DB if it fails
+                const trackingStarted = await startLocationTracking();
+                if (!trackingStarted) {
+                    console.warn('[TOGGLE] Location tracking failed to start — rolling back online status');
+                    await toggleDriverOnline(false);
+                    setIsOnline(false);
+                    Alert.alert(
+                        t('error'),
+                        t('locationTrackingFailed') || 'Failed to start location tracking. Please try again.'
+                    );
+                    return;
+                }
             } else {
-                // Going offline - stop tracking
-                await stopLocationTracking();
-                setIsOnline(value);
-                await toggleDriverOnline(value);
+                // Going offline — update DB first so state is consistent ([G2])
+                await toggleDriverOnline(false);
+                setIsOnline(false);
+
+                // [G1] Only stop location tracking if there is no active ride in progress
+                let hasActiveRide = false;
+                if (driverProfile?.id) {
+                    try {
+                        const { data: activeRide } = await getDriverActiveBooking(driverProfile.id);
+                        hasActiveRide = !!activeRide;
+                    } catch (rideCheckError) {
+                        console.error('Failed to check active ride:', rideCheckError);
+                    }
+                }
+
+                if (hasActiveRide) {
+                    console.log('[TOGGLE] Active ride detected — keeping location tracking alive despite going offline');
+                    Alert.alert(
+                        t('info') || 'Info',
+                        t('activeRideLocationNote') || 'You went offline, but location tracking continues for your active ride.'
+                    );
+                } else {
+                    await stopLocationTracking();
+                }
             }
         } catch (error) {
             console.error('Failed to toggle online status:', error);
+            // Revert UI to match DB on error
+            if (driverProfile) {
+                setIsOnline(driverProfile.is_online || false);
+            }
             Alert.alert(t('error'), t('failedToUpdateStatus'));
         } finally {
             setIsTogglingStatus(false);
         }
     };
+
 
     const navigateToRide = (bookingId: string) => {
         router.push(`/ride/${bookingId}` as any);

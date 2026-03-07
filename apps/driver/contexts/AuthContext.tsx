@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
 
-import { supabase, Database } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { Database } from '@/lib/database.types';
 
 type UserProfile = Database['public']['Tables']['users']['Row'];
 type DriverProfile = Database['public']['Tables']['drivers']['Row'];
@@ -153,6 +154,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // [G4] Realtime sync for driver profile — keeps is_online and verification_status
+  // up to date across devices and reflects admin overrides (suspend, force-offline) immediately.
+  useEffect(() => {
+    if (!driverProfile?.id) return;
+
+    const channel = supabase
+      .channel(`driver-profile-sync-${driverProfile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'drivers',
+          filter: `id=eq.${driverProfile.id}`,
+        },
+        (payload) => {
+          console.log('[AUTH] Driver profile updated remotely — syncing:', payload.new);
+          setDriverProfile((prev: DriverProfile | null) => prev ? { ...prev, ...payload.new } : prev);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [driverProfile?.id]);
 
   // Sign up with email/password
   const signUp = async (email: string, password: string, name: string, phone?: string) => {

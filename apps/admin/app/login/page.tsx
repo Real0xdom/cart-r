@@ -16,7 +16,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      console.log('CLIENT: Submitting login with:', { email, passwordLength: password.length });
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,7 +118,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-gray-400 text-xs mt-8 font-medium">
-          © 2024 CARTR. Secure Admin Portal.
+          © 2025 CARTR. Secure Admin Portal.
         </p>
       </div>
     </div>
