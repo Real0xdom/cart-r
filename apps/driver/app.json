@@ -7,9 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "carter-driver",
     "userInterfaceStyle": "automatic",
-    "cli": {
-      "appVersionSource": "local"
-    },
     "splash": {
       "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
@@ -31,7 +28,6 @@
       }
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#22C55E"
@@ -79,7 +75,8 @@
         }
       ],
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withNotifeeFix"
     ],
     "experiments": {
       "typedRoutes": true
@@ -89,9 +86,9 @@
         "origin": "https://driver.cart-r.com/"
       },
       "eas": {
-        "projectId": "bc38d8b8-1b48-4959-88eb-4d67e640842c"
+        "projectId": "0bc5f419-efda-471f-b23f-bd5f63b0fcd6"
       }
     },
-    "owner": "pranavpanchal"
+    "owner": "freelance098"
   }
 }
