@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
@@ -61,7 +61,7 @@ export default function FAQ() {
         ) : faqs.map((faq, index) => (
             <View key={index} className="mb-6 bg-gray-100 p-4 rounded-xl">
                 <View className="flex-row items-start mb-2">
-                    <Text className="text-lg mr-2">❓</Text>
+                    <Ionicons name="help-circle-outline" size={18} color="#6b7280" style={{ marginRight: 8, marginTop: 2 }} />
                     <Text className="text-gray-900 font-JakartaSemiBold text-base flex-1">{faq.question}</Text>
                 </View>
                 <Text className="text-gray-600 leading-5 ml-8">

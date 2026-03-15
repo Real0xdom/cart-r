@@ -1,9 +1,9 @@
 // OTP Verification Screen
-// Driver enters pickup OTP from customer to start the trip
+// Driver enters 4-digit pickup OTP from customer to start the trip
 
 import { View, Text, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -142,6 +142,27 @@ const VerifyOTP = () => {
         }
     };
 
+
+    const handleBack = () => {
+        Alert.alert(
+            'Go back?',
+            'Pickup OTP is not verified yet. Return to the ride screen?',
+            [
+                { text: 'Stay', style: 'cancel' },
+                {
+                    text: 'Go back',
+                    onPress: () => {
+                        if (!bookingId) return;
+                        router.replace({
+                            pathname: '/ride/[id]',
+                            params: { id: bookingId },
+                        });
+                    },
+                },
+            ]
+        );
+    };
+
     if (isLoading) {
         return (
             <SafeAreaView className="flex-1 bg-white items-center justify-center">
@@ -152,15 +173,17 @@ const VerifyOTP = () => {
 
     return (
         <SafeAreaView className="flex-1 bg-white">
+            <Stack.Screen
+                options={{
+                    headerShown: true,
+                    title: 'Verify Pickup OTP',
+                    headerBackVisible: true,
+                }}
+            />
             <KeyboardAvoidingView 
                 className="flex-1"
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
-                {/* Clean Header - No Back Button */}
-                <View className="flex-row items-center justify-between py-4 px-6 border-b border-gray-100">
-                    <Text className="text-xl font-JakartaBold text-gray-900 flex-1">Verify Pickup OTP</Text>
-                </View>
-
                 {/* Scrollable Content */}
                 <ScrollView 
                     className="flex-1 px-6"
@@ -193,7 +216,7 @@ const VerifyOTP = () => {
                                             {booking.customer.name}
                                         </Text>
                                         <Text className="text-gray-500 text-sm">
-                                            Ask for OTP to start trip
+                                            Ask for 4-digit OTP to start trip
                                         </Text>
                                     </View>
                                 </View>

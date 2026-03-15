@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+﻿import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
 
@@ -84,12 +84,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Error creating profile:', insertError);
           return;
         }
+        setDriverProfile(null);
 
         setProfile(newProfile);
         return;
       }
 
       setProfile(data);
+
+      setDriverProfile(null);
 
       // If user is a driver, fetch driver profile
       if (data?.role === 'driver') {
@@ -137,13 +140,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try {
                 const success = await registerPushToken(session.user.id);
                 if (success) {
-                  console.log('✅ Push token registered after attempt', attempts + 1);
+                  console.log('âœ… Push token registered after attempt', attempts + 1);
                   break;
                 }
               } catch (err: any) {
-                // If Firebase isn't configured, don't retry — it will never work
+                // If Firebase isn't configured, don't retry â€” it will never work
                 if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
-                  console.log('⚠️ Push notifications disabled (Firebase not configured). Skipping retries.');
+                  console.log('âš ï¸ Push notifications disabled (Firebase not configured). Skipping retries.');
                   break;
                 }
                 console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
@@ -160,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             
             if (attempts === maxAttempts) {
-              console.error('❌ Failed to register push token after 3 attempts');
+              console.error('âŒ Failed to register push token after 3 attempts');
             }
           });
         } else {
@@ -315,8 +318,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Refresh profile
   const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user);
+    const authUser =
+      user ??
+      (await supabase.auth.getUser()).data.user ??
+      (await supabase.auth.getSession()).data.session?.user ??
+      null;
+
+    if (authUser) {
+      await fetchProfile(authUser);
     }
   };
 
@@ -399,3 +408,6 @@ export function useAuth() {
 }
 
 export default AuthContext;
+
+
+

@@ -13,6 +13,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Sharing from "expo-sharing";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { generateInvoice, getInvoice, generatePdfUri, InvoiceData } from "@/lib/invoiceUtils";
+import { getBookingById } from "@/lib/bookings";
 
 const InvoiceScreen = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -26,24 +27,39 @@ const InvoiceScreen = () => {
       fetchInvoice();
     }
   }, [bookingId]);
-
   const fetchInvoice = async () => {
+    if (!bookingId) return;
+    const id = String(bookingId);
+
     setLoading(true);
-    
+
     // Try to get existing invoice first
-    let result = await getInvoice(bookingId);
-    
+    let result = await getInvoice(id);
+
     // If not found, generate new invoice
     if (!result.data && !result.error) {
-      result = await generateInvoice(bookingId);
+      result = await generateInvoice(id);
     }
 
     if (result.data) {
-      setInvoice(result.data);
+      let invoiceData = result.data;
+      // Fallback: some environments don't populate distance_km in invoices
+      const currentKm = Number(invoiceData.distance_km);
+      if (Number.isFinite(currentKm) && currentKm > 0) {
+        invoiceData = { ...invoiceData, distance_km: currentKm };
+      } else {
+        const bookingResult = await getBookingById(id);
+        const estimatedKm = Number(bookingResult.data?.estimated_distance);
+        if (Number.isFinite(estimatedKm) && estimatedKm > 0) {
+          invoiceData = { ...invoiceData, distance_km: estimatedKm };
+        }
+      }
+
+      setInvoice(invoiceData);
     } else {
       Alert.alert("Error", result.error || "Failed to load invoice");
     }
-    
+
     setLoading(false);
   };
 

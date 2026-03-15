@@ -5,8 +5,136 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
-import { startLocationTracking, stopLocationTracking, requestLocationPermissions } from '@/lib/location';
-import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking } from '@/lib/bookings';
+import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
+import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings } from '@/lib/bookings';
+import * as Location from 'expo-location';
+
+// Countdown timer hook for ride requests - MUST be called at top level
+const useCountdown = (expiresAt: string | null) => {
+    const [timeLeft, setTimeLeft] = useState<string>('');
+    const [isExpired, setIsExpired] = useState(false);
+
+    useEffect(() => {
+        if (!expiresAt) {
+            setTimeLeft('');
+            return;
+        }
+
+        const updateCountdown = () => {
+            const now = new Date().getTime();
+            const expiry = new Date(expiresAt).getTime();
+            const diff = expiry - now;
+
+            if (diff <= 0) {
+                setTimeLeft('Expired');
+                setIsExpired(true);
+            } else {
+                const mins = Math.floor(diff / 60000);
+                const secs = Math.floor((diff % 60000) / 1000);
+                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
+                setIsExpired(false);
+            }
+        };
+
+        updateCountdown();
+        const interval = setInterval(updateCountdown, 1000);
+        return () => clearInterval(interval);
+    }, [expiresAt]);
+
+    return { timeLeft, isExpired };
+};
+
+const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
+    const { t } = useLanguage();
+    const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
+    
+    return (
+        <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-200 shadow-sm">
+            {/* Expiration Timer Badge */}
+            {timeLeft && (
+                <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
+                    isExpired ? 'bg-gray-500' : (parseInt(timeLeft) < 1 ? 'bg-red-500' : 'bg-blue-500')
+                }`}>
+                    <View className="flex-row items-center">
+                        <Ionicons name={isExpired ? "close-circle-outline" : "time-outline"} size={12} color="#fff" />
+                        <Text className="ml-1 text-white font-JakartaBold text-xs">{isExpired ? 'Expired' : timeLeft}</Text>
+                    </View>
+                </View>
+            )}
+
+            {/* Increased Fare Badge */}
+            {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
+                <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
+                    <Ionicons name="flash-outline" size={12} color="#fff" />
+                    <Text className="ml-1 text-white font-JakartaBold text-xs">{t('increasedFare')}</Text>
+                    {request.tip_amount && request.tip_amount > 0 && (
+                        <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
+                    )}
+                </View>
+            )}
+
+            {/* Pickup Location */}
+            <View className="flex-row justify-between items-start mb-3">
+                <View className="flex-1 pr-16">
+                    <Text className="text-gray-500 text-xs mb-1">{t('pickup')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
+                        {request.origin_address}
+                    </Text>
+                </View>
+                <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
+                    <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
+                </View>
+            </View>
+
+            {/* Drop-off Location */}
+            <View className="mb-3">
+                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
+                <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
+                    {request.destination_address}
+                </Text>
+            </View>
+
+            {/* Trip Details */}
+            <View className="flex-row gap-3 mb-3">
+                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">{t('distance')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold">
+                        {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
+                    </Text>
+                </View>
+                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">Est. Time</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold">
+                        {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
+                    </Text>
+                </View>
+                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                    <Text className="text-gray-500 text-xs">{t('payment')}</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold capitalize">{request.payment_method}</Text>
+                </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View className="flex-row gap-3">
+                <TouchableOpacity
+                    onPress={() => onReject(request.id)}
+                    className="flex-1 bg-red-50 p-3 rounded-xl border border-red-200"
+                >
+                    <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => onAccept(request.id)}
+                    className={`flex-1 p-3 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
+                    disabled={isExpired}
+                >
+                    <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>
+                        {t('accept')}
+                    </Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+};
 
 const DriverHome = () => {
     const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
@@ -14,14 +142,114 @@ const DriverHome = () => {
     const [isOnline, setIsOnline] = useState(driverProfile?.is_online || false);
     const [isTogglingStatus, setIsTogglingStatus] = useState(false);
     const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
+    const [rideRequests, setRideRequests] = useState<Booking[]>([]);
     const [isRidesExpanded, setIsRidesExpanded] = useState(true);
     const [todayStats, setTodayStats] = useState({ earnings: 0, trips: 0 });
     const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
     const hasAutoNavigated = useRef(false);
 
     useEffect(() => {
         setIsOnline(driverProfile?.is_online || false);
     }, [driverProfile]);
+
+    // Get location on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                // Check if services are enabled first
+                const servicesEnabled = await checkLocationServices();
+                if (!servicesEnabled) {
+                    Alert.alert(
+                        t('locationServicesDisabled') || 'Location Services Disabled',
+                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
+                        [{ text: t('ok') }]
+                    );
+                }
+
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    console.log('Location permission not granted');
+                    return;
+                }
+                
+                let currentLocation = await Location.getCurrentPositionAsync({});
+                setLocation({
+                    latitude: currentLocation.coords.latitude,
+                    longitude: currentLocation.coords.longitude
+                });
+            } catch (error) {
+                console.error('Failed to get location:', error);
+                // If it fails with "Current location is unavailable", it's usually because services are disabled
+                const message = error instanceof Error ? error.message : String(error);
+                if (message.includes('Location services are disabled') || message.includes('Current location is unavailable')) {
+                    Alert.alert(
+                        t('locationServicesDisabled') || 'Location Services Disabled',
+                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
+                        [{ text: t('ok') }]
+                    );
+                }
+            }
+        })();
+    }, []);
+
+    // Fetch ride requests when location and driver profile are available
+    useEffect(() => {
+        if (!location || !driverProfile?.vehicle_type || !isOnline) {
+            return; // Only show requests when driver is online
+        }
+
+        const fetchRideRequests = async () => {
+            const { data, error } = await getAvailableBookings(
+                location.latitude,
+                location.longitude,
+                driverProfile.vehicle_type,
+                20 // 20km radius
+            );
+            
+            if (!error && data) {
+                console.log('[HOME] Fetched ride requests:', data.length);
+                setRideRequests(data);
+            }
+        };
+
+        fetchRideRequests();
+
+        // Subscribe to real-time updates
+        const unsubscribe = subscribeToAvailableBookings(
+            driverProfile.vehicle_type,
+            (newBooking: Booking) => {
+                console.log('[HOME SUBSCRIPTION] New booking received:', newBooking.id);
+                setRideRequests(prev => {
+                    // Avoid duplicates and add to top
+                    if (prev.some(b => b.id === newBooking.id)) {
+                        return prev;
+                    }
+                    return [newBooking, ...prev];
+                });
+            },
+            (removedBookingId: string) => {
+                console.log('[HOME SUBSCRIPTION] Booking removed:', removedBookingId);
+                setRideRequests(prev => prev.filter(b => b.id !== removedBookingId));
+            },
+            (updatedBooking: Booking) => {
+                console.log('[HOME SUBSCRIPTION] Booking updated:', updatedBooking.id);
+                setRideRequests(prev => {
+                    const idx = prev.findIndex(b => b.id === updatedBooking.id);
+                    if (idx >= 0) {
+                        const next = [...prev];
+                        next[idx] = { ...next[idx], ...updatedBooking };
+                        return next;
+                    }
+                    return [updatedBooking, ...prev];
+                });
+            }
+        );
+
+        return () => {
+            unsubscribe();
+        };
+    }, [location, driverProfile?.vehicle_type, isOnline]);
 
     // Check for active booking and fetch today's stats
     useEffect(() => {
@@ -89,6 +317,19 @@ const DriverHome = () => {
         try {
             if (value) {
                 // Going online — request permissions and start tracking
+                
+                // Check if services are enabled first
+                const servicesEnabled = await checkLocationServices();
+                if (!servicesEnabled) {
+                    Alert.alert(
+                        t('locationServicesDisabled') || 'Location Services Disabled',
+                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
+                        [{ text: t('ok') }]
+                    );
+                    setIsTogglingStatus(false);
+                    return;
+                }
+
                 const hasPermissions = await requestLocationPermissions();
                 if (!hasPermissions) {
                     Alert.alert(
@@ -120,7 +361,7 @@ const DriverHome = () => {
                                 last_location_update: new Date().toISOString(),
                             })
                             .eq('user_id', profile.id);
-                        console.log('📍 Initial location set:', location.coords.latitude, location.coords.longitude);
+                        console.log('ðŸ“ Initial location set:', location.coords.latitude, location.coords.longitude);
                     }
                 } catch (locError) {
                     console.error('Failed to set initial location:', locError);
@@ -192,6 +433,56 @@ const DriverHome = () => {
         router.push(`/ride/${bookingId}` as any);
     };
 
+    const handleAcceptRequest = async (bookingId: string) => {
+        if (!driverProfile?.id) {
+            Alert.alert(t('error'), t('driverProfileNotFound'));
+            return;
+        }
+
+        try {
+            const { acceptBooking } = await import('@/lib/bookings');
+            const { success, error } = await acceptBooking(bookingId, driverProfile.id);
+            
+            if (success) {
+                Alert.alert('Success', 'Booking accepted! Navigate to pickup location.');
+                // Remove from requests list
+                setRideRequests(prev => prev.filter(r => r.id !== bookingId));
+                // Navigate to ride screen
+                router.push(`/ride/${bookingId}` as any);
+            } else {
+                Alert.alert('Error', error || 'Failed to accept booking');
+            }
+        } catch (err) {
+            console.error('Failed to accept booking:', err);
+            Alert.alert('Error', 'Failed to accept booking');
+        }
+    };
+
+    const handleDeclineRequest = async (bookingId: string) => {
+        Alert.alert(
+            t('declineRequest'),
+            t('areYouSureDecline'),
+            [
+                { text: t('cancel'), style: 'cancel' },
+                { 
+                    text: t('decline'), 
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            const { declineBooking } = await import('@/lib/bookings');
+                            const { success } = await declineBooking(bookingId);
+                            if (success) {
+                                setRideRequests(prev => prev.filter(r => r.id !== bookingId));
+                            }
+                        } catch (err) {
+                            console.error('Failed to decline booking:', err);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const getStatusBadge = (status: Booking['status']) => {
         switch (status) {
             case 'accepted':
@@ -206,7 +497,7 @@ const DriverHome = () => {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-white">
+        <SafeAreaView testID="driver.home" accessibilityLabel="driver.home" className="flex-1 bg-white">
             <ScrollView className="p-5" contentContainerStyle={{ paddingBottom: 100 }}>
                 {/* Header */}
                 <View className="flex-row justify-between items-center mb-6">
@@ -224,76 +515,35 @@ const DriverHome = () => {
                     </TouchableOpacity>
                 </View>
 
-                {/* Active Rides List */}
-                {activeBookings.length > 0 && (
+                {/* Ride Requests Section - Only show when driver is online and has NON-EXPIRED requests */}
+                {isOnline && rideRequests.length > 0 && (
                     <View className="mb-6">
-                        {/* Expandable Header */}
-                        <TouchableOpacity
-                            onPress={() => setIsRidesExpanded(!isRidesExpanded)}
-                            className="flex-row justify-between items-center mb-3"
-                        >
+                        <View className="flex-row justify-between items-center mb-3">
                             <Text className="text-gray-900 text-lg font-JakartaBold">
-                                {t('activeRides')} ({activeBookings.length})
+                                {t('rideRequests')} ({rideRequests.filter(r => {
+                                    if (!r.expires_at) return true;
+                                    return new Date(r.expires_at).getTime() > Date.now();
+                                }).length})
                             </Text>
-                            <Feather
-                                name={isRidesExpanded ? "chevron-up" : "chevron-down"}
-                                size={24}
-                                color="#6b7280"
-                            />
-                        </TouchableOpacity>
-
-                        {/* Ride Cards - Only show when expanded */}
-                        {isRidesExpanded && activeBookings.map((booking) => {
-                            const statusBadge = getStatusBadge(booking.status);
-                            return (
-                                <TouchableOpacity
-                                    key={booking.id}
-                                    onPress={() => navigateToRide(booking.id)}
-                                    className="bg-gray-50 rounded-2xl p-4 mb-3 border border-gray-200"
-                                >
-                                    {/* Status Badge */}
-                                    <View className="mb-3">
-                                        <View className={`self-start px-3 py-1 rounded-full ${statusBadge.color}`}>
-                                            <Text className={`text-xs font-JakartaSemiBold ${statusBadge.textColor}`}>
-                                                {statusBadge.text}
-                                            </Text>
-                                        </View>
-                                    </View>
-
-                                    {/* Customer Info */}
-                                    <View className="flex-row items-center mb-3">
-                                        <View className="w-10 h-10 bg-gray-200 rounded-full items-center justify-center mr-3">
-                                            <Ionicons name="person" size={20} color="#9ca3af" />
-                                        </View>
-                                        <View className="flex-1">
-                                            <Text className="text-gray-900 font-JakartaSemiBold">
-                                                {booking.customer?.name || 'Customer'}
-                                            </Text>
-                                            <Text className="text-gray-500 text-xs">
-                                                {booking.booking_number}
-                                            </Text>
-                                        </View>
-                                        <Text className="text-gray-500 text-xl">›</Text>
-                                    </View>
-
-                                    {/* Destination */}
-                                    <View className="mb-2">
-                                        <Text className="text-gray-500 text-xs mb-1">{t('destination')}</Text>
-                                        <Text className="text-gray-900 text-sm" numberOfLines={1}>
-                                            {booking.destination_address}
-                                        </Text>
-                                    </View>
-
-                                    {/* Fare */}
-                                    <View className="flex-row justify-between items-center pt-2 border-t border-gray-200">
-                                        <Text className="text-gray-500 text-xs">Fare</Text>
-                                        <Text className="text-green-600 font-JakartaBold">
-                                            ₹{booking.driver_payout || booking.total_fare}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        })}
+                            <TouchableOpacity onPress={() => router.push('/(tabs)/requests')}>
+                                <Text className="text-blue-600 font-JakartaMedium text-sm">{t('viewAll')}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        {rideRequests
+                            .filter(request => {
+                                // Filter out expired requests from home screen
+                                if (!request.expires_at) return true;
+                                return new Date(request.expires_at).getTime() > Date.now();
+                            })
+                            .map((request) => (
+                                <RideRequestCard
+                                    key={request.id}
+                                    request={request}
+                                    onAccept={handleAcceptRequest}
+                                    onReject={handleDeclineRequest}
+                                />
+                            ))
+                        }
                     </View>
                 )}
 
@@ -303,10 +553,13 @@ const DriverHome = () => {
                         <View>
                             <Text className="text-gray-500 text-sm mb-1">{t('status')}</Text>
                             <Text className={`text-2xl font-JakartaBold ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
-                                {isOnline ? `🟢 ${t('online')}` : `🔴 ${t('offline')}`}
+                                {isOnline ? t('online') : t('offline')}
                             </Text>
                         </View>
+
                         <Switch
+                            testID="driver.toggleOnline"
+                            accessibilityLabel="driver.toggleOnline"
                             value={isOnline}
                             onValueChange={handleToggleOnline}
                             trackColor={{ false: '#d1d5db', true: '#22c55e' }}
@@ -356,6 +609,8 @@ const DriverHome = () => {
                 <Text className="text-gray-900 text-xl font-JakartaBold mb-4">{t('quickActions')}</Text>
                 <View className="gap-3">
                     <TouchableOpacity 
+                        testID="driver.viewRequestsButton"
+                        accessibilityLabel="driver.viewRequestsButton"
                         onPress={() => router.push('/(tabs)/requests')}
                         className="bg-gray-50 p-4 rounded-xl flex-row items-center border border-gray-200"
                     >
@@ -363,8 +618,8 @@ const DriverHome = () => {
                             <Ionicons name="list" size={24} color="#3b82f6" />
                         </View>
                         <View className="flex-1">
-                            <Text className="text-gray-900 font-JakartaSemiBold">{t('viewRequests')}</Text>
-                            <Text className="text-gray-500 text-sm">{t('checkAvailableRequests')}</Text>
+<Text className="text-gray-900 font-JakartaSemiBold">{t('myRides') || 'My Rides'}</Text>
+<Text className="text-gray-500 text-sm">{t('viewRideHistory')}</Text>
                         </View>
                     </TouchableOpacity>
 
@@ -377,7 +632,7 @@ const DriverHome = () => {
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-900 font-JakartaSemiBold">{t('earnings')}</Text>
-                            <Text className="text-gray-500 text-sm">
+                            <Text className="text-gray-500 text-xs truncate">
                                 {t('total')}: ₹{(driverProfile?.total_earnings || 0).toLocaleString()}
                             </Text>
                         </View>
@@ -403,3 +658,7 @@ const DriverHome = () => {
 };
 
 export default DriverHome;
+
+
+
+

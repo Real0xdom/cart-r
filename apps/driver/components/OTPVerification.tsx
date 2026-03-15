@@ -1,6 +1,7 @@
 // OTP Verification Component for Pickup
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, Animated } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 interface OTPVerificationProps {
   otpCode: string; // The correct OTP to verify against
@@ -109,7 +110,10 @@ const OTPVerification: React.FC<OTPVerificationProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>🔐 Verify Pickup OTP</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="shield-checkmark-outline" size={22} color="#111827" />
+          <Text style={styles.title}>Verify Pickup OTP</Text>
+        </View>
         <Text style={styles.subtitle}>
           Ask {customerName || 'the customer'} for the 4-digit code
         </Text>
@@ -140,10 +144,13 @@ const OTPVerification: React.FC<OTPVerificationProps> = ({
       )}
 
       <View style={styles.infoBox}>
-        <Text style={styles.infoText}>
-          💡 The OTP is displayed on the customer's app.{'\n'}
-          Verify it before starting the trip.
-        </Text>
+        <View style={styles.infoRow}>
+          <Ionicons name="information-circle-outline" size={18} color="#6b7280" />
+          <Text style={styles.infoText}>
+            The OTP is displayed on the customer's app.{'\n'}
+            Verify it before starting the trip.
+          </Text>
+        </View>
       </View>
 
       {onCancel && (
@@ -168,11 +175,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
   title: {
     fontSize: 22,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
@@ -221,8 +233,14 @@ const styles = StyleSheet.create({
   infoText: {
     color: '#6b7280',
     fontSize: 13,
-    textAlign: 'center',
+    flex: 1,
+    textAlign: 'left',
     lineHeight: 20,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   cancelButton: {
     marginTop: 20,

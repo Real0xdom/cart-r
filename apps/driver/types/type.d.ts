@@ -87,6 +87,8 @@ declare interface InputFieldProps extends TextInputProps {
   inputStyle?: string;
   iconStyle?: string;
   className?: string;
+  error?: boolean;
+  errorMessage?: string;
 }
 
 declare interface PaymentProps {
@@ -136,4 +138,35 @@ declare interface DriverCardProps {
   item: MarkerData;
   selected: number;
   setSelected: () => void;
+}
+
+declare interface DropdownFieldProps {
+  label: string;
+  options: { label: string; value: string }[];
+  value: string;
+  onSelect: (value: string) => void;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  icon?: any;
+  labelStyle?: string;
+  containerStyle?: string;
+  inputStyle?: string;
+  iconStyle?: string;
+  error?: boolean;
+  searchable?: boolean;
+}
+
+declare interface DateFieldProps {
+  label: string;
+  value: Date | null;
+  onChange: (date: Date) => void;
+  placeholder?: string;
+  icon?: any;
+  labelStyle?: string;
+  containerStyle?: string;
+  inputStyle?: string;
+  iconStyle?: string;
+  minimumDate?: Date;
+  maximumDate?: Date;
+  error?: boolean;
 }

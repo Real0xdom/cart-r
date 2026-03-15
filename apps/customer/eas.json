@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 7.0.0"
+    "version": ">= 7.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -13,8 +14,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
+        "EXPO_PUBLIC_ENV": "development"
       }
     },
     "preview": {
@@ -23,8 +23,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "preview",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
+        "EXPO_PUBLIC_ENV": "preview"
       }
     },
     "production": {
@@ -36,8 +35,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
+        "EXPO_PUBLIC_ENV": "production"
       }
     }
   },
@@ -55,4 +53,3 @@
     }
   }
 }
-

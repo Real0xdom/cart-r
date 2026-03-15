@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/lib/supabase';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 
 interface Review {
   id: string;
@@ -107,7 +107,9 @@ export default function DriverReviews() {
 
         {reviews.length === 0 ? (
            <View className="items-center py-10">
-              <Text className="text-4xl mb-4">💬</Text>
+              <View className="mb-4 h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                <Ionicons name="chatbubble-ellipses-outline" size={30} color="#9ca3af" />
+              </View>
               <Text className="text-gray-400">{t('noReviewsYet')}</Text>
            </View>
         ) : (
@@ -116,7 +118,7 @@ export default function DriverReviews() {
                <View className="flex-row justify-between mb-2">
                   <View className="flex-row items-center">
                      <View className="w-8 h-8 bg-gray-100 rounded-full items-center justify-center mr-2">
-                         <Text className="text-xs">👤</Text> 
+                         <Ionicons name="person-outline" size={14} color="#6b7280" />
                      </View>
                      <Text className="text-gray-900 font-JakartaSemiBold">{review.customer?.name || t('customer')}</Text>
                   </View>

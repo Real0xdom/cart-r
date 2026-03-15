@@ -306,7 +306,7 @@ const WaitingForDriverPage = () => {
       snapPoints={getSnapPoints()}
       useView={false}
     >
-      <View className="flex-1">
+      <View testID="booking.waiting" accessibilityLabel="booking.waiting" className="flex-1">
         {/* Ride ID Badge */}
         <View className="items-center mb-2">
             <View className="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
@@ -324,7 +324,7 @@ const WaitingForDriverPage = () => {
               <View className="bg-green-500 rounded-full p-2 mr-3">
                 <Feather name="check" size={20} color="#fff" />
               </View>
-              <View className="flex-1">
+              <View>
                 <Text className="text-green-700 font-JakartaBold text-base">Driver Assigned!</Text>
                 <Text className="text-green-600 font-JakartaMedium text-sm">Your driver is on the way</Text>
               </View>
@@ -400,7 +400,7 @@ const WaitingForDriverPage = () => {
               <View className="bg-orange-500 rounded-full p-2 mr-3">
                 <Feather name="alert-circle" size={20} color="#fff" />
               </View>
-              <View className="flex-1">
+              <View>
                 <Text className="text-orange-700 font-JakartaBold text-base">No Drivers Found</Text>
                 <Text className="text-orange-600 font-JakartaMedium text-sm">Add a tip to attract nearby drivers</Text>
               </View>
@@ -566,3 +566,4 @@ const WaitingForDriverPage = () => {
 };
 
 export default WaitingForDriverPage;
+

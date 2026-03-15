@@ -3,18 +3,23 @@
 
 import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline, AnimatedRegion } from 'react-native-maps';
-import MapViewDirections from "react-native-maps-directions";
+import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
+import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
+import { getCurrentLocation, checkLocationServices } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { icons, images } from '@/constants';
+
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 const ActiveRide = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { t } = useLanguage();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -23,6 +28,7 @@ const ActiveRide = () => {
     const [liveDistance, setLiveDistance] = useState<number | null>(null); // km
     const [cachedRouteCoords, setCachedRouteCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
     const [useDirectionsFallback, setUseDirectionsFallback] = useState(false);
+    const [locationError, setLocationError] = useState<string | null>(null);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
 
@@ -37,6 +43,16 @@ const ActiveRide = () => {
             if (isWatching) return;
 
             try {
+                // Check if services are enabled first
+                const servicesEnabled = await checkLocationServices();
+                if (!servicesEnabled) {
+                    Alert.alert(
+                        t('locationServicesDisabled') || 'Location Services Disabled',
+                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
+                        [{ text: t('ok') }]
+                    );
+                }
+
                 // Check permissions first without triggering a dialog
                 const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
                 
@@ -49,11 +65,27 @@ const ActiveRide = () => {
                 isWatching = true;
 
                 // Get immediate location first
-                const location = await Location.getCurrentPositionAsync({});
-                setDriverLocation({
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude
-                });
+                const location = await getCurrentLocation();
+                if (location) {
+                    setDriverLocation({
+                        latitude: location.coords.latitude,
+                        longitude: location.coords.longitude
+                    });
+                    setLocationError(null);
+                } else {
+                    const errorMsg = t('enableLocationServices') || 'Current location is unavailable. Turn on device location services to show the route.';
+                    setLocationError(errorMsg);
+                    
+                    if (!servicesEnabled) {
+                        // Already showed alert above
+                    } else {
+                        Alert.alert(
+                            t('locationServicesDisabled') || 'Location Services Disabled',
+                            errorMsg,
+                            [{ text: t('ok') }]
+                        );
+                    }
+                }
 
                 // Start watcher
                 subscription = await Location.watchPositionAsync(
@@ -63,10 +95,19 @@ const ActiveRide = () => {
                             latitude: loc.coords.latitude,
                             longitude: loc.coords.longitude
                         });
+                        setLocationError(null);
                     }
                 );
             } catch (e) {
                 console.error('[ActiveRide] Location error:', e);
+                const errorMsg = t('enableLocationServices') || 'Current location is unavailable. Turn on device location services to show the route.';
+                setLocationError(errorMsg);
+                
+                Alert.alert(
+                    t('locationServicesDisabled') || 'Location Services Disabled',
+                    errorMsg,
+                    [{ text: t('ok') }]
+                );
                 isWatching = false;
             }
         };
@@ -90,7 +131,7 @@ const ActiveRide = () => {
                 appState.current.match(/inactive|background/) &&
                 nextAppState === 'active'
             ) {
-                console.log('App has come to the foreground! checking location watcher...');
+                // console.log('App has come to the foreground! checking location watcher...');
                 // Don't restart aggressively, just ensure we are watching
                 if (!isWatching) {
                      startWatching();
@@ -99,7 +140,7 @@ const ActiveRide = () => {
                  // On Android, background service should handle this. 
                  // For now, we only stop if we want to save battery, but for a driver app we often want it running.
                  // However, let's keep the user's logic but make it robust.
-                 console.log('App going to background. Stopping location watcher (relying on background service).');
+                 // console.log('App going to background. Stopping location watcher (relying on background service).');
                  stopWatching();
             }
 
@@ -172,18 +213,26 @@ const ActiveRide = () => {
     useEffect(() => {
         if (booking && driverLocation && mapRef.current) {
             const isInProgress = booking.status === 'in_progress';
-            const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
-            const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
             
-            mapRef.current.fitToCoordinates([
+            const pointsToFit = [
                 { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
-                { latitude: targetLat, longitude: targetLng }
-            ], {
+                { latitude: booking.origin_latitude, longitude: booking.origin_longitude },
+                { latitude: booking.destination_latitude, longitude: booking.destination_longitude }
+            ];
+            
+            mapRef.current.fitToCoordinates(pointsToFit, {
                 edgePadding: { top: 100, right: 60, bottom: 350, left: 60 },
                 animated: true
             });
         }
-    }, [booking, driverLocation]);
+    }, [booking?.id, booking?.status, !!driverLocation]);
+
+    useEffect(() => {
+        if (!booking) return;
+
+        // Force directions to recalculate when the ride phase switches from pickup to drop-off.
+        setUseDirectionsFallback(false);
+    }, [booking?.status, booking?.origin_latitude, booking?.origin_longitude, booking?.destination_latitude, booking?.destination_longitude]);
 
     const openNavigation = () => {
         if (!booking) return;
@@ -211,6 +260,16 @@ const ActiveRide = () => {
 
         const currentStatus = booking.status;
 
+        // If in_progress and clicking the button, navigate to Arrived at Drop Location verification
+        if (currentStatus === 'in_progress') {
+            router.push({
+                pathname: '/ride/verify-drop-otp',
+                params: { bookingId: id },
+            });
+            setIsUpdating(false);
+            return;
+        }
+
         // If arrived and about to start trip, navigate to OTP verification
         if (currentStatus === 'driver_arrived') {
             router.push({
@@ -227,14 +286,6 @@ const ActiveRide = () => {
             
             if (currentStatus === 'accepted') {
                 newStatus = 'driver_arrived';
-            } else if (currentStatus === 'in_progress') {
-                // Navigate to payment collection
-                router.push({
-                    pathname: '/ride/collect-payment',
-                    params: { bookingId: id },
-                });
-                setIsUpdating(false);
-                return;
             } else {
                 setIsUpdating(false);
                 return;
@@ -256,7 +307,7 @@ const ActiveRide = () => {
         switch (booking?.status) {
             case 'accepted': return 'Arrived at Pickup';
             case 'driver_arrived': return 'Verify OTP & Start';
-            case 'in_progress': return 'Complete & Collect Payment';
+            case 'in_progress': return 'Arrived at Drop Location';
             default: return 'Continue';
         }
     };
@@ -264,11 +315,11 @@ const ActiveRide = () => {
     const getStatusBadge = () => {
         switch (booking?.status) {
             case 'accepted': 
-                return { text: '🚗 Head to pickup location', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
+                return { text: 'Head to pickup location', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
             case 'driver_arrived': 
                 return { text: '📍 Arrived - Verify OTP', color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
             case 'in_progress': 
-                return { text: '🚚 Trip in progress', color: 'bg-green-500/20', textColor: 'text-green-400' };
+                return { text: '🚚 On the way to drop-off', color: 'bg-green-500/20', textColor: 'text-green-400' };
             default: 
                 return { text: 'Loading...', color: 'bg-gray-500/20', textColor: 'text-gray-400' };
         }
@@ -288,16 +339,17 @@ const ActiveRide = () => {
     const isInProgress = booking.status === 'in_progress';
     const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
     const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
+    const routeKey = `${booking.status}-${targetLat}-${targetLng}`;
 
     return (
-        <SafeAreaView className="flex-1 bg-white">
+        <SafeAreaView testID="driver.activeRide" accessibilityLabel="driver.activeRide" className="flex-1 bg-white">
             {/* Map View */}
             <View className="flex-1">
                 {driverLocation ? (
                     <MapView
                         ref={mapRef}
                         style={{ flex: 1 }}
-                        provider={PROVIDER_GOOGLE}
+                        mapType="standard"
                         initialRegion={{
                             latitude: driverLocation.latitude,
                             longitude: driverLocation.longitude,
@@ -307,6 +359,7 @@ const ActiveRide = () => {
                         showsUserLocation={false}
                         showsMyLocationButton={false}
                     >
+
                         {/* Driver marker */}
                         <Marker.Animated
                             coordinate={animatedCoordinate as any}
@@ -344,12 +397,24 @@ const ActiveRide = () => {
                             <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
                         </Marker>
 
-                        {/* Route line from driver to target */}
-                        {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && !useDirectionsFallback && (
-                            <MapViewDirections
+                        {/* 1. Trip Route (Pickup -> Drop-off) - Always shown in background or foreground */}
+                        {!useDirectionsFallback && (
+                            <OlaMapViewDirections
+                                key={`trip-route-${booking.id}`}
+                                origin={{ latitude: booking.origin_latitude, longitude: booking.origin_longitude }}
+                                destination={{ latitude: booking.destination_latitude, longitude: booking.destination_longitude }}
+                                strokeColor={isInProgress ? "#ef4444" : "#94a3b8"}
+                                strokeWidth={isInProgress ? 5 : 3}
+                                lineDashPattern={isInProgress ? undefined : [5, 5]}
+                            />
+                        )}
+
+                        {/* 2. Navigation Route (Driver -> Next Target) */}
+                        {driverLocation && !useDirectionsFallback && (
+                            <OlaMapViewDirections
+                                key={`nav-route-${booking.status}-${driverLocation.latitude}-${driverLocation.longitude}`}
                                 origin={driverLocation}
                                 destination={{ latitude: targetLat, longitude: targetLng }}
-                                apikey={process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY}
                                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
                                 strokeWidth={4}
                                 onReady={(result) => {
@@ -362,7 +427,6 @@ const ActiveRide = () => {
                                     console.log('[ActiveRide] Directions API error, using cached route:', error);
                                     setUseDirectionsFallback(true);
                                 }}
-                                resetOnChange={false}
                             />
                         )}
 
@@ -375,11 +439,29 @@ const ActiveRide = () => {
                                 lineDashPattern={[6, 3]}
                             />
                         )}
+
+                        {/* Straight-line fallback when Directions API failed AND no cached route exists */}
+                        {useDirectionsFallback && cachedRouteCoords.length === 0 && driverLocation && (
+                            <Polyline
+                                coordinates={[
+                                    { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
+                                    { latitude: targetLat, longitude: targetLng },
+                                ]}
+                                strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
+                                strokeWidth={3}
+                                lineDashPattern={[8, 6]}
+                            />
+                        )}
                     </MapView>
                 ) : (
                     <View className="flex-1 bg-gray-100 items-center justify-center">
                         <ActivityIndicator size="large" color="#22c55e" />
                         <Text className="text-gray-500 mt-2">Getting location...</Text>
+                        {locationError ? (
+                            <Text className="text-center text-red-500 mt-3 px-8">
+                                {locationError}
+                            </Text>
+                        ) : null}
                     </View>
                 )}
             </View>
@@ -434,10 +516,10 @@ const ActiveRide = () => {
                     {booking.status === 'driver_arrived' && booking.pickup_otp && (
                         <View className="bg-blue-500/10 rounded-xl p-4 mb-4 border border-blue-200">
                             <Text className="text-blue-600 text-sm font-JakartaMedium mb-1">
-                                Ask customer for OTP to start trip
+                                Ask customer for 4-digit OTP to start trip
                             </Text>
                             <Text className="text-gray-900 text-xl font-JakartaBold">
-                                Expected OTP: ****
+                                OTP: ****
                             </Text>
                         </View>
                     )}
@@ -559,3 +641,4 @@ const ActiveRide = () => {
 };
 
 export default ActiveRide;
+

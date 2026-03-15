@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -21,7 +22,7 @@ export default function VehicleDetails() {
               resizeMode="cover"
             />
           ) : (
-            <Text className="text-4xl">🚗</Text>
+            <Ionicons name="car-sport-outline" size={40} color="#9ca3af" />
           )}
         </View>
 

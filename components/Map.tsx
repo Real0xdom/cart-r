@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
-import MapViewDirections from "react-native-maps-directions";
+import OlaMapViewDirections from "./OlaMapViewDirections";
 
 import { icons } from "@/constants";
 import { useFetch } from "@/lib/fetch";
@@ -13,7 +13,7 @@ import {
 import { useDriverStore, useLocationStore } from "@/store";
 import { Driver, MarkerData } from "@/types/type";
 
-const directionsAPI = process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY;
+
 
 const Map = () => {
   const {
@@ -85,7 +85,7 @@ const Map = () => {
       provider={PROVIDER_DEFAULT}
       className="w-full h-full rounded-2xl"
       tintColor="black"
-      mapType="mutedStandard"
+      mapType="standard"
       showsPointsOfInterest={false}
       initialRegion={region}
       showsUserLocation={true}
@@ -116,7 +116,7 @@ const Map = () => {
             title="Destination"
             image={icons.pin}
           />
-          <MapViewDirections
+          <OlaMapViewDirections
             origin={{
               latitude: userLatitude!,
               longitude: userLongitude!,
@@ -125,7 +125,6 @@ const Map = () => {
               latitude: destinationLatitude,
               longitude: destinationLongitude,
             }}
-            apikey={directionsAPI!}
             strokeColor="#0286FF"
             strokeWidth={2}
           />

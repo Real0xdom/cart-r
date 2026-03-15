@@ -7,14 +7,11 @@ import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { images } from "@/constants";
 import { useState, useEffect, useCallback } from "react";
 import { getCustomerBookings } from "@/lib/bookings";
-import type { Booking } from "@/types/type";
-import { useLocationStore } from "@/store";
+import { useLocationStore, useBookingStore, useRideStore, useDriverStore } from "@/store";
 import * as SecureStore from 'expo-secure-store';
 
 import { useIsFocused } from "@react-navigation/native";
 import { isLocationSupported } from "@/lib/serviceArea";
-
-import { getSavedAddresses, SavedAddress, getPlaceIoniconName } from "@/lib/savedPlaces";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -24,12 +21,19 @@ const Home = () => {
   const { userAddress, userLatitude, userLongitude, setUserLocation } = useLocationStore();
   const isFocused = useIsFocused();
   
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   
+  const handleStartNewRide = () => {
+    useLocationStore.getState().clearDestination();
+    useBookingStore.getState().clearAll();
+    useRideStore.getState().clearSelectedVehicle();
+    useDriverStore.getState().clearSelectedDriver();
+    router.push("/find-ride");
+  };
+
   // Service Area Check State
   const [isSupportedLocation, setIsSupportedLocation] = useState(true);
   const [loadingLocationCheck, setLoadingLocationCheck] = useState(false);
@@ -140,17 +144,11 @@ const Home = () => {
     fetchBookings();
   }, [fetchBookings]);
 
-  const fetchSavedPlaces = useCallback(async () => {
-    const { data } = await getSavedAddresses();
-    if (data) setSavedAddresses(data);
-  }, []);
-
   useEffect(() => {
     if (isFocused) {
       fetchBookings();
-      fetchSavedPlaces();
     }
-  }, [fetchBookings, fetchSavedPlaces, isFocused]);
+  }, [fetchBookings, isFocused]);
 
   // Format date for cards
   const formatDate = (dateString: string) => {
@@ -178,12 +176,12 @@ const Home = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-general-900">
+    <SafeAreaView testID="customer.home" accessibilityLabel="customer.home" className="flex-1 bg-general-900">
       <View className="flex-1 bg-general-900">
         {/* Sticky Service Unavailable Banner */}
         {!isSupportedLocation && !loadingLocationCheck && (
           <TouchableOpacity
-            onPress={() => router.push("/find-ride")}
+            onPress={handleStartNewRide}
             activeOpacity={0.9}
             className="bg-red-500 px-4 py-3 flex-row items-center justify-between shadow-md z-50"
           >
@@ -213,12 +211,12 @@ const Home = () => {
         </View>
 
         {/* Pickup Location Field (Auto-detected/Preferred) */}
-        <View className="mx-5 -mt-4">
+        <View className="mx-5 mt-4">
           <Text className="text-xs font-JakartaBold text-gray-500 mb-2 uppercase tracking-wider">
             {t("pickUpFrom")}
           </Text>
           <TouchableOpacity 
-            onPress={() => router.push("/find-ride")}
+            onPress={handleStartNewRide}
             className="flex-row items-center bg-white rounded-2xl p-4 shadow-sm border border-brand-100"
             activeOpacity={0.7}
           >
@@ -236,47 +234,13 @@ const Home = () => {
             <Feather name="edit-2" size={16} color="#A0A0A0" />
           </TouchableOpacity>
 
-          {/* Quick selection of saved addresses on Home */}
-          {savedAddresses.length > 0 && (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              className="mt-3"
-              contentContainerStyle={{ paddingRight: 20 }}
-            >
-              {savedAddresses.map((place) => (
-                <TouchableOpacity
-                  key={place.id}
-                  onPress={() => {
-                    setUserLocation({
-                      latitude: Number(place.latitude),
-                      longitude: Number(place.longitude),
-                      address: place.address
-                    });
-                    router.push("/find-ride");
-                  }}
-                  className="flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-2.5 mr-3 shadow-sm"
-                >
-                  <View className="w-6 h-6 bg-brand-50 rounded-full items-center justify-center mr-2">
-                    <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={14} color="#FF9800" />
-                  </View>
-                  <Text className="text-sm font-JakartaBold text-gray-800">{place.label}</Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity 
-                onPress={() => router.push("/saved-addresses")}
-                className="flex-row items-center bg-gray-50 border border-dashed border-gray-200 rounded-2xl px-4 py-2.5"
-              >
-                  <Feather name="plus" size={14} color="#A0A0A0" />
-                  <Text className="ml-2 text-sm font-JakartaMedium text-gray-400">{t("addNew")}</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          )}
         </View>
 
         {/* Search Bar */}
         <TouchableOpacity 
-          onPress={() => router.push("/find-ride")}
+          testID="customer.startRideButton"
+          accessibilityLabel="customer.startRideButton"
+          onPress={handleStartNewRide}
           className="mx-5 mt-4 flex-row items-center bg-white rounded-2xl p-4 shadow-sm border border-gray-100"
           activeOpacity={0.8}
         >
@@ -433,7 +397,7 @@ const Home = () => {
               {t("noShipmentsTransit")}
             </Text>
             <TouchableOpacity 
-              onPress={() => router.push("/find-ride")}
+              onPress={handleStartNewRide}
               className="bg-brand-500 w-full py-4 rounded-2xl flex-row items-center justify-center shadow-md"
               activeOpacity={0.8}
             >
@@ -528,3 +492,4 @@ const Home = () => {
 };
 
 export default Home;
+

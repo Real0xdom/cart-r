@@ -87,7 +87,7 @@ const DriverTabsLayout = () => {
             <Tabs.Screen
                 name="requests"
                 options={{
-                    title: t("requests"),
+                    title: t("myRides") || "My Rides",
                     headerShown: false,
                     tabBarIcon: ({ focused }) => (
                         <TabIcon source={icons.list} focused={focused} />

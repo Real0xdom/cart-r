@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 
 export default function Support() {
   const { profile } = useAuth();
@@ -71,7 +71,7 @@ export default function Support() {
                     className="bg-gray-100 p-5 rounded-2xl flex-row items-center"
                 >
                     <View className="w-12 h-12 bg-blue-500/20 rounded-full items-center justify-center mr-4">
-                        <Text className="text-2xl">📞</Text>
+                        <Ionicons name="call-outline" size={22} color="#2563eb" />
                     </View>
                     <View>
                         <Text className="text-gray-900 font-JakartaBold text-lg">{t('callSupport')}</Text>
@@ -84,7 +84,7 @@ export default function Support() {
                     className="bg-gray-100 p-5 rounded-2xl flex-row items-center"
                 >
                     <View className="w-12 h-12 bg-green-500/20 rounded-full items-center justify-center mr-4">
-                        <Text className="text-2xl">✉️</Text>
+                        <Ionicons name="mail-outline" size={22} color="#16a34a" />
                     </View>
                     <View>
                         <Text className="text-gray-900 font-JakartaBold text-lg">{t('emailUs')}</Text>
@@ -100,7 +100,7 @@ export default function Support() {
                     className="bg-gray-100 p-5 rounded-2xl flex-row items-center"
                 >
                     <View className="w-12 h-12 bg-purple-500/20 rounded-full items-center justify-center mr-4">
-                        <Text className="text-2xl">❓</Text>
+                        <Ionicons name="help-circle-outline" size={22} color="#7c3aed" />
                     </View>
                     <View>
                         <Text className="text-gray-900 font-JakartaBold text-lg">{t('faqs')}</Text>

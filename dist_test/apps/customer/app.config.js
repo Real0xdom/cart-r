@@ -75,7 +75,7 @@ exports.default = ({ config }) => ({
             "origin": "https://cart-r.com/"
         },
         eas: {
-            "projectId": "0bc2f79e-c11f-42ad-80c6-e3fa2d9e09b8"
+            "projectId": "647bd8ea-1b7c-4768-b714-1ebea7f72051"
         }
     }
 });

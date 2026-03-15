@@ -1,14 +1,13 @@
-import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl, Alert, Modal, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, RefreshControl, Alert, Modal, TextInput, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getDriverWalletInfo, requestWithdrawal, getPlatformSetting, WalletInfo } from '@/lib/wallet';
+import { getDriverWalletInfo, requestWithdrawal, getPlatformSetting, WalletInfo, getDriverWalletTransactions, getDriverWithdrawals, WalletTransaction, WithdrawalRequest } from '@/lib/wallet';
 import { getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import WithdrawalHistory from '@/components/WithdrawalHistory';
 
 const { width } = Dimensions.get('window');
 
@@ -40,17 +39,98 @@ const BarChart = ({ data }: { data: DailyEarning[] }) => {
     );
 };
 
+// Skeleton shimmer helper
+const SkeletonBox = ({ width: w, height: h, className: cls = '', rounded = 'rounded-xl' }: { width?: number | string; height?: number | string; className?: string; rounded?: string }) => {
+    const anim = useRef(new Animated.Value(0.3)).current;
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(anim, { toValue: 1, duration: 700, useNativeDriver: true }),
+                Animated.timing(anim, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+            ])
+        );
+        loop.start();
+        return () => loop.stop();
+    }, []);
+    return (
+        <Animated.View
+            style={{ opacity: anim, width: w as any, height: h as any }}
+            className={`bg-gray-200 ${rounded} ${cls}`}
+        />
+    );
+};
+
+const WalletSkeleton = () => (
+    <View className="flex-1 bg-white">
+        {/* Balance card skeleton */}
+        <View className="p-5 bg-green-500 rounded-b-3xl mb-6">
+            <SkeletonBox height={36} width={160} className="bg-green-400 mb-2" />
+            <SkeletonBox height={14} width={120} className="bg-green-400" />
+        </View>
+
+        {/* Period selector skeleton */}
+        <View className="flex-row mx-5 bg-gray-100 rounded-xl p-1 mb-6">
+            {[1, 2, 3].map(i => (
+                <View key={i} className="flex-1 py-3 px-2">
+                    <SkeletonBox height={18} rounded="rounded-lg" />
+                </View>
+            ))}
+        </View>
+
+        {/* Earnings card skeleton */}
+        <View className="mx-5 bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-6">
+            <SkeletonBox height={12} width={120} className="mb-2" />
+            <SkeletonBox height={48} width={180} className="mb-4" />
+            <View className="flex-row justify-between">
+                {[1, 2, 3].map(i => (
+                    <View key={i}>
+                        <SkeletonBox height={10} width={60} className="mb-1" />
+                        <SkeletonBox height={18} width={60} />
+                    </View>
+                ))}
+            </View>
+        </View>
+
+        {/* Chart skeleton */}
+        <View className="mx-5 bg-gray-50 border border-gray-200 rounded-2xl p-4 mb-6">
+            <SkeletonBox height={14} width={160} className="mb-4" />
+            <View className="flex-row justify-between items-end h-32 px-2">
+                {[60, 80, 40, 100, 55, 75, 90].map((h, i) => (
+                    <SkeletonBox key={i} height={h} width={32} rounded="rounded-t-lg" />
+                ))}
+            </View>
+        </View>
+
+        {/* Recent trips skeleton */}
+        <View className="mx-5">
+            <SkeletonBox height={16} width={120} className="mb-4" />
+            {[1, 2, 3].map(i => (
+                <View key={i} className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-3">
+                    <SkeletonBox height={14} className="mb-2" />
+                    <SkeletonBox height={10} width={100} className="mb-3" />
+                    <SkeletonBox height={1} className="bg-gray-200 mb-2" />
+                    <View className="flex-row justify-between">
+                        <SkeletonBox height={10} width={80} />
+                        <SkeletonBox height={10} width={60} />
+                    </View>
+                </View>
+            ))}
+        </View>
+    </View>
+);
+
 const DriverEarnings = () => {
     const { driverProfile } = useAuth();
     const { t } = useLanguage();
-    
+
     // Data states
     const [wallet, setWallet] = useState<WalletInfo | null>(null);
     const [payoutSettings, setPayoutSettings] = useState<any>(null);
     const [trips, setTrips] = useState<Booking[]>([]);
+    const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
+    const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
     const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');
-    const [activeTab, setActiveTab] = useState<'earnings' | 'history'>('earnings');
-    
+
     // UI states
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -61,18 +141,22 @@ const DriverEarnings = () => {
 
     const fetchData = async () => {
         if (!driverProfile?.id) return;
-        
+
         try {
-            const [walletRes, settingsRes, tripsRes] = await Promise.all([
+            const [walletRes, settingsRes, tripsRes, transactionsRes, withdrawalsRes] = await Promise.all([
                 getDriverWalletInfo(driverProfile.id),
                 getPlatformSetting('payout'),
-                getDriverCompletedTrips(driverProfile.id, 100)
+                getDriverCompletedTrips(driverProfile.id, 100),
+                getDriverWalletTransactions(driverProfile.id, 50),
+                getDriverWithdrawals(driverProfile.id, 20)
             ]);
-            
+
             if (walletRes.data) setWallet(walletRes.data);
             if (settingsRes.data) setPayoutSettings(settingsRes.data);
             if (!tripsRes.error && tripsRes.data) setTrips(tripsRes.data);
-            
+            if (!transactionsRes.error && transactionsRes.data) setWalletTransactions(transactionsRes.data);
+            if (!withdrawalsRes.error && withdrawalsRes.data) setWithdrawals(withdrawalsRes.data);
+
         } catch (error) {
             console.error('Error fetching earnings dashboard:', error);
         } finally {
@@ -82,25 +166,6 @@ const DriverEarnings = () => {
 
     useEffect(() => {
         fetchData();
-        
-        // Subscribe to real-time wallet updates
-        if (driverProfile?.id) {
-            const walletSub = supabase
-                .channel('wallet_updates')
-                .on('postgres_changes', { 
-                    event: '*', 
-                    schema: 'public', 
-                    table: 'driver_wallets',
-                    filter: `driver_id=eq.${driverProfile.id}`
-                }, () => {
-                    fetchData();
-                })
-                .subscribe();
-
-            return () => {
-                supabase.removeChannel(walletSub);
-            };
-        }
     }, [driverProfile?.id]);
 
     const onRefresh = useCallback(async () => {
@@ -111,16 +176,16 @@ const DriverEarnings = () => {
 
     const handleWithdrawRequest = async () => {
         if (!wallet) return;
-        
+
         const amount = Number(withdrawAmount);
         if (isNaN(amount) || amount <= 0) {
             Alert.alert(t('error') || 'Error', t('invalidAmount') || 'Invalid amount');
             return;
         }
-        
+
         const minConfig = payoutSettings?.min_withdrawal || 100;
         const maxConfig = payoutSettings?.max_withdrawal || 50000;
-        
+
         if (amount < minConfig) {
             Alert.alert(t('error') || 'Error', `${t('minWithdrawalAmount') || 'Minimum withdrawal is'} ₹${minConfig}`);
             return;
@@ -141,7 +206,6 @@ const DriverEarnings = () => {
         if (success) {
             setShowWithdrawModal(false);
             setWithdrawAmount('');
-            // Show success modal instead of alert
             setTimeout(() => setShowSuccessModal(true), 300);
             fetchData();
         } else {
@@ -177,7 +241,7 @@ const DriverEarnings = () => {
     const getWeeklyData = (): DailyEarning[] => {
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const weekData: DailyEarning[] = days.map(day => ({ day, amount: 0, trips: 0 }));
-        
+
         const now = new Date();
         const weekStart = new Date(now);
         weekStart.setDate(weekStart.getDate() - 6);
@@ -203,25 +267,39 @@ const DriverEarnings = () => {
     };
 
     const filteredTrips = getFilteredTrips();
-    const periodEarnings = filteredTrips.reduce((sum, t) => sum + (t.driver_payout || t.total_fare), 0);
+
+    // FIX: Calculate periodEarnings from filteredTrips instead of hardcoding 0
+    const periodEarnings = filteredTrips.reduce((sum, trip) => sum + (trip.driver_payout || trip.total_fare || 0), 0);
+
     const tripsCount = filteredTrips.length;
     const avgPerTrip = tripsCount > 0 ? Math.round(periodEarnings / tripsCount) : 0;
-    const recentTrips = filteredTrips.slice(0, 10);
     const weeklyData = getWeeklyData();
 
+    // FIX: Declare recentTrips (most recent 10 filtered trips)
+    const recentTrips = filteredTrips.slice(0, 10);
+
+    // Filter wallet transactions for payment history (earnings only, recent first)
+    const paymentHistory = walletTransactions;
+
+    // FIX: Moved isLoading early return to correct position, outside main return
     if (isLoading) {
         return (
-            <SafeAreaView className="flex-1 bg-white items-center justify-center">
-                <ActivityIndicator size="large" color="#22c55e" />
-                <Text className="text-gray-600 mt-4">{t('loadingWallet') || 'Loading Earnings...'}</Text>
+            <SafeAreaView className="flex-1 bg-white">
+                <ScrollView
+                    className="flex-1"
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                    scrollEnabled={false}
+                >
+                    <WalletSkeleton />
+                </ScrollView>
             </SafeAreaView>
         );
     }
 
     return (
         <SafeAreaView className="flex-1 bg-white">
-            <ScrollView 
-                className="flex-1" 
+            <ScrollView
+                className="flex-1"
                 contentContainerStyle={{ paddingBottom: 100 }}
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22c55e" />
@@ -240,16 +318,13 @@ const DriverEarnings = () => {
                             </Text>
                         )}
                     </View>
-                    
-                    <TouchableOpacity 
+
+                    <TouchableOpacity
                         onPress={() => {
-                            // Check if balance is available
                             if (!wallet || wallet.available_balance <= 0) {
                                 Alert.alert('No Balance', 'You have no available balance to withdraw.');
                                 return;
                             }
-                            
-                            // Check if there are pending withdrawals
                             if ((wallet.pending_withdrawals || 0) > 0) {
                                 Alert.alert(
                                     'Pending Withdrawal',
@@ -258,8 +333,6 @@ const DriverEarnings = () => {
                                 );
                                 return;
                             }
-                            
-                            // Check if bank details are added
                             if (!wallet.bank_details || !wallet.bank_details.account_number) {
                                 Alert.alert(
                                     'Bank Account Required',
@@ -271,8 +344,6 @@ const DriverEarnings = () => {
                                 );
                                 return;
                             }
-                            
-                            // Check if bank KYC is verified
                             if (wallet.verification_status !== 'approved') {
                                 Alert.alert(
                                     'KYC Verification Required',
@@ -281,26 +352,24 @@ const DriverEarnings = () => {
                                 );
                                 return;
                             }
-                            
-                            // All checks passed - show withdrawal modal
                             setShowWithdrawModal(true);
                         }}
                         className={`py-2 px-4 rounded-xl flex-row items-center justify-center gap-2 ${
-                            (!wallet || wallet.available_balance <= 0 || (wallet.pending_withdrawals || 0) > 0) 
-                            ? 'bg-green-600/50' 
-                            : 'bg-white'
+                            (!wallet || wallet.available_balance <= 0 || (wallet.pending_withdrawals || 0) > 0)
+                                ? 'bg-green-600/50'
+                                : 'bg-white'
                         }`}
                     >
                         <Text className={`font-JakartaBold ${
                             (!wallet || wallet.available_balance <= 0 || (wallet.pending_withdrawals || 0) > 0) ? 'text-green-100/70' : 'text-green-600'
                         }`}>
-                            {(wallet?.pending_withdrawals || 0) > 0 ? '⏳ Pending...' : (t('withdraw') || 'Withdraw')}
+                            {(wallet?.pending_withdrawals || 0) > 0 ? 'Pending...' : (t('withdraw') || 'Withdraw')}
                         </Text>
                     </TouchableOpacity>
                 </View>
 
                 {wallet?.verification_status !== 'approved' && (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         onPress={() => router.push('/profile/bank')}
                         className="mx-5 mb-4 bg-red-50 border border-red-200 p-4 rounded-xl flex-row items-center justify-between shadow-sm shadow-red-100"
                     >
@@ -334,32 +403,6 @@ const DriverEarnings = () => {
                     ))}
                 </View>
 
-                {/* Tab Selector */}
-                <View className="flex-row mx-5 bg-gray-100 rounded-xl p-1 mb-6">
-                    <TouchableOpacity
-                        onPress={() => setActiveTab('earnings')}
-                        className={`flex-1 py-3 rounded-lg ${activeTab === 'earnings' ? 'bg-green-500' : ''}`}
-                    >
-                        <Text className={`text-center font-JakartaSemiBold ${activeTab === 'earnings' ? 'text-white' : 'text-gray-600'}`}>
-                            {t('earnings') || 'Earnings'}
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={() => setActiveTab('history')}
-                        className={`flex-1 py-3 rounded-lg ${activeTab === 'history' ? 'bg-green-500' : ''}`}
-                    >
-                        <Text className={`text-center font-JakartaSemiBold ${activeTab === 'history' ? 'text-white' : 'text-gray-600'}`}>
-                            {t('history') || 'Withdrawals'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Content based on active tab */}
-                {activeTab === 'history' ? (
-                    <WithdrawalHistory driverId={driverProfile?.id || ''} />
-                ) : (
-                    <>
-                        {/* Earnings content */}
                 {/* Total Earnings Card */}
                 <View className="mx-5 bg-green-50 border border-green-200 rounded-2xl p-6 mb-6">
                     <Text className="text-green-700 text-sm mb-1">{t('totalEarningsPeriod') || 'Earnings'} ({t(period) || period})</Text>
@@ -412,13 +455,13 @@ const DriverEarnings = () => {
                                             ₹{trip.driver_payout || trip.total_fare}
                                         </Text>
                                     </View>
-                                    
+
                                     <View className="flex-row justify-between items-center pt-2 border-t border-gray-200 mt-1">
                                         <View className="flex-row items-center">
-                                            <Ionicons 
-                                                name={isCash ? 'cash-outline' : 'card-outline'} 
-                                                size={14} 
-                                                color={isCash ? '#ea580c' : '#2563eb'} 
+                                            <Ionicons
+                                                name={isCash ? 'cash-outline' : 'card-outline'}
+                                                size={14}
+                                                color={isCash ? '#ea580c' : '#2563eb'}
                                             />
                                             <Text className={`text-xs ml-1 ${isCash ? 'text-orange-600' : 'text-blue-600'}`}>
                                                 {isCash ? 'Cash / UPI' : 'Wallet / Online'}
@@ -428,7 +471,7 @@ const DriverEarnings = () => {
                                             <Text className="text-[10px] text-gray-500 italic mr-3">
                                                 {isCash ? 'Already collected by you' : 'Credited to wallet'}
                                             </Text>
-                                            <TouchableOpacity 
+                                            <TouchableOpacity
                                                 onPress={() => router.push(`/ride/invoice?bookingId=${trip.id}` as any)}
                                                 className="bg-gray-100 px-2 py-1 rounded"
                                             >
@@ -441,13 +484,11 @@ const DriverEarnings = () => {
                         })
                     ) : (
                         <View className="bg-gray-50 border border-gray-200 rounded-xl p-6 items-center">
-                            <Text className="text-4xl mb-2">📭</Text>
+                            <Ionicons name="receipt-outline" size={34} color="#9ca3af" style={{ marginBottom: 8 }} />
                             <Text className="text-gray-500 text-center">{t('noCompletedTrips') || 'No completed trips yet'}</Text>
                         </View>
                     )}
                 </View>
-                    </>
-                )}
             </ScrollView>
 
             {/* Withdrawal Modal */}
@@ -513,12 +554,10 @@ const DriverEarnings = () => {
             >
                 <View className="flex-1 justify-center items-center bg-black/50 px-6">
                     <View className="bg-white rounded-3xl p-8 w-full max-w-sm items-center">
-                        {/* Success Icon */}
                         <View className="bg-green-100 rounded-full p-4 mb-4">
                             <Ionicons name="checkmark-circle" size={64} color="#22c55e" />
                         </View>
-                        
-                        {/* Success Message */}
+
                         <Text className="text-2xl font-JakartaBold text-gray-900 mb-2 text-center">
                             Withdrawal Requested!
                         </Text>
@@ -526,7 +565,6 @@ const DriverEarnings = () => {
                             Your withdrawal request has been submitted successfully. The amount will be transferred to your bank account within 1-2 business days after approval.
                         </Text>
 
-                        {/* Amount Display */}
                         <View className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6 w-full">
                             <Text className="text-gray-600 text-sm text-center mb-1">Withdrawal Amount</Text>
                             <Text className="text-3xl font-JakartaBold text-green-600 text-center">
@@ -534,19 +572,15 @@ const DriverEarnings = () => {
                             </Text>
                         </View>
 
-                        {/* Action Buttons */}
                         <TouchableOpacity
-                            onPress={() => {
-                                setShowSuccessModal(false);
-                                setActiveTab('history');
-                            }}
+                            onPress={() => setShowSuccessModal(false)}
                             className="w-full bg-green-500 py-4 rounded-xl mb-3"
                         >
                             <Text className="text-white text-center font-JakartaBold text-base">
                                 View Withdrawal History
                             </Text>
                         </TouchableOpacity>
-                        
+
                         <TouchableOpacity
                             onPress={() => setShowSuccessModal(false)}
                             className="w-full py-3"

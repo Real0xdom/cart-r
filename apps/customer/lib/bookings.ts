@@ -36,9 +36,9 @@ function generateBookingNumber(): string {
 
 // Generate 4-digit OTP
 function generateOTP(): string {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  return (1000 + (array[0] % 9000)).toString();
+  // Use Math.random for React Native compatibility
+  const otp = Math.floor(1000 + Math.random() * 9000);
+  return otp.toString();
 }
 
 /**
@@ -92,8 +92,8 @@ export async function createBooking(params: CreateBookingParams): Promise<{
       status: 'pending',
       payment_status: 'pending',
       payment_method: 'cash', // Default to cash, can be changed later
-      // Booking expires in 3 minutes if no driver accepts
-      expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
+      // Booking expires in 10 minutes if no driver accepts (increased from 3 to give drivers enough time)
+      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     };
 
     console.log('[createBooking] Data to insert (NO booking_number):', JSON.stringify(bookingData, null, 2));
@@ -244,8 +244,13 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      (payload) => {
-        onUpdate(payload.new as Booking);
+      async (payload) => {
+        const updatedBooking = payload.new as Booking;
+
+        // Re-hydrate the booking so screens receive the latest relational data
+        // together with the status change. This avoids stale UI state on track pages.
+        const { data } = await getBookingById(bookingId);
+        onUpdate(data ?? updatedBooking);
       }
     )
     .subscribe();
@@ -356,8 +361,8 @@ export async function retryBookingWithIncreasedPrice(
         fare_multiplier: newFareMultiplier,
         driver_payout: newDriverPayout,
         status: 'pending',
-        // Extend expiration by 3 more minutes - drivers will see this ride again
-        expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
+        // Extend expiration by 10 more minutes - drivers will see this ride again
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', bookingId)

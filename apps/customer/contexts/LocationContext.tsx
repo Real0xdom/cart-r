@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import * as Location from 'expo-location';
 import { Alert, Linking, Platform, AppState, AppStateStatus } from 'react-native';
 import { useLocationStore } from '@/store';
+import { reverseGeocode } from '@/lib/location';
 
 interface LocationContextType {
   locationPermissionStatus: Location.PermissionStatus | null;
@@ -20,32 +21,104 @@ interface LocationData {
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
-const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+const MIN_ACCURACY_THRESHOLD = 50; // Accept fixes up to 50m during sampling, pick the best one
+const GOOD_ACCURACY_THRESHOLD = 15; // A fix ≤15m is considered "good enough" — stop sampling early
+const MOVEMENT_THRESHOLD = 5; // Skip moves less than 5m to prevent drift
+const LAST_KNOWN_MAX_AGE_MS = 30_000; // Reject lastKnown positions older than 30 seconds
+const GPS_SAMPLE_COUNT = 3; // Number of rapid GPS samples to take
+const GPS_SAMPLE_TIMEOUT_MS = 5_000; // Max time per single GPS sample
+
+const isLocationUnavailableError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    normalizedMessage.includes('current location is unavailable') ||
+    normalizedMessage.includes('location services') ||
+    normalizedMessage.includes('gps')
+  );
+};
+
+/**
+ * Take multiple rapid GPS samples and return the one with the best (lowest) accuracy value.
+ */
+const getBestGPSFix = async (sampleCount = GPS_SAMPLE_COUNT): Promise<Location.LocationObject | null> => {
+  const samples: Location.LocationObject[] = [];
+
+  for (let i = 0; i < sampleCount; i++) {
+    try {
+      const fix = await Promise.race([
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest, // Uses GPS hardware
+          mayShowUserSettingsDialog: true,      // Prompt user to enable GPS if off
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('GPS sample timeout')), GPS_SAMPLE_TIMEOUT_MS)
+        ),
+      ]) as Location.LocationObject;
+
+      if (fix?.coords) {
+        samples.push(fix);
+        console.log(
+          `[Location] GPS sample ${i + 1}/${sampleCount}: ` +
+          `accuracy=${fix.coords.accuracy?.toFixed(1)}m, ` +
+          `lat=${fix.coords.latitude.toFixed(6)}, lng=${fix.coords.longitude.toFixed(6)}`
+        );
+
+        if (fix.coords.accuracy && fix.coords.accuracy <= GOOD_ACCURACY_THRESHOLD) {
+          console.log(`[Location] Good fix obtained (${fix.coords.accuracy.toFixed(1)}m), stopping early`);
+          break;
+        }
+      }
+    } catch (err) {
+      console.log(`[Location] GPS sample ${i + 1} failed:`, (err as Error).message);
+    }
+  }
+
+  if (samples.length === 0) return null;
+
+  const best = samples.reduce((a, b) => {
+    const accA = a.coords.accuracy ?? Infinity;
+    const accB = b.coords.accuracy ?? Infinity;
+    return accA <= accB ? a : b;
+  });
+
+  return best;
+};
+
+/**
+ * Get last known position only if it's recent enough (not stale).
+ */
+const getRecentLastKnown = async (): Promise<Location.LocationObject | null> => {
+  const lastKnown = await Location.getLastKnownPositionAsync();
+  if (!lastKnown) return null;
+
+  const ageMs = Date.now() - lastKnown.timestamp;
+  if (ageMs > LAST_KNOWN_MAX_AGE_MS) {
+    return null;
+  }
+
+  return lastKnown;
+};
 
 export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [locationPermissionStatus, setLocationPermissionStatus] = useState<Location.PermissionStatus | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
-  const { setUserLocation, userLatitude, userLongitude } = useLocationStore();
-
-  // Track previous AppState to detect background → active transitions
+  const { setUserLocation } = useLocationStore();
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
-  // Check and request location permission on mount
   useEffect(() => {
     checkAndRequestLocation();
   }, []);
 
-  // [G1] Re-check location permission when app returns to foreground
-  // This handles the case where user enables location in OS settings and returns
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (
         appStateRef.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
-        // App came to foreground — re-check permission
         checkAndRequestLocation();
       }
       appStateRef.current = nextAppState;
@@ -61,14 +134,12 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setErrorMessage(null);
 
     try {
-      // First check current permission status
       const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
       
       if (existingStatus === 'granted') {
         setLocationPermissionStatus(existingStatus);
         await fetchAndSetCurrentLocation();
       } else {
-        // Request permission
         const { status } = await Location.requestForegroundPermissionsAsync();
         setLocationPermissionStatus(status);
         
@@ -81,7 +152,6 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     } catch (error) {
       console.error('Error checking/requesting location permission:', error);
-      setErrorMessage('Failed to access location services');
     } finally {
       setIsLoadingLocation(false);
     }
@@ -107,7 +177,6 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
-  // [G3] Show alert when GPS/location services are disabled at OS level
   const showGPSDisabledAlert = () => {
     Alert.alert(
       'Location Services Disabled',
@@ -133,25 +202,21 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       let location: Location.LocationObject | null = null;
 
       try {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+        location = await getBestGPSFix();
+        if (!location) {
+          location = await getRecentLastKnown();
+        }
       } catch (primaryError: any) {
-        // GPS / location services may be off — try last known position as fallback
-        console.warn('⚠️ getCurrentPositionAsync failed, trying last known position:', primaryError?.message);
-        location = await Location.getLastKnownPositionAsync();
+        location = await getRecentLastKnown();
       }
 
       if (!location) {
-        console.warn('⚠️ No location available — location services may be disabled on device');
-        setErrorMessage('Location services are disabled. Please enable them in device settings for the best experience.');
-        showGPSDisabledAlert(); // [G3] Prompt user with actionable settings button
+        setErrorMessage('Location services are disabled.');
+        showGPSDisabledAlert();
         return;
       }
 
       const { latitude, longitude } = location.coords;
-      
-      // Reverse geocode to get address
       const address = await reverseGeocode(latitude, longitude);
 
       setUserLocation({
@@ -161,60 +226,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
     } catch (error) {
       console.error('Error fetching current location:', error);
-      setErrorMessage('Unable to get your current location. Please enable location services.');
     }
-  };
-
-  const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {
-    // Helper: try Expo's built-in reverse geocoding with a 3s timeout
-    const expoReverseGeocode = async (): Promise<string | null> => {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('reverseGeocodeAsync timed out')), 3000)
-      );
-      const geocode = Location.reverseGeocodeAsync({ latitude, longitude }).then(([result]) => {
-        if (!result) return null;
-        const parts = [];
-        if (result.name) parts.push(result.name);
-        if (result.street) parts.push(result.street);
-        if (result.city) parts.push(result.city);
-        if (result.region) parts.push(result.region);
-        return parts.length > 0 ? parts.join(', ') : null;
-      });
-      return Promise.race([geocode, timeout]);
-    };
-
-    // Helper: fall back to Google Geocoding API
-    const googleReverseGeocode = async (): Promise<string | null> => {
-      if (!GOOGLE_PLACES_API_KEY) return null;
-      try {
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_PLACES_API_KEY}`
-        );
-        const data = await response.json();
-        if (data.results && data.results.length > 0) {
-          return data.results[0].formatted_address;
-        }
-      } catch (err) {
-        console.warn('Google reverse geocode failed:', err);
-      }
-      return null;
-    };
-
-    try {
-      const expoResult = await expoReverseGeocode();
-      if (expoResult) return expoResult;
-    } catch (err) {
-      console.warn('⚠️ Expo reverseGeocodeAsync failed/timed out, trying Google API:', (err as Error).message);
-    }
-
-    try {
-      const googleResult = await googleReverseGeocode();
-      if (googleResult) return googleResult;
-    } catch (err) {
-      console.warn('Google reverse geocoding failed:', err);
-    }
-
-    return 'Current Location';
   };
 
   const requestLocationPermission = useCallback(async (): Promise<boolean> => {
@@ -243,15 +255,21 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     try {
       setIsLoadingLocation(true);
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      let location: Location.LocationObject | null = await getBestGPSFix();
+
+      if (!location) {
+        location = await getRecentLastKnown();
+      }
+
+      if (!location) {
+        showGPSDisabledAlert();
+        return null;
+      }
 
       const { latitude, longitude } = location.coords;
       const address = await reverseGeocode(latitude, longitude);
 
       const locationData = { latitude, longitude, address };
-      
       setUserLocation(locationData);
       
       return locationData;
@@ -261,7 +279,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } finally {
       setIsLoadingLocation(false);
     }
-  }, [locationPermissionStatus, setUserLocation]);
+  }, [locationPermissionStatus, setUserLocation, requestLocationPermission]);
 
   const hasLocationPermission = locationPermissionStatus === 'granted';
 

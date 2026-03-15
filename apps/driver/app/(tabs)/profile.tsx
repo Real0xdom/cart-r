@@ -49,7 +49,7 @@ const DriverProfile = () => {
     };
 
     const menuItems = [
-        { icon: 'car-outline', title: t('vehicleDetails'), subtitle: `${driverProfile?.vehicle_model || t('notSet')} • ${driverProfile?.vehicle_number || ''}`, route: '/profile/vehicle' },
+        { icon: 'car-outline', title: t('vehicleDetails'), subtitle: `${driverProfile?.vehicle_model || t('notSet')} • ${driverProfile?.vehicle_number || ''}`, route: '/vehicle-info' },
         { icon: 'document-text-outline', title: t('documents'), subtitle: t('licenseRcInsurance'), route: '/profile/documents' },
         { icon: 'card-outline', title: t('bankAccount'), subtitle: t('payoutSettings'), route: '/profile/bank' },
         { icon: 'star-outline', title: t('ratingsReviews'), subtitle: `${driverProfile?.rating?.toFixed(1) || '5.0'} ${t('rating')}`, route: '/profile/reviews' },

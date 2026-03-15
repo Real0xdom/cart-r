@@ -22,7 +22,7 @@ const RegisterScreen = () => {
     const params = useLocalSearchParams<{ phone: string }>();
     const phoneNumber = params.phone || "";
     
-    const { signInWithPhone, verifyOtp } = useAuth();
+    const { signInWithPhone, verifyOtp, refreshProfile } = useAuth();
 
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
@@ -151,6 +151,7 @@ const RegisterScreen = () => {
                 }
 
                 // Success - navigate directly to home (no alert)
+                await refreshProfile();
                 router.replace("/(tabs)/home");
             }
         } catch (err: any) {
@@ -369,3 +370,4 @@ const RegisterScreen = () => {
 };
 
 export default RegisterScreen;
+

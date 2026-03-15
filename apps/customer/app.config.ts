@@ -16,6 +16,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     resizeMode: "contain",
     backgroundColor: "#4CAF50"
   },
+  notification: {
+    icon: "./assets/images/notification-icon.png",
+    color: "#4CAF50"
+  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.carter.customer",
@@ -47,7 +51,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     permissions: [
       "android.permission.ACCESS_COARSE_LOCATION",
-      "android.permission.ACCESS_FINE_LOCATION"
+      "android.permission.ACCESS_FINE_LOCATION",
+      "VIBRATE",
+      "WAKE_LOCK"
     ],
     // Only add google-services.json if it exists to avoid build errors
     ...(fs.existsSync(path.join(__dirname, "google-services.json")) 
@@ -82,8 +88,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "a51e67e2-edf8-465c-ba70-6f09a8eb54c7"
+      "projectId": "b9192aff-c534-4495-aac5-d2fe15a2a92f"
     }
   },
-  owner: "pranavpanchal"
+  owner: "amycarter192"
 });

@@ -2,6 +2,7 @@
 // Configures Android notification channels (High Priority + Wake Lock)
 
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform, Alert, Linking } from 'react-native';
 import * as TaskManager from 'expo-task-manager';
 import notifee, { AndroidImportance, AndroidVisibility, EventType, AndroidCategory } from '@notifee/react-native';
@@ -126,7 +127,7 @@ export async function setupNotificationChannels() {
 
   // Register background task for push notifications (works on iOS & Android)
   try {
-    await Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK);
+    await Notifications.registerRemoteNotificationsTask(BACKGROUND_NOTIFICATION_TASK);
     console.log('✅ Background push task registered');
   } catch (err) {
     console.error('❌ Failed to register background push task:', err);
@@ -233,6 +234,15 @@ export async function getExpoPushToken(): Promise<string | null> {
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) return null;
 
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      console.error('Missing EAS projectId in Expo config');
+      return null;
+    }
+
     // Add delay for Firebase initialization if needed
     // This helps in cases where Firebase hasn't been initialized yet
     let lastError: any;
@@ -240,7 +250,7 @@ export async function getExpoPushToken(): Promise<string | null> {
       try {
         // Get push token - must provide projectId for dev builds
         const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: '81d0a3a8-050d-4190-a31c-78e75e869b4d', // EAS projectId from app.json
+          projectId,
         });
 
         console.log('📱 Got push token:', tokenData.data);
@@ -283,11 +293,44 @@ export async function registerPushToken(supabase: any, userId: string): Promise<
       .eq('id', userId);
 
     if (error) {
-      console.error('❌ [Driver] Supabase update error:', error);
-      return false;
+      console.error('❌ [Driver] Supabase users table update error:', error);
+      // Continue to push_tokens table even if users update fails
     }
 
-    console.log('✅ [Driver] Push token registered successfully');
+    // [G5] Also upsert into push_tokens table for multi-device support
+    try {
+      let deviceId = 'unknown';
+      try {
+        // Use expo-constants to get a reliable device ID if possible
+        const Constants = require('expo-constants').default;
+        deviceId = Constants.installationId || Constants.sessionId || `device-${userId.substring(0, 8)}`;
+      } catch {
+        deviceId = `driver-device-${userId.substring(0, 8)}`;
+      }
+
+      const { error: pushTokenError } = await supabase
+        .from('push_tokens')
+        .upsert(
+          {
+            user_id: userId,
+            token: token,
+            device_id: deviceId,
+            platform: Platform.OS,
+            is_active: true,
+          },
+          { onConflict: 'user_id,device_id' }
+        );
+
+      if (pushTokenError) {
+        console.warn('⚠️ [Driver] push_tokens upsert failed (non-critical):', pushTokenError);
+      } else {
+        console.log('✅ [Driver] Token saved to push_tokens table');
+      }
+    } catch (err) {
+      console.warn('⚠️ [Driver] Error upserting to push_tokens:', err);
+    }
+
+    console.log('✅ [Driver] Push token registration finished');
     return true;
   } catch (error) {
     console.error('❌ [Driver] Error registering push token:', error);
@@ -312,3 +355,4 @@ export function addNotificationResponseListener(
 ) {
   return Notifications.addNotificationResponseReceivedListener(callback);
 }
+

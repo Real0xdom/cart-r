@@ -1,19 +1,21 @@
-import { router, useLocalSearchParams, Redirect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  Image,
   ScrollView,
   Text,
-  View,
-  Alert,
   TouchableOpacity,
-  Image,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 
 import CustomButton from "@/components/CustomButton";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { useOnboardingStore } from "@/store";
 
 interface DocumentItem {
   id: string;
@@ -27,14 +29,22 @@ interface DocumentItem {
 const Documents = () => {
   const params = useLocalSearchParams();
   const { user, driverProfile } = useAuth();
-  
-  // ROUTE GUARD: Approved drivers should NOT see onboarding - redirect to home
-  if (driverProfile?.verification_status === 'approved') {
-    console.log('[Documents] Driver is already approved - redirecting to home');
+
+  if (driverProfile?.verification_status === "approved") {
+    console.log("[Documents] Driver is already approved - redirecting to home");
     return <Redirect href="/(tabs)/home" />;
   }
-  
+
   const [loading, setLoading] = useState(false);
+
+  const {
+    license_image_url,
+    rc_image_url,
+    insurance_image_url,
+    vehicle_image_url,
+    setDocumentUrl,
+    clearDocuments,
+  } = useOnboardingStore();
 
   const [documents, setDocuments] = useState<DocumentItem[]>([
     {
@@ -42,7 +52,7 @@ const Documents = () => {
       name: "Driving License",
       description: "Front side of your DL",
       required: true,
-      uri: driverProfile?.license_image_url || null,
+      uri: license_image_url || driverProfile?.license_image_url || null,
       uploading: false,
     },
     {
@@ -50,7 +60,7 @@ const Documents = () => {
       name: "Vehicle RC",
       description: "Registration Certificate",
       required: true,
-      uri: driverProfile?.rc_image_url || null,
+      uri: rc_image_url || driverProfile?.rc_image_url || null,
       uploading: false,
     },
     {
@@ -58,7 +68,7 @@ const Documents = () => {
       name: "Vehicle Insurance",
       description: "Valid insurance document",
       required: true,
-      uri: driverProfile?.insurance_image_url || null,
+      uri: insurance_image_url || driverProfile?.insurance_image_url || null,
       uploading: false,
     },
     {
@@ -66,7 +76,7 @@ const Documents = () => {
       name: "Vehicle Photo",
       description: "Clear photo of your vehicle",
       required: false,
-      uri: driverProfile?.vehicle_image_url || null,
+      uri: vehicle_image_url || driverProfile?.vehicle_image_url || null,
       uploading: false,
     },
   ]);
@@ -112,30 +122,25 @@ const Documents = () => {
   };
 
   const uploadDocument = async (docId: string, uri: string) => {
-    // Update uploading state
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, uploading: true } : d))
     );
 
     try {
-      // Read file as base64
       const response = await fetch(uri);
       const blob = await response.blob();
-      
-      // Convert blob to ArrayBuffer
+
       const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as ArrayBuffer);
         reader.onerror = reject;
         reader.readAsArrayBuffer(blob);
       });
-      
-      // Generate unique filename
+
       const fileExt = uri.split(".").pop() || "jpg";
       const fileName = `${user?.id}/${docId}_${Date.now()}.${fileExt}`;
 
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from("driver-documents")
         .upload(fileName, arrayBuffer, {
           contentType: `image/${fileExt}`,
@@ -146,18 +151,19 @@ const Documents = () => {
         throw error;
       }
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from("driver-documents")
         .getPublicUrl(fileName);
 
-      // Update document state with URL
       setDocuments((prev) =>
         prev.map((d) =>
-          d.id === docId ? { ...d, uri: urlData.publicUrl, uploading: false } : d
+          d.id === docId
+            ? { ...d, uri: urlData.publicUrl, uploading: false }
+            : d
         )
       );
 
+      setDocumentUrl(docId, urlData.publicUrl);
       Alert.alert("Success", "Document uploaded successfully!");
     } catch (error: any) {
       console.error("Upload error:", error);
@@ -169,7 +175,6 @@ const Documents = () => {
   };
 
   const onSubmit = async () => {
-    // Check required documents
     const requiredDocs = documents.filter((d) => d.required);
     const missingDocs = requiredDocs.filter((d) => !d.uri);
 
@@ -183,8 +188,6 @@ const Documents = () => {
 
     setLoading(true);
     try {
-      // Create driver record
-      // Create or update driver record
       const { error } = await supabase.from("drivers").upsert(
         {
           user_id: user?.id,
@@ -198,15 +201,16 @@ const Documents = () => {
           rc_image_url: documents.find((d) => d.id === "rc")?.uri,
           insurance_image_url: documents.find((d) => d.id === "insurance")?.uri,
           verification_status: "pending",
-          rejection_reason: null, // Clear rejection reason on resubmission
+          rejection_reason: null,
         } as any,
-        { onConflict: "user_id" } // Match on user_id for rejected drivers resubmitting
+        { onConflict: "user_id" }
       );
 
       if (error) {
         throw error;
       }
 
+      clearDocuments();
       router.replace("/onboarding/verification-pending");
     } catch (error: any) {
       console.error("Submit error:", error);
@@ -216,7 +220,6 @@ const Documents = () => {
     }
   };
 
-  // Parse date string DD/MM/YYYY to ISO date
   const parseDateString = (dateStr: string): string => {
     const parts = dateStr.split("/");
     if (parts.length === 3) {
@@ -236,86 +239,103 @@ const Documents = () => {
   return (
     <ScrollView className="flex-1 bg-white">
       <View className="flex-1 bg-white">
-        {/* Header */}
-        <View className="w-full h-[180px] bg-green-500 justify-center px-5">
-          <Text className="text-white text-sm font-Jakarta mb-2">
+        <View className="h-[180px] w-full justify-center bg-green-500 px-5">
+          <Text className="mb-2 text-sm font-Jakarta text-white">
             Step 3 of 3
           </Text>
-          <Text className="text-white text-2xl font-JakartaBold">
+          <Text className="text-2xl font-JakartaBold text-white">
             Upload Documents
           </Text>
-          <Text className="text-green-100 mt-2">
+          <Text className="mt-2 text-green-100">
             Upload required documents for verification
           </Text>
         </View>
 
-        {/* Progress Bar */}
-        <View className="px-5 mt-4">
-          <View className="flex-row h-2 bg-gray-200 rounded-full overflow-hidden">
-            <View className="w-full bg-green-500 rounded-full" />
+        <View className="mt-4 px-5">
+          <View className="h-2 flex-row overflow-hidden rounded-full bg-gray-200">
+            <View className="w-full rounded-full bg-green-500" />
           </View>
         </View>
 
-        {/* Documents List */}
         <View className="p-5">
           {documents.map((doc) => (
             <TouchableOpacity
               key={doc.id}
               onPress={() => showDocumentOptions(doc.id)}
               disabled={doc.uploading}
-              className={`flex-row items-center p-4 mb-3 rounded-xl border-2 ${
+              className={`mb-3 flex-row items-center rounded-xl border-2 p-4 ${
                 doc.uri
                   ? "border-green-500 bg-green-50"
                   : "border-gray-200 bg-white"
               }`}
             >
               {doc.uploading ? (
-                <View className="w-16 h-16 rounded-lg bg-gray-100 items-center justify-center">
+                <View className="h-16 w-16 items-center justify-center rounded-lg bg-gray-100">
                   <ActivityIndicator color="#22c55e" />
                 </View>
               ) : doc.uri ? (
                 <Image
                   source={{ uri: doc.uri }}
-                  className="w-16 h-16 rounded-lg"
+                  className="h-16 w-16 rounded-lg"
                 />
               ) : (
-                <View className="w-16 h-16 rounded-lg bg-gray-100 items-center justify-center">
-                  <Text className="text-3xl">📄</Text>
+                <View className="h-16 w-16 items-center justify-center rounded-lg bg-gray-100">
+                  <Ionicons
+                    name="document-text-outline"
+                    size={28}
+                    color="#6b7280"
+                  />
                 </View>
               )}
 
-              <View className="flex-1 ml-4">
+              <View className="ml-4 flex-1">
                 <View className="flex-row items-center">
                   <Text className="font-JakartaSemiBold text-gray-800">
                     {doc.name}
                   </Text>
                   {doc.required && (
-                    <Text className="text-red-500 ml-1">*</Text>
+                    <Text className="ml-1 text-red-500">*</Text>
                   )}
                 </View>
-                <Text className="text-gray-500 text-sm">{doc.description}</Text>
+                <Text className="text-sm text-gray-500">{doc.description}</Text>
                 {doc.uri && (
-                  <Text className="text-green-600 text-xs mt-1">
-                    ✓ Uploaded
-                  </Text>
+                  <View className="mt-1 flex-row items-center">
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={14}
+                      color="#16a34a"
+                    />
+                    <Text className="ml-1 text-xs text-green-600">
+                      Uploaded
+                    </Text>
+                  </View>
                 )}
               </View>
 
-              <Text className="text-gray-400 text-xl">
-                {doc.uri ? "✓" : "+"}
-              </Text>
+              {doc.uri ? (
+                <Ionicons name="checkmark-circle" size={22} color="#16a34a" />
+              ) : (
+                <Ionicons
+                  name="add-circle-outline"
+                  size={22}
+                  color="#9ca3af"
+                />
+              )}
             </TouchableOpacity>
           ))}
 
-          <View className="mt-4 p-4 bg-yellow-50 rounded-xl">
-            <Text className="text-yellow-800 text-center text-sm">
-              ⚠️ Make sure documents are clear and readable. Blurry images may
+          <View className="mt-4 flex-row items-start rounded-xl bg-yellow-50 p-4">
+            <Ionicons name="alert-circle-outline" size={18} color="#a16207" />
+            <Text className="ml-2 flex-1 text-center text-sm text-yellow-800">
+              Make sure documents are clear and readable. Blurry images may
               delay verification.
             </Text>
           </View>
 
           <CustomButton
-            title={loading ? "Submitting Application..." : "Submit for Verification"}
+            title={
+              loading ? "Submitting Application..." : "Submit for Verification"
+            }
             onPress={onSubmit}
             className="mt-6 bg-green-500"
             disabled={loading}
@@ -325,7 +345,7 @@ const Documents = () => {
             onPress={() => router.back()}
             className="mt-4 items-center"
           >
-            <Text className="text-gray-500">← Back to Vehicle Info</Text>
+            <Text className="text-gray-500">Back to Vehicle Info</Text>
           </TouchableOpacity>
         </View>
       </View>

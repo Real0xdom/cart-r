@@ -54,10 +54,10 @@ export interface Booking {
 
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
+// Note: Only includes vehicles that should be active by default
 const FARE_CONFIG_FALLBACK: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number }> = {
   bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
   tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
-  sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
   truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
 };
 
@@ -129,9 +129,17 @@ function generateBookingNumber(): string {
  * Generate a 4-digit OTP for pickup verification
  */
 function generateOTP(): string {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  return (1000 + (array[0] % 9000)).toString();
+  // Use crypto.getRandomValues if available (web/browser), fallback to Math.random for React Native
+  let randomValue: number;
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    randomValue = array[0];
+  } else {
+    // Fallback for React Native (crypto not available)
+    randomValue = Math.floor(Math.random() * 9000);
+  }
+  return (1000 + (randomValue % 9000)).toString();
 }
 
 /**
@@ -172,7 +180,7 @@ export async function createBooking(params: CreateBookingParams & { idempotencyK
         payment_method: 'cash',
         scheduled_at: scheduledAt || null,
         idempotency_key: idempotencyKey,
-      })
+      } as Partial<Database['public']['Tables']['bookings']['Insert']>)
       .select()
       .single();
     

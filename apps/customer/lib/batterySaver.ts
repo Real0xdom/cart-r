@@ -2,22 +2,30 @@
 // Checks if the device is in low-power / battery saver mode
 // and warns the user that notifications may be delayed
 
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Alert, Linking, Platform } from 'react-native';
+
+type ExpoBatteryModule = {
+  isLowPowerModeEnabledAsync?: () => Promise<boolean>;
+};
 
 /**
  * Safely check if battery saver / low power mode is enabled.
- * Uses expo-battery if available, falls back gracefully.
+ * Uses the native Expo battery module only when it is present in the running app.
  */
 async function isBatterySaverEnabled(): Promise<boolean> {
   try {
-    const Battery = require('expo-battery');
-    if (!Battery || !Battery.isLowPowerModeEnabledAsync) {
+    const batteryModule =
+      requireOptionalNativeModule<ExpoBatteryModule>('ExpoBattery');
+
+    if (!batteryModule?.isLowPowerModeEnabledAsync) {
       return false;
     }
-    return await Battery.isLowPowerModeEnabledAsync();
+
+    return await batteryModule.isLowPowerModeEnabledAsync();
   } catch (error) {
-    // Module not available — gracefully return false
-    console.warn('[BatterySaver] expo-battery not available:', error);
+    // Battery saver detection is optional, so missing native support should never break startup.
+    console.warn('[BatterySaver] Unable to read battery saver status:', error);
     return false;
   }
 }
@@ -29,7 +37,7 @@ async function isBatterySaverEnabled(): Promise<boolean> {
 export async function checkBatterySaverAndWarn(): Promise<void> {
   try {
     const batterySaverOn = await isBatterySaverEnabled();
-    
+
     if (!batterySaverOn) return;
 
     Alert.alert(
@@ -43,15 +51,15 @@ export async function checkBatterySaverAndWarn(): Promise<void> {
             if (Platform.OS === 'ios') {
               Linking.openURL('app-settings:');
             } else {
-              // Android: open battery optimization settings
+              // Android: open app settings so the user can adjust battery restrictions.
               Linking.openSettings();
             }
-          }
-        }
+          },
+        },
       ]
     );
   } catch (error) {
-    // Silently fail — battery saver detection is non-critical
+    // Silently fail because battery saver detection is non-critical.
     console.warn('[BatterySaver] Error checking battery saver:', error);
   }
 }

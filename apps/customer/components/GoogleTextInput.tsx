@@ -1,11 +1,20 @@
-import { View, Image, TouchableOpacity } from "react-native";
-import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
-import { useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { 
+  View, 
+  Image, 
+  TouchableOpacity, 
+  TextInput, 
+  FlatList, 
+  Text,
+  ActivityIndicator,
+  Keyboard,
+  ScrollView
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { icons } from "@/constants";
 
-const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 declare interface GoogleInputProps {
   icon?: any;
@@ -21,15 +30,28 @@ declare interface GoogleInputProps {
     longitude: number;
     address: string;
   }) => void;
-  /** Optional: bias search results toward a specific location (service area center) */
   locationBias?: {
     latitude: number;
     longitude: number;
-    radius: number; // meters
+    radius: number;
   };
   onActionPress?: () => void;
   actionIcon?: any;
   showAction?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  testID?: string;
+}
+
+interface Prediction {
+  description: string;
+  place_id: string;
+  geometry?: {
+    location: {
+      lat: number;
+      lng: number;
+    }
+  };
 }
 
 const GoogleTextInput = ({
@@ -42,104 +64,174 @@ const GoogleTextInput = ({
   onActionPress,
   actionIcon,
   showAction = false,
+  onFocus,
+  onBlur,
+  testID,
 }: GoogleInputProps) => {
-  const ref = useRef<any>(null);
+  const [query, setQuery] = useState("");
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [showList, setShowList] = useState(false);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Build location bias query params for Google Places API
-  // locationbias=circle:radius@lat,lng biases results toward the service area
-  const queryParams: Record<string, any> = {
-    key: googlePlacesApiKey,
-    language: "en",
+  useEffect(() => {
+    if (initialLocation && initialLocation !== query) {
+      setQuery(initialLocation);
+    }
+  }, [initialLocation]);
+
+  const searchPlaces = async (text: string) => {
+    if (!text || text.trim().length < 3) {
+      setPredictions([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      let url = `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(text)}&api_key=${olaMapsApiKey}`;
+      
+      if (locationBias) {
+        url += `&location=${locationBias.latitude},${locationBias.longitude}&radius=${Math.min(locationBias.radius, 50000)}`;
+      }
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === 'ok' && data.predictions) {
+        setPredictions(data.predictions);
+      } else {
+        setPredictions([]);
+      }
+    } catch (error) {
+      console.error("Ola Maps Autocomplete Error:", error);
+      setPredictions([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (locationBias) {
-    // Use location + radius to bias results toward service areas
-    queryParams.location = `${locationBias.latitude},${locationBias.longitude}`;
-    queryParams.radius = Math.min(locationBias.radius, 50000); // cap at 50km
-  }
+  const handleTextChange = (text: string) => {
+    setQuery(text);
+    setShowList(true);
+    setLoading(true);
+
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(() => {
+      searchPlaces(text);
+    }, 500);
+  };
+
+  const handleSelect = (item: Prediction) => {
+    setQuery(item.description);
+    setShowList(false);
+    setIsFocused(false);
+    Keyboard.dismiss();
+    if (onBlur) onBlur();
+
+    if (item.geometry?.location) {
+      handlePress({
+        latitude: item.geometry.location.lat,
+        longitude: item.geometry.location.lng,
+        address: item.description,
+      });
+    } else {
+      // In case geometry is missing, we would call the place details API.
+      // But based on Ola API test, geometry is always returned in autocomplete.
+      console.warn("No geometry found in selection.");
+    }
+  };
 
   return (
-    <View
-      className={`flex flex-row items-center justify-center relative z-50 rounded-xl ${containerStyle}`}
+    <View 
+      className={`relative ${containerStyle}`}
+      style={{ 
+        zIndex: (isFocused || showList) ? 1000 : 1,
+        elevation: (isFocused || showList) ? 20 : 0
+      }}
     >
-      <GooglePlacesAutocomplete
-        ref={ref}
-        fetchDetails={true}
-        placeholder="Search"
-        debounce={200}
-        enablePoweredByContainer={false}
-        styles={{
-          textInputContainer: {
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 20,
-            marginHorizontal: 20,
-            position: "relative",
-            shadowColor: "#d4d4d4",
-          },
-          textInput: {
-            backgroundColor: textInputBackgroundColor
-              ? textInputBackgroundColor
-              : "white",
-            fontSize: 16,
-            fontWeight: "600",
-            marginTop: 5,
-            width: "100%",
-            borderRadius: 200,
-          },
-          listView: {
-            backgroundColor: textInputBackgroundColor
-              ? textInputBackgroundColor
-              : "white",
-            position: "relative",
-            top: 0,
-            width: "100%",
-            borderRadius: 10,
-            shadowColor: "#d4d4d4",
-            zIndex: 99,
-          },
-        }}
-        onPress={(data, details = null) => {
-          handlePress({
-            latitude: details?.geometry.location.lat!,
-            longitude: details?.geometry.location.lng!,
-            address: data.description,
-          });
-          // Clear the input to close the list
-          ref.current?.setAddressText(data.description);
-          ref.current?.blur();
-        }}
-        renderRightButton={() => 
-          showAction ? (
-            <TouchableOpacity 
-              onPress={onActionPress}
-              className="justify-center items-center w-8 h-8 mr-2 bg-gray-100 rounded-full"
-            >
-              <Ionicons 
-                name={actionIcon || "bookmark-outline"} 
-                size={18} 
-                color="#FF9800" 
-              />
-            </TouchableOpacity>
-          ) : (
-            <></>
-          )
-        }
-        query={queryParams}
-        renderLeftButton={() => (
-          <View className="justify-center items-center w-6 h-6">
-            <Image
-              source={icon ? icon : icons.search}
-              className="w-6 h-6"
-              resizeMode="contain"
+      <View
+        className="flex flex-row items-center justify-center rounded-2xl mx-5 shadow-sm"
+        style={{ backgroundColor: textInputBackgroundColor || "white" }}
+      >
+        <View className="justify-center items-center w-10 h-10 ml-2">
+          <Image
+            source={icon ? icon : icons.search}
+            className="w-5 h-5"
+            resizeMode="contain"
+          />
+        </View>
+
+        <TextInput
+          value={query}
+          onChangeText={handleTextChange}
+          placeholder={initialLocation ?? "Where do you want to go?"}
+          placeholderTextColor="gray"
+          testID={testID}
+          accessibilityLabel={testID}
+          onFocus={() => {
+            setShowList(true);
+            setIsFocused(true);
+            if (onFocus) onFocus();
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            // Small delay to allow handleSelect to fire before the list disappears
+            setTimeout(() => setShowList(false), 200);
+            if (onBlur) onBlur();
+          }}
+          className="flex-1 text-base font-JakartaSemiBold text-black h-12"
+        />
+
+        {showAction && (
+          <TouchableOpacity 
+            onPress={onActionPress}
+            className="justify-center items-center w-8 h-8 mr-3 bg-gray-100 rounded-full"
+          >
+            <Ionicons 
+              name={actionIcon || "bookmark-outline"} 
+              size={18} 
+              color="#FF9800" 
             />
-          </View>
+          </TouchableOpacity>
         )}
-        textInputProps={{
-          placeholderTextColor: "gray",
-          placeholder: initialLocation ?? "Where do you want to go?",
-        }}
-      />
+      </View>
+
+      {/* Autocomplete List */}
+      {showList && (query.length > 0) && (
+        <View 
+          className="absolute top-14 left-5 right-5 rounded-xl shadow-2xl z-[100] overflow-hidden border border-gray-100"
+          style={{ backgroundColor: "white", maxHeight: 250 }}
+        >
+          {loading && predictions.length === 0 ? (
+            <View className="p-4 items-center justify-center">
+              <ActivityIndicator size="small" color="#FF9800" />
+            </View>
+          ) : (
+            <ScrollView 
+              className="w-full"
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+            >
+              {predictions.map((item) => (
+                <TouchableOpacity
+                  key={item.place_id}
+                  onPress={() => handleSelect(item)}
+                  className="px-4 py-3 border-b border-gray-100 flex-row items-center"
+                >
+                  <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />
+                  <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      )}
     </View>
   );
 };

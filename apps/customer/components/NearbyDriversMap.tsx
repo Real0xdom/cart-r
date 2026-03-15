@@ -1,7 +1,7 @@
 // Nearby Drivers Map Component for Customer App Home
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Dimensions, ActivityIndicator, Animated } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import MapView, { Marker, Region, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { findNearbyDrivers, estimateETA } from '@/lib/tracking';
 import { getActiveVehicleTypes, getVehicleIcon, VehicleType } from '@/lib/vehicleTypes';
@@ -10,6 +10,7 @@ const { width, height } = Dimensions.get('window');
 const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.015;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 interface NearbyDriver {
   id: string;
@@ -87,7 +88,7 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
 
       // Get current location
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.Highest,
       });
 
       const coords = {
@@ -205,7 +206,7 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
       <MapView
         ref={mapRef}
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
+        mapType="standard"
         initialRegion={{
           latitude: userLocation.latitude,
           longitude: userLocation.longitude,
@@ -215,8 +216,8 @@ const NearbyDriversMap: React.FC<NearbyDriversMapProps> = ({
         showsUserLocation
         showsMyLocationButton={false}
         onRegionChangeComplete={handleRegionChange}
-        customMapStyle={darkMapStyle}
       >
+
         {/* Nearby Driver Markers - Now Animated */}
         {nearbyDrivers.map((driver) => {
           const animation = driverAnimations.current[driver.id];

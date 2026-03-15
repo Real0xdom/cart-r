@@ -4,6 +4,14 @@ import NetInfo from '@react-native-community/netinfo';
 import { Feather } from '@expo/vector-icons';
 
 const NetworkBanner = () => {
+  console.log('🌐 [NetworkBanner] Rendering...');
+  try {
+    console.log('📡 [NetworkBanner] NetInfo available:', !!NetInfo);
+    console.log('🪶 [NetworkBanner] Feather available:', !!Feather);
+  } catch (e) {
+    console.log('❌ [NetworkBanner] Error checking imports:', e);
+  }
+  
   const [isConnected, setIsConnected] = useState(true);
   const [anim] = useState(new Animated.Value(-100)); // Start off-screen
 
@@ -23,13 +31,14 @@ const NetworkBanner = () => {
     }).start();
   }, [isConnected]);
 
-  if (isConnected && anim._value === -100) return null;
+  // Removed conditional null return to stabilize view tree and prevent layout issues
+  // The Animated.View starts at translateY: -100 so it's hidden off-screen anyway
 
   return (
     <Animated.View style={[styles.container, { transform: [{ translateY: anim }] }]}>
-      <View className="flex-row items-center justify-center p-3 bg-red-600">
+      <View style={styles.banner}>
         <Feather name="wifi-off" size={18} color="white" />
-        <Text className="text-white font-JakartaBold ml-2 text-sm">
+        <Text style={styles.text}>
           No Internet Connection. Some features may be unavailable.
         </Text>
       </View>
@@ -44,6 +53,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 9999,
+  },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    backgroundColor: '#DC2626', // bg-red-600
+  },
+  text: {
+    color: 'white',
+    fontFamily: 'Jakarta-Bold',
+    marginLeft: 8,
+    fontSize: 14,
   },
 });
 

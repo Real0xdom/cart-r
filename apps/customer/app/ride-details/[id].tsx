@@ -177,7 +177,7 @@ const RideDetails = () => {
                         <View>
                             <Text className="text-gray-500 text-xs text-right">Distance</Text>
                             <Text className="font-JakartaSemiBold text-right">
-                                {booking.estimated_distance ? (booking.estimated_distance / 1000).toFixed(1) : '-'} km
+                                {booking.estimated_distance != null && booking.estimated_distance > 0 ? booking.estimated_distance.toFixed(1) : '-'} km
                             </Text>
                         </View>
                     </View>

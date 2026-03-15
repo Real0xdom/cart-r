@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Image, Text, View, TouchableOpacity, Alert, ImageSourcePropType, Share } from "react-native";
@@ -59,23 +59,13 @@ const Profile = () => {
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
   const handleReferFriends = async () => {
-    let referralCode = (profile as { referral_code?: string } | null)?.referral_code;
-    if (!referralCode && profile?.id) {
-      const { supabase } = await import("@/lib/supabase");
-      const { data } = await supabase.from("users").select("referral_code").eq("id", profile.id).single();
-      referralCode = data?.referral_code ?? undefined;
-    }
-    if (!referralCode) {
-      Alert.alert(t("referAndEarn"), t("referMessage"));
-      return;
-    }
     const baseUrl = Linking.createURL("");
-    const shareUrl = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "ref=" + referralCode;
-    const message = `Join Carter and get a ride! Use my referral code ${referralCode} when you sign up, or open this link: ${shareUrl}`;
+    const shareUrl = baseUrl;
+    const message = `${t("inviteToCarterMessage")} ${shareUrl}`;
     try {
       await Share.share({
         message,
-        title: "Refer Carter",
+        title: t("inviteToCarterTitle"),
         url: shareUrl,
       });
     } catch (_e) {
@@ -176,3 +166,4 @@ const Profile = () => {
 };
 
 export default Profile;
+

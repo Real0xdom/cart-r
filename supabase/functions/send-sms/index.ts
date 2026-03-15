@@ -112,10 +112,18 @@ serve(async (req) => {
         console.error(`[${new Date().toISOString()}] [ReqID:${requestId}] 💥 Failed:`, error);
         
         const errorMessage = error.message || String(error);
+        const isExpoFcmMisconfigured =
+          errorMessage.includes('Unable to retrieve the FCM server key') ||
+          errorMessage.includes('"InvalidCredentials"');
         const isPermanentError = errorMessage.includes('User fetch failed') || 
                                  errorMessage.includes('Customer does not have a valid Expo Push') || 
                                  errorMessage.includes('Booking not found') ||
-                                 errorMessage.includes('DeviceNotRegistered');
+                                 errorMessage.includes('DeviceNotRegistered') ||
+                                 isExpoFcmMisconfigured;
+
+        const userFacingError = isExpoFcmMisconfigured
+          ? 'Push notifications are misconfigured for Android in Expo/FCM. The OTP was created, but customer app delivery is unavailable until FCM credentials are fixed.'
+          : errorMessage;
         
         await supabase
           .from('sms_queue')
@@ -123,7 +131,7 @@ serve(async (req) => {
             status: isPermanentError ? 'failed_permanent' : 'failed',
             attempts: item.attempts + 1,
             last_attempt_at: new Date().toISOString(),
-            error_message: errorMessage.substring(0, 1000), 
+            error_message: userFacingError.substring(0, 1000), 
           })
           .eq('id', item.id);
 

@@ -45,7 +45,8 @@ export interface Booking {
   pickup_otp: string | null;
   delivery_otp?: string | null;
   // Payment and status
-  payment_status: 'pending' | 'paid' | 'refunded';
+  payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid';
+  wallet_amount_used?: number;
   payment_method: 'cash' | 'online';
   status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
   // Timestamps
@@ -166,9 +167,17 @@ function generateBookingNumber(): string {
  * Generate a 4-digit OTP for pickup verification
  */
 function generateOTP(): string {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  return (1000 + (array[0] % 9000)).toString();
+  // Use crypto.getRandomValues if available (web/browser), fallback to Math.random for React Native
+  let randomValue: number;
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    randomValue = array[0];
+  } else {
+    // Fallback for React Native (crypto not available)
+    randomValue = Math.floor(Math.random() * 9000);
+  }
+  return (1000 + (randomValue % 9000)).toString();
 }
 
 /**
@@ -373,6 +382,8 @@ export function subscribeToBooking(
   };
 }
 
+const EXPIRY_GRACE_PERIOD_MS = 120000; // 2 minutes buffer to account for clock drift between device and server
+
 export async function getAvailableBookings(
     driverLatitude: number,
     driverLongitude: number,
@@ -434,15 +445,10 @@ export async function getAvailableBookings(
       
       const now = new Date();
       
-      // 4. Filter by distance, expiration, and rejection
+      // 4. Filter by distance, rejection, and expiration
       const filtered = (data || []).filter((booking: any) => {
         // Exclude rejected bookings
         if (rejectedBookingIds.has(booking.id)) {
-          return false;
-        }
-  
-        // Filter out expired bookings
-        if (booking.expires_at && new Date(booking.expires_at) < now) {
           return false;
         }
         
@@ -456,6 +462,16 @@ export async function getAvailableBookings(
         
         if (distance > radiusKm) {
           return false;
+        }
+        
+        // Exclude expired bookings (with grace period buffer)
+        if (booking.expires_at) {
+          const expiryTime = new Date(booking.expires_at).getTime();
+          const currentTime = now.getTime();
+          if (currentTime > expiryTime + EXPIRY_GRACE_PERIOD_MS) {
+            console.log('[getAvailableBookings] Excluding expired booking:', booking.id, 'expires_at:', booking.expires_at);
+            return false;
+          }
         }
         
         return true;
@@ -548,6 +564,7 @@ export function subscribeToAvailableBookings(
       },
       (payload) => {
         // Only show bookings matching driver's vehicle type
+        console.log('[subscribeToAvailableBookings] INSERT event:', payload.new.id, 'status:', payload.new.status, 'vehicle_type:', payload.new.vehicle_type, 'driverVehicleType:', driverVehicleType);
         if (payload.new.status === 'pending' && !payload.new.driver_id && payload.new.vehicle_type === driverVehicleType) {
           onInsert(payload.new as Booking);
         }
@@ -562,22 +579,30 @@ export function subscribeToAvailableBookings(
       },
       (payload) => {
         const b = payload.new as any;
+        const oldBooking = payload.old as any;
+        console.log('[subscribeToAvailableBookings] UPDATE event for booking:', b.id, 'status:', b.status, 'driver_id:', b.driver_id, 'vehicle_type:', b.vehicle_type, 'driverVehicleType:', driverVehicleType);
         
-        // If it's no longer pending or picked up by another driver
-        if (b.status !== 'pending' || b.driver_id) {
+        // Check if booking was accepted by a driver (including this one)
+        if (b.driver_id !== null && b.driver_id !== undefined) {
+          console.log('[subscribeToAvailableBookings] DELETE: booking has driver_id:', b.driver_id);
           onDelete(b.id as string);
-        } else if (
+        } 
+        // Check if status changed from pending to something else
+        else if (b.status !== 'pending' && oldBooking?.status === 'pending') {
+          console.log('[subscribeToAvailableBookings] DELETE: status changed from pending to:', b.status);
+          onDelete(b.id as string);
+        }
+        // Don't delete based on expiration - let server handle rejection when driver accepts
+        // This prevents hiding requests due to clock drift between device and server
+        else if (
           !b.driver_id &&
           b.vehicle_type === driverVehicleType &&
           b.status === 'pending'
         ) {
-          // Check expiration
-          if (b.expires_at && new Date(b.expires_at) < new Date()) {
-             // It's expired
-             onDelete(b.id as string);
-          } else if (onUpdate) {
-             // Retry with tip: still pending, extended expires_at - show updated rate to drivers
-             onUpdate(payload.new as Booking);
+          // Booking is still available - update it in the list (e.g., tip added)
+          if (onUpdate) {
+            console.log('[subscribeToAvailableBookings] UPDATE: calling onUpdate for booking:', b.id);
+            onUpdate(payload.new as Booking);
           }
         }
       }
@@ -662,9 +687,8 @@ export async function completeTrip(
       delivery_confirmed_at: new Date().toISOString(),
     };
     
-    if (deliveryOTPVerified) {
-      additionalData.delivery_otp_verified = true;
-    }
+    // Skip delivery_otp_verified - column doesn't exist in schema
+
 
     if (actualDistanceKm !== undefined) {
       additionalData.actual_distance_km = actualDistanceKm;
@@ -692,6 +716,41 @@ export async function completeTrip(
     
     return updateBookingStatus(bookingId, 'completed', additionalData);
   } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Atomic trip completion using RPC - bypasses RLS, handles wallet settlement safely
+ * Use this for production payment confirmation to avoid policy violations
+ */
+export async function completeTripAtomic(
+  bookingId: string,
+  paymentMethod: 'cash' | 'online' = 'cash'
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    console.log('[completeTripAtomic] Starting atomic completion:', { bookingId, paymentMethod });
+    
+    const { data, error } = await supabase.rpc('complete_trip_atomic' as any, {
+      p_booking_id: bookingId,
+      p_payment_method: paymentMethod,
+      p_force_complete: true
+    });
+
+    if (error) {
+      console.error('[completeTripAtomic] RPC Error:', error);
+      return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result.success) {
+      return { success: false, error: result.message || 'Atomic completion failed' };
+    }
+
+    console.log('[completeTripAtomic] Success:', result);
+    return { success: true, error: null };
+  } catch (err: any) {
+    console.error('[completeTripAtomic] Exception:', err);
     return { success: false, error: err.message };
   }
 }
@@ -805,6 +864,59 @@ export async function getDriverCompletedTrips(
     
     return { data: data as Booking[], error: null };
   } catch (err: any) {
+    return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Get all driver's bookings - ONGOING PRIORITIZED then completed history
+ * Ongoing first (limit 10), then completed (limit up to total limit)
+ * Hides cancelled rides per requirements
+ */
+export async function getDriverAllBookings(
+  driverId: string,
+  limit: number = 50
+): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    // 1. Fetch ongoing rides PRIORITIZED (top of list)
+    const { data: ongoing, error: ongoingError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .in('status', ['accepted', 'driver_arrived', 'in_progress'])
+      .order('started_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (ongoingError) throw ongoingError;
+
+    // 2. Fetch completed rides (history)
+    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0));
+    const { data: completed, error: completedError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'completed')
+      .order('completed_at', { ascending: false })
+      .limit(remainingLimit);
+
+    if (completedError) throw completedError;
+
+    // 3. Combine: ongoing FIRST, then history
+    const allBookings = [
+      ...(ongoing || []),
+      ...(completed || [])
+    ];
+
+    return { data: allBookings, error: null };
+  } catch (err: any) {
+    console.error('[getDriverAllBookings] Error:', err);
     return { data: [], error: err.message };
   }
 }

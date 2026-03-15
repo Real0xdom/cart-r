@@ -56,25 +56,28 @@ serve(async (req) => {
       )
     }
 
-    // Get user's Expo push token from users table
-    // Note: You'll need to add expo_push_token column to users table
-    const { data: user, error: userError } = await supabase
+    // Get all active push tokens for this user
+    // 1. Legacy token from users table
+    const { data: userRecord } = await supabase
       .from('users')
       .select('expo_push_token')
       .eq('id', user_id)
       .single()
 
-    if (userError || !user) {
-      console.error('User not found:', user_id)
-      return new Response(
-        JSON.stringify({ error: 'User not found', sent: false }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    // 2. Modern tokens from push_tokens table
+    const { data: pushTokens } = await supabase
+      .from('push_tokens')
+      .select('token')
+      .eq('user_id', user_id)
+      .eq('is_active', true)
 
-    if (!user.expo_push_token) {
-      console.log('No push token for user:', user_id)
-      // Still save notification to database for in-app notifications
+    const allTokens = new Set<string>()
+    if (userRecord?.expo_push_token) allTokens.add(userRecord.expo_push_token)
+    pushTokens?.forEach(t => { if (t.token) allTokens.add(t.token) })
+
+    if (allTokens.size === 0) {
+      console.log('No push tokens found for user:', user_id)
+      // Save notification to database for in-app notifications
       await supabase.from('notifications').insert({
         user_id,
         title,
@@ -85,41 +88,48 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           sent: false, 
-          reason: 'No push token registered',
+          reason: 'No push tokens registered',
           saved_to_db: true,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // Validate Expo push token format
-    if (!user.expo_push_token.startsWith('ExponentPushToken[')) {
-      console.error('Invalid push token format:', user.expo_push_token)
-      return new Response(
-        JSON.stringify({ error: 'Invalid push token format', sent: false }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Prepare Expo push message with high priority for overlay notifications
-    const message: ExpoPushMessage = {
-      to: user.expo_push_token,
-      data: data || {},
-      sound: 'default',
-      priority: 'high',
-      channelId: 'ride-requests', // Android notification channel for high-priority
-      _displayInForeground: true, // Show even when app is in foreground
-    }
-
-    if (!data?.is_data_only) {
-      if (!title || !body) {
-         return new Response(
-           JSON.stringify({ error: 'Missing required fields: title, body' }),
-           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-         )
+    // Send to all tokens found
+    const messages: ExpoPushMessage[] = []
+    
+    for (const token of allTokens) {
+      if (!token.startsWith('ExponentPushToken[')) {
+        console.error('Invalid push token format:', token)
+        continue
       }
-      message.title = title
-      message.body = body
+
+      const message: ExpoPushMessage = {
+        to: token,
+        data: data || {},
+        sound: 'default',
+        priority: 'high',
+        channelId: 'ride-requests',
+        _displayInForeground: true,
+      }
+
+      if (data?.is_data_only) {
+        // Fallback for background delivery
+        message.title = title || '🚨 Ride Request Update'
+        message.body = body || 'New ride request details available.'
+      } else {
+        message.title = title
+        message.body = body
+      }
+      
+      messages.push(message)
+    }
+
+    if (messages.length === 0) {
+       return new Response(
+         JSON.stringify({ error: 'No valid push tokens found', sent: false }),
+         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+       )
     }
 
     // Send to Expo Push API
@@ -130,7 +140,7 @@ serve(async (req) => {
         'Accept': 'application/json',
         'Accept-Encoding': 'gzip, deflate',
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify(messages),
     })
 
     const pushResult = await pushResponse.json()

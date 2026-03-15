@@ -1,4 +1,4 @@
-import CustomButton from "@/components/CustomButton";
+﻿import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
 import { useLocationStore, useBookingStore } from "@/store";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -34,16 +34,18 @@ const ReceiverDetailsPage = () => {
   // Receiver details state - initialize from store if available
   const [receiverName, setReceiverName] = useState(savedDetails?.name || '');
   const [receiverPhone, setReceiverPhone] = useState(savedDetails?.phone || '');
-  const [selectedSaveAs, setSelectedSaveAs] = useState<string | null>(savedDetails?.saveAs || null);
+  const initialSaveAs =
+    savedDetails?.saveAs && ["Home", "Office", "Friend"].includes(savedDetails.saveAs)
+      ? savedDetails.saveAs
+      : null;
+  const [selectedSaveAs, setSelectedSaveAs] = useState<string | null>(initialSaveAs);
 
   // Save as options
-  const saveAsOptions = ['Home', 'Office', 'Friend', 'Family', 'Other'];
+  const saveAsOptions = ['Home', 'Office', 'Friend'];
   const saveAsLabels: Record<string, string> = {
     Home: t('homeLabel'),
     Office: t('office'),
     Friend: t('friend'),
-    Family: t('family'),
-    Other: t('other'),
   };
 
   const handleProceed = () => {
@@ -99,6 +101,8 @@ const ReceiverDetailsPage = () => {
                 placeholder="Enter receiver's full name"
                 placeholderTextColor="#999"
                 value={receiverName}
+                testID="receiver.nameInput"
+                accessibilityLabel="receiver.nameInput"
                 onChangeText={setReceiverName}
                 autoCapitalize="words"
               />
@@ -123,6 +127,8 @@ const ReceiverDetailsPage = () => {
                 keyboardType="phone-pad"
                 maxLength={10}
                 value={receiverPhone}
+                testID="receiver.phoneInput"
+                accessibilityLabel="receiver.phoneInput"
                 onChangeText={(text) => setReceiverPhone(text.replace(/[^0-9]/g, ''))}
               />
               {receiverPhone.length === 10 && (
@@ -141,38 +147,42 @@ const ReceiverDetailsPage = () => {
             <Text className="text-sm font-JakartaSemiBold text-gray-700 mb-3">
               Save this contact as <Text className="text-gray-400">(Optional)</Text>
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View className="flex-row gap-2">
-                {saveAsOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    onPress={() => setSelectedSaveAs(selectedSaveAs === option ? null : option)}
-                    className={`px-4 py-2 rounded-full border ${
-                      selectedSaveAs === option 
-                        ? 'bg-blue-500 border-blue-500' 
-                        : 'bg-white border-gray-300'
-                    }`}
-                  >
-                    <View className="flex-row items-center">
-                      <Feather 
-                        name={
-                          option === 'Home' ? 'home' :
-                          option === 'Office' ? 'briefcase' :
-                          option === 'Friend' ? 'users' :
-                          option === 'Family' ? 'heart' : 'bookmark'
-                        } 
-                        size={14} 
-                        color={selectedSaveAs === option ? '#fff' : '#777'} 
-                      />
-                      <Text className={`ml-2 font-JakartaMedium ${
-                        selectedSaveAs === option ? 'text-white' : 'text-gray-700'
-                      }`}>
-                        {saveAsLabels[option] ?? option}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              directionalLockEnabled
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingRight: 8 }}
+            >
+              {saveAsOptions.map((option, index) => (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setSelectedSaveAs(selectedSaveAs === option ? null : option)}
+                  style={{ marginRight: index === saveAsOptions.length - 1 ? 0 : 8 }}
+                  className={`px-4 py-2 rounded-full border ${
+                    selectedSaveAs === option 
+                      ? 'bg-success-200 border-success-400' 
+                      : 'bg-white border-gray-300'
+                  }`}
+                >
+                  <View className="flex-row items-center">
+                    <Feather 
+                      name={
+                        option === 'Home' ? 'home' :
+                        option === 'Office' ? 'briefcase' : 'users'
+                      } 
+                      size={14} 
+                      color={selectedSaveAs === option ? '#22543D' : '#777'} 
+                    />
+                    <Text className={`ml-2 font-JakartaMedium ${
+                      selectedSaveAs === option ? 'text-success-800' : 'text-gray-700'
+                    }`}>
+                      {saveAsLabels[option] ?? option}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </View>
         </View>
@@ -190,8 +200,10 @@ const ReceiverDetailsPage = () => {
           </TouchableOpacity>
           
           <CustomButton
-            title="Select Vehicle →"
+            title="Select Vehicle ->"
             onPress={handleProceed}
+            testID="receiver.nextToVehicle"
+            accessibilityLabel="receiver.nextToVehicle"
             className="flex-1"
             bgVariant={canProceed ? "primary" : "secondary"}
             disabled={!canProceed}
@@ -203,3 +215,4 @@ const ReceiverDetailsPage = () => {
 };
 
 export default ReceiverDetailsPage;
+

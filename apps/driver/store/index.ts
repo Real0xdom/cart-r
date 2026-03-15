@@ -58,3 +58,34 @@ export const useDriverStore = create<DriverStore>((set) => ({
   setDrivers: (drivers: MarkerData[]) => set(() => ({ drivers })),
   clearSelectedDriver: () => set(() => ({ selectedDriver: null })),
 }));
+
+interface DocumentState {
+  license_image_url: string | null;
+  rc_image_url: string | null;
+  insurance_image_url: string | null;
+  vehicle_image_url: string | null;
+  setDocumentUrl: (docId: string, url: string | null) => void;
+  clearDocuments: () => void;
+}
+
+export const useOnboardingStore = create<DocumentState>((set) => ({
+  license_image_url: null,
+  rc_image_url: null,
+  insurance_image_url: null,
+  vehicle_image_url: null,
+  setDocumentUrl: (docId, url) => set((state) => {
+    switch(docId) {
+      case 'license': return { license_image_url: url };
+      case 'rc': return { rc_image_url: url };
+      case 'insurance': return { insurance_image_url: url };
+      case 'vehicle': return { vehicle_image_url: url };
+      default: return state;
+    }
+  }),
+  clearDocuments: () => set({
+    license_image_url: null,
+    rc_image_url: null,
+    insurance_image_url: null,
+    vehicle_image_url: null,
+  })
+}));

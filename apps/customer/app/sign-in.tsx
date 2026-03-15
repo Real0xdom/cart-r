@@ -85,6 +85,9 @@ const CustomerSignIn = () => {
         if (!phone || phone.length < 10) {
             return Alert.alert(t("error"), t("enterValidPhone"));
         }
+        if (!termsAccepted) {
+            return Alert.alert(t("error"), t("pleaseAcceptTerms"));
+        }
 
         const formatted = formatPhone(phone);
         setFormattedPhoneNumber(formatted);
@@ -161,8 +164,20 @@ const CustomerSignIn = () => {
                         console.error('Error checking terms acceptance:', termsError);
                         // Continue anyway, don't block user
                         router.replace("/(tabs)/home");
+                    } else if (!hasAccepted && termsAccepted) {
+                        // User accepted terms on login screen, record it
+                        console.log('[SignIn] Terms checked during login, recording acceptance...');
+                        await supabase.rpc('record_terms_acceptance', {
+                            p_user_id: userId,
+                            p_terms_version: 'v1.0',
+                            p_ip_address: null,
+                            p_user_agent: null,
+                            p_device_info: null
+                        });
+                        router.replace("/(tabs)/home");
                     } else if (!hasAccepted) {
-                        // Show terms modal - block user until accepted
+                        // Show terms modal - user didn't check the box during login
+                        // (Fallback just in case, though they shouldn't reach here if we enforced it)
                         console.log('[SignIn] Terms not accepted, showing modal');
                         setShowTermsModal(true);
                     } else {
@@ -264,6 +279,8 @@ const CustomerSignIn = () => {
                         {/* Phone Number Input */}
                         <TextInput
                             ref={phoneInputRef}
+                            testID="auth.phoneInput"
+                            accessibilityLabel="auth.phoneInput"
                             className="flex-1 px-4 py-4 text-lg font-JakartaSemiBold"
                             placeholder={t("enterPhoneNumber")}
                             placeholderTextColor="#9CA3AF"
@@ -275,12 +292,21 @@ const CustomerSignIn = () => {
                     </View>
                 </View>
 
+                {/* Terms and Conditions Checkbox */}
+                <TermsCheckbox
+                    checked={termsAccepted}
+                    onCheckedChange={setTermsAccepted}
+                    className="mb-8"
+                />
+
                 {/* Login Button */}
                 <TouchableOpacity
                     onPress={onLoginPress}
-                    disabled={loading || checkingUser || phone.length < 10}
-                    className={`py-4 rounded-2xl items-center justify-center ${
-                        phone.length >= 10 ? 'bg-success-500' : 'bg-gray-300'
+                    testID="auth.requestOtpButton"
+                    accessibilityLabel="auth.requestOtpButton"
+                    disabled={loading || checkingUser || phone.length < 10 || !termsAccepted}
+                    className={`mt-2 py-4 rounded-2xl items-center justify-center ${
+                        phone.length >= 10 && termsAccepted ? 'bg-success-500' : 'bg-gray-300'
                     }`}
                     activeOpacity={0.8}
                 >
@@ -327,6 +353,8 @@ const CustomerSignIn = () => {
             <View className="mb-6">
                 <TextInput
                     ref={otpInputRef}
+                    testID="auth.otpInput"
+                    accessibilityLabel="auth.otpInput"
                     className="bg-gray-100 rounded-2xl px-6 py-4 text-center text-2xl font-JakartaBold tracking-widest border border-gray-200"
                     placeholder="• • • • • •"
                     placeholderTextColor="#9CA3AF"
@@ -341,8 +369,10 @@ const CustomerSignIn = () => {
             {/* Verify Button */}
             <TouchableOpacity
                 onPress={onVerifyOtpPress}
+                testID="auth.verifyOtpButton"
+                accessibilityLabel="auth.verifyOtpButton"
                 disabled={loading || otp.length !== 6}
-                className={`py-4 rounded-2xl items-center justify-center ${
+                className={`mt-2 py-4 rounded-2xl items-center justify-center ${
                     otp.length === 6 ? 'bg-success-500' : 'bg-gray-300'
                 }`}
                 activeOpacity={0.8}

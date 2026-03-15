@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { ActivityIndicator, Text, View, Alert, StyleSheet, Platform } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, MapPressEvent, Region, Callout } from "react-native-maps";
-import MapViewDirections from "react-native-maps-directions";
+import MapView, { Marker, MapPressEvent, Region, Callout, UrlTile } from "react-native-maps";
+import OlaMapViewDirections from "./OlaMapViewDirections";
 import Constants from 'expo-constants';
 
 import { icons } from "@/constants";
@@ -11,9 +11,9 @@ import {
 } from "@/lib/map";
 import { useDriverStore, useLocationStore } from "@/store";
 import { MarkerData } from "@/types/type";
+import { reverseGeocode } from "@/lib/location";
 
-const directionsAPI = process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY;
-const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 // Check if running in Expo Go
 const isExpoGo = Constants.appOwnership === 'expo';
@@ -42,7 +42,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
     setUserLocation,
     setDestinationLocation,
   } = useLocationStore();
-  const { selectedDriver } = useDriverStore();
+  const { selectedDriver, setDrivers } = useDriverStore();
 
   const mapRef = useRef<MapView>(null);
   const destinationMarkerRef = useRef<any>(null);
@@ -80,47 +80,49 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
             rating,
             vehicle_type,
             user_id,
+            current_latitude,
+            current_longitude,
             users:users!drivers_user_id_fkey (
               name,
               avatar_url
             )
           `)
-          .eq('is_online', true);
+          .eq('is_online', true)
+          .eq('verification_status', 'approved')
+          .not('current_latitude', 'is', null)
+          .not('current_longitude', 'is', null);
 
         if (driversError) throw driversError;
 
-        // Mock locations near user for demo purpose since we don't have real driver GPS updates yet
-        const loadedMarkers: MarkerData[] = (driversData || []).map((driver: any) => {
-          const randomLatOffset = (Math.random() - 0.5) * 0.02;
-          const randomLngOffset = (Math.random() - 0.5) * 0.02;
-
-          return {
-            id: driver.id,
-            latitude: userLatitude + randomLatOffset,
-            longitude: userLongitude + randomLngOffset,
-            title: driver.users?.name || 'Driver',
-            profile_image_url: driver.users?.avatar_url || 'https://via.placeholder.com/100',
-            car_image_url: 'https://via.placeholder.com/100',
-            car_seats: 4,
-            rating: driver.rating,
-            first_name: driver.users?.name?.split(' ')[0] || 'Driver',
-            last_name: driver.users?.name?.split(' ')[1] || '',
-            time: 5,
-            price: '150',
-          };
-        });
+        const loadedMarkers: MarkerData[] = (driversData || []).map((driver: any) => ({
+          id: driver.id,
+          latitude: Number(driver.current_latitude),
+          longitude: Number(driver.current_longitude),
+          title: driver.users?.name || 'Driver',
+          profile_image_url: driver.users?.avatar_url || 'https://via.placeholder.com/100',
+          car_image_url: 'https://via.placeholder.com/100',
+          car_seats: 4,
+          rating: driver.rating,
+          first_name: driver.users?.name?.split(' ')[0] || 'Driver',
+          last_name: driver.users?.name?.split(' ')[1] || '',
+          time: 5,
+          price: '150',
+        }));
 
         setMarkers(loadedMarkers);
+        setDrivers(loadedMarkers);
       } catch (err: any) {
         console.error("Error fetching drivers:", err);
         setError(err.message);
+        setMarkers([]);
+        setDrivers([]);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDrivers();
-  }, [userLatitude, userLongitude]);
+  }, [setDrivers, userLatitude, userLongitude]);
 
   const region = useMemo(() => {
     if (userLatitude && userLongitude) {
@@ -133,31 +135,9 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
     }
     return {
       ...DEFAULT_REGION,
-      // If we have a temporary marker, stay focused on it
       ...(tempMarker ? { latitude: tempMarker.latitude, longitude: tempMarker.longitude } : {})
     };
   }, [userLatitude, userLongitude, destinationLatitude, destinationLongitude, tempMarker]);
-
-  // Reverse geocode helper
-  const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {
-    try {
-      const apiKey = GOOGLE_API_KEY;
-      if (apiKey) {
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}`
-        );
-        const data = await response.json();
-        
-        if (data.results && data.results.length > 0) {
-          return data.results[0].formatted_address;
-        }
-      }
-      return 'Selected Location';
-    } catch (error) {
-      console.error('Error reverse geocoding:', error);
-      return 'Selected Location';
-    }
-  };
 
   // Handle map tap for location selection
   const handleMapPress = async (event: MapPressEvent) => {
@@ -189,7 +169,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
       }
     } catch (err) {
       console.error("Error selecting location:", err);
-      Alert.alert("Error", "Could not get address for this location. Please try again.");
+      Alert.alert("Error", "Could not process location. Please try again.");
       setTempMarker(null);
     }
   };
@@ -205,25 +185,23 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
     );
   }
 
-  // Web Fallback (to allow flow testing without Google Maps setup)
+  // Web Fallback
   if (Platform.OS === 'web') {
      return (
         <View style={[styles.map, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#e5e7eb' }]}>
-           <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#374151', marginBottom: 10 }}>Map Placeholder (Web)</Text>
+           <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#374151', marginBottom: 10 }}>Ola Maps (Web Placeholder)</Text>
            <Text style={{ textAlign: 'center', color: '#6b7280', paddingHorizontal: 20, marginBottom: 20 }}>
-              Google Maps is not configured for web in this demo.
-              {'\n'}Use mobile for the full map experience.
+              Full Ola Maps experience on mobile.
            </Text>
            {selectionMode && (
               <View style={{ backgroundColor: '#bfdbfe', padding: 15, borderRadius: 10 }}>
-                 <Text style={{ color: '#1d4ed8', fontWeight: 'bold', marginBottom: 5 }}>Testing Mode active:</Text>
+                 <Text style={{ color: '#1d4ed8', fontWeight: 'bold', marginBottom: 5 }}>Test Mode:</Text>
                  <Text style={{ color: '#1e40af' }} onPress={() => {
-                    // Simulate selecting a location slightly offset from current
                     onLocationSelected?.();
-                    if (selectionMode === 'to') setDestinationLocation({ latitude: userLatitude + 0.01, longitude: userLongitude + 0.01, address: 'Test Destination Address' });
-                    else setUserLocation({ latitude: userLatitude, longitude: userLongitude, address: 'Test Pickup Address' });
+                    if (selectionMode === 'to') setDestinationLocation({ latitude: userLatitude! + 0.01, longitude: userLongitude! + 0.01, address: 'Test Destination' });
+                    else setUserLocation({ latitude: userLatitude!, longitude: userLongitude!, address: 'Test Pickup' });
                  }}>
-                    Click here to simulate selecting a location on map
+                    Simulate location selection
                  </Text>
               </View>
            )}
@@ -231,12 +209,9 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
      );
   }
 
-  const shouldUseGoogleProvider = Platform.OS === 'android' && !isExpoGo;
-
   return (
     <MapView
       ref={mapRef}
-      provider={shouldUseGoogleProvider ? PROVIDER_GOOGLE : undefined}
       style={styles.map}
       mapType="standard"
       showsPointsOfInterest={false}
@@ -245,6 +220,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
       showsMyLocationButton={true}
       onPress={handleMapPress}
     >
+
       {/* Pickup location marker */}
       {userLatitude && userLongitude && userAddress && (
         <Marker
@@ -297,7 +273,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
         </Marker>
       )}
 
-      {/* Destination marker with tooltip */}
+      {/* Destination marker */}
       {destinationLatitude && destinationLongitude && (
         <>
           <Marker
@@ -326,8 +302,8 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
           </Marker>
 
           {/* Route line */}
-          {userLatitude && userLongitude && directionsAPI && (
-            <MapViewDirections
+          {userLatitude && userLongitude && (
+            <OlaMapViewDirections
               origin={{
                 latitude: userLatitude,
                 longitude: userLongitude,
@@ -336,9 +312,8 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
                 latitude: destinationLatitude,
                 longitude: destinationLongitude,
               }}
-              apikey={directionsAPI}
               strokeColor="#FF9800"
-              strokeWidth={4}
+            strokeWidth={4}
             />
           )}
         </>
@@ -372,7 +347,6 @@ const styles = StyleSheet.create({
     color: '#777',
     textAlign: 'center',
   },
-  // Callout styles
   calloutContainer: {
     alignItems: 'center',
   },
@@ -434,3 +408,4 @@ const styles = StyleSheet.create({
 });
 
 export default Map;
+

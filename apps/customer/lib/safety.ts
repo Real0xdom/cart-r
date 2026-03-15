@@ -134,7 +134,7 @@ export async function triggerSOSAlert(
     let longitude = 0;
     try {
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+        accuracy: Location.Accuracy.Highest,
       });
       latitude = location.coords.latitude;
       longitude = location.coords.longitude;

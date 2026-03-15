@@ -237,7 +237,36 @@ AQIDAQAB
         .eq('id', driver_id)
 
       console.log('Database updated successfully')
-      console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (SUCCESS) ===')
+      
+      // Send notification to admin about new bank registration
+     try {
+      console.log('Sending admin notification...')
+      const adminNotification = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification`, {
+        method: 'POST',
+        headers: {
+           'Content-Type': 'application/json',
+           'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+         },
+         body: JSON.stringify({
+          user_id: 'admin',
+          title: '🏦 New Bank Account Registered',
+           body: `Driver has registered their bank account for payouts`,
+           data: {
+            type: 'bank_registration',
+             driver_id: driver_id,
+             beneficiary_id: beneficiaryId,
+             bank_name: bankDetails.bank_name || 'Unknown',
+           },
+         }),
+       })
+      const notificationResult = await adminNotification.json()
+      console.log('Admin notification:', notificationResult)
+     } catch (notifError) {
+      console.error('Failed to send admin notification:', notifError)
+       // Don't fail the main operation if notification fails
+     }
+      
+     console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (SUCCESS) ===')
 
       return new Response(
         JSON.stringify({ 
@@ -249,39 +278,170 @@ AQIDAQAB
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     } else if (cfResponse.status === 409) {
-      // Conflict - bank account already registered
+      // Conflict- bank account already registered
       // Check if it's registered to THIS driver or a DIFFERENT driver
-      const conflictMessage = cfResult?.message || ''
+     const conflictMessage = cfResult?.message || ''
+     const conflictCode = cfResult?.code || ''
       
-      if (alreadyRegistered) {
-        // Same driver trying to re-register - this is OK
-        console.log('✅ Success: Beneficiary already registered for this driver')
-        console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (SUCCESS) ===')
+      // Check if this is a "beneficiary_id already exists" error
+     const isBeneficiaryExists = conflictCode === 'conflict_with_existing_beneficiary' || 
+                                 conflictMessage?.includes('beneficiary_id already exists')
+      
+      if (isBeneficiaryExists) {
+        // Beneficiary exists in Cashfree- verify if it belongs to this driver
+       console.log('⚠️ Beneficiary already exists in Cashfree, verifying ownership...')
         
-        return new Response(
-          JSON.stringify({ 
-            success: true, 
-            beneficiary_id: beneficiaryId,
-            message: 'Bank account already registered',
-            cashfree_response: cfResult
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        // Fetch the beneficiary from Cashfree to verify
+       const timestamp = Math.floor(Date.now() / 1000).toString()
+       const signatureString = `${payoutsAppId}.${timestamp}`
+       const encoder = new TextEncoder()
+       const data = encoder.encode(signatureString)
+        
+       const publicKeyPem = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzMg9C1Kcf1/RjfKq2O7S
+fgaVvwxE76wq9mlYku7Gp4Z4iyrFRmnaEPqPW/+6MfPJn6Yj8GkTNsnrg1gK1C79
+sOCb4wc3kAcHlTT5QIdgxQ04tCAYPPMBJ242dpBWlFxe/dVY700bZRTmtf1vwTLo
+q8zOuE819Ei0DFdxao92GeaKznWQR8wRDk+LswKIjYKY3mXrJfh1jVZB0uFbed8p
+Avbgiq+5HX5tihKUeD90j1t8dMHVq/oZtHL4Xcc1dNstFL1UWwFpef8taWlfIz8o
+rz38ws0JnIHlljJYf5H5bwT1yhiMKiHfdFbnoZ+wv9oXRuvhi/FuBq3YXUDm8MLX
+AQIDAQAB
+-----END PUBLIC KEY-----`
+        
+       const pemContents = publicKeyPem
+          .replace('-----BEGIN PUBLIC KEY-----', '')
+          .replace('-----END PUBLIC KEY-----', '')
+          .replace(/\s/g, '')
+        
+       const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0))
+        
+       const publicKey = await crypto.subtle.importKey(
+          'spki',
+          binaryDer,
+          {
+            name: 'RSA-OAEP',
+            hash: 'SHA-1',
+          },
+          false,
+          ['encrypt']
         )
+        
+       const encryptedBuffer= await crypto.subtle.encrypt(
+          {
+            name: 'RSA-OAEP',
+          },
+          publicKey,
+          data
+        )
+        
+       const encryptedArray = new Uint8Array(encryptedBuffer)
+       const signature = btoa(String.fromCharCode(...encryptedArray))
+        
+        // Fetch existing beneficiary details
+       const getBeneficiaryResponse = await fetch(`${baseUrl}/payout/beneficiary/${beneficiaryId}`, {
+         method: 'GET',
+         headers: {
+            'Content-Type': 'application/json',
+            'x-client-id': payoutsAppId,
+            'x-client-secret': payoutsSecretKey,
+            'x-cf-signature': signature,
+            'x-cf-timestamp': timestamp,
+            'x-api-version': '2024-01-01',
+          },
+        })
+        
+       const existingBeneficiary = await getBeneficiaryResponse.json()
+       console.log('Existing beneficiary from Cashfree:', JSON.stringify(existingBeneficiary, null, 2))
+        
+        // Verify if this beneficiary matches the current driver's bank details
+       const isSameDriver = existingBeneficiary?.beneficiary_instrument_details && 
+                             existingBeneficiary.beneficiary_instrument_details.bank_account_number === bankDetails.account_number &&
+                             existingBeneficiary.beneficiary_instrument_details.bank_ifsc === bankDetails.ifsc_code
+        
+        if (getBeneficiaryResponse.ok && isSameDriver) {
+          // Same driver's beneficiary - update DB and return success
+         console.log('✅ Success: Verified beneficiary belongs to this driver')
+          
+          await supabase
+            .from('drivers')
+            .update({
+              beneficiary_id: beneficiaryId,
+              beneficiary_status: 'active',
+            })
+            .eq('id', driver_id)
+          
+         console.log('Database updated successfully')
+         
+         // Send notification to admin about bank verification
+       try {
+       console.log('Sending admin notification...')
+       const adminNotification = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification`, {
+         method: 'POST',
+         headers: {
+             'Content-Type': 'application/json',
+             'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+           },
+           body: JSON.stringify({
+           user_id: 'admin',
+           title: '🏦 Bank Account Verified',
+             body: `Driver's existing bank account has been verified`,
+             data: {
+             type: 'bank_verification',
+               driver_id: driver_id,
+               beneficiary_id: beneficiaryId,
+             },
+           }),
+         })
+       const notificationResult = await adminNotification.json()
+       console.log('Admin notification:', notificationResult)
+       } catch (notifError) {
+       console.error('Failed to send admin notification:', notifError)
+         // Don't fail the main operation if notification fails
+       }
+        
+      console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (SUCCESS - VERIFIED) ===')
+
+          return new Response(
+            JSON.stringify({ 
+              success: true, 
+              beneficiary_id: beneficiaryId,
+             message: 'Bank account already registered',
+              cashfree_response: existingBeneficiary
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        } else {
+          // Different driver - bank account already used by someone else
+         console.error('❌ Conflict: Bank account belongs to another driver')
+          
+          await supabase
+            .from('drivers')
+            .update({ beneficiary_status: 'failed' })
+            .eq('id', driver_id)
+          
+         console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (CONFLICT - OTHER DRIVER) ===')
+          
+          return new Response(
+            JSON.stringify({
+              error: 'bank_account_already_registered',
+             message: 'This bank account is already registered. Please use a different account or contact support.',
+              cashfree_response: cfResult
+            }),
+            { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
       } else {
-        // Different driver - this bank account is already used by someone else
-        console.error('❌ Conflict: Bank account already registered to another driver')
+        // Other type of conflict error
+       console.error('❌ Conflict Error:', conflictMessage)
         
         await supabase
           .from('drivers')
           .update({ beneficiary_status: 'failed' })
           .eq('id', driver_id)
         
-        console.log('=== CREATE BENEFICIARY EDGE FUNCTION END (CONFLICT) ===')
-        
         return new Response(
           JSON.stringify({
-            error: 'bank_account_already_registered',
-            message: 'This bank account is already registered. Please use a different account or contact support.',
+            error: 'conflict_error',
+           message: conflictMessage || 'Bank account registration conflict',
             cashfree_response: cfResult
           }),
           { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

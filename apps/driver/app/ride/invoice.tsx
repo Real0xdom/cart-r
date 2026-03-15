@@ -1,5 +1,6 @@
-import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect } from "react";
+import { router, useLocalSearchParams, Stack } from "expo-router";
+
 import {
   View,
   Text,
@@ -10,11 +11,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import * as Sharing from "expo-sharing";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { generateInvoice, getInvoice, generatePdfUri, InvoiceData } from "@/lib/invoiceUtils";
+import { Image } from "react-native";
+import { generateRideStaticMap } from "@/lib/ola-static-maps";
 
 const InvoiceScreen = () => {
+  const [staticMapUrl, setStaticMapUrl] = useState<string>('');
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +43,18 @@ const InvoiceScreen = () => {
 
     if (result.data) {
       setInvoice(result.data);
+      
+      // Generate static map for ride route
+      generateRideStaticMap({
+        pickup_lat: result.data.pickup_latitude,
+        pickup_lon: result.data.pickup_longitude,
+        drop_lat: result.data.dropoff_latitude,
+        drop_lon: result.data.dropoff_longitude,
+      }).then((mapUrl) => {
+        setStaticMapUrl(mapUrl);
+      }).catch((err) => {
+        console.error('Static map generation failed:', err);
+      });
     } else {
       Alert.alert("Error", result.error || "Failed to load invoice");
     }
@@ -56,9 +71,12 @@ const InvoiceScreen = () => {
     setIsSharing(true);
 
     try {
-      const pdfUri = await generatePdfUri(invoice);
+     const pdfUri = await generatePdfUri(invoice);
 
-      const isSharingAvailable = await Sharing.isAvailableAsync();
+      // Lazy-load expo-sharing to avoid native module errors in development
+     const Sharing = await import('expo-sharing');
+     const isSharingAvailable = await Sharing.isAvailableAsync();
+      
       if (isSharingAvailable) {
         await Sharing.shareAsync(pdfUri, {
           mimeType: "application/pdf",
@@ -73,10 +91,10 @@ const InvoiceScreen = () => {
         });
       }
     } catch (error: any) {
-      console.error("Error sharing invoice PDF:", error);
+     console.error("Error sharing invoice PDF:", error);
       // Fallback to text share if PDF generation fails
       try {
-        const shareText = buildShareText(invoice);
+       const shareText = buildShareText(invoice);
         await Share.share({
           message: shareText,
           title: `Invoice ${invoice.invoice_number}`,
@@ -97,9 +115,12 @@ const InvoiceScreen = () => {
 
     setIsGeneratingPdf(true);
     try {
-      const pdfUri = await generatePdfUri(invoice);
+     const pdfUri = await generatePdfUri(invoice);
 
-      const isSharingAvailable = await Sharing.isAvailableAsync();
+      // Lazy-load expo-sharing to avoid native module errors in development
+     const Sharing = await import('expo-sharing');
+     const isSharingAvailable = await Sharing.isAvailableAsync();
+      
       if (isSharingAvailable) {
         await Sharing.shareAsync(pdfUri, {
           mimeType: "application/pdf",
@@ -113,7 +134,7 @@ const InvoiceScreen = () => {
         });
       }
     } catch (error: any) {
-      console.error("Error generating PDF:", error);
+     console.error("Error generating PDF:", error);
       Alert.alert(
         "PDF Error",
         "Could not generate PDF. Would you like to share the invoice as text instead?",
@@ -207,6 +228,12 @@ const InvoiceScreen = () => {
       </View>
 
       {/* Invoice Template */}
+      {staticMapUrl && (
+        <View className="p-4 bg-white border-b border-gray-200">
+          <Text className="text-sm font-JakartaBold text-gray-700 mb-3">Trip Route</Text>
+          <Image source={{ uri: staticMapUrl }} style={{ width: '100%', height: 200, borderRadius: 12 }} resizeMode="cover" />
+        </View>
+      )}
       <InvoiceTemplate invoice={invoice} />
     </SafeAreaView>
   );

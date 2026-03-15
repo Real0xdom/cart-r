@@ -47,9 +47,17 @@ describe('XSS Sanitization - escapeHtml', () => {
 
 // Replicating generateBookingOTP from lib/auth.ts for testing
 const generateBookingOTP = (): string => {
-  const array = new Uint32Array(1);
-  crypto.getRandomValues(array);
-  return (1000 + (array[0] % 9000)).toString();
+  // Use crypto.getRandomValues if available (web/browser), fallback to Math.random for React Native
+  let randomValue: number;
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    randomValue = array[0];
+  } else {
+    // Fallback for React Native (crypto not available)
+    randomValue = Math.floor(Math.random() * 9000);
+  }
+  return (1000 + (randomValue % 9000)).toString();
 };
 
 describe('OTP Crypto Generation - generateBookingOTP', () => {

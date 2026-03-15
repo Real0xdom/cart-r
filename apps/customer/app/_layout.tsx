@@ -8,7 +8,7 @@ import { LogBox } from "react-native";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
-import { NetworkBanner } from "../../../packages/shared/components/NetworkBanner";
+import NetworkBanner from "@/components/NetworkBanner";
 
 import { 
   initializeNotifications, 
@@ -54,10 +54,10 @@ export default function RootLayout() {
         });
         // Setup notification listeners
         notificationReceivedSubscription = addNotificationReceivedListener((notification) => {
-          console.log('📬 [RootLayout] Notification received:', notification.request.content.title);
+          console.log('Ã°Å¸â€œÂ¬ [RootLayout] Notification received:', notification.request.content.title);
         });
         notificationResponseSubscription = addNotificationResponseListener((response) => {
-          console.log('👆 [RootLayout] Notification tapped:', response.notification.request.content.title);
+          console.log('Ã°Å¸â€˜â€  [RootLayout] Notification tapped:', response.notification.request.content.title);
         });
       } catch (e) {
         console.warn('Error initializing notifications:', e);
@@ -85,6 +85,8 @@ export default function RootLayout() {
             <Stack.Screen name="welcome" options={{ headerShown: false }} />
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
+            <Stack.Screen name="(stack)" options={{ headerShown: false }} />
+            <Stack.Screen name="ride-details/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="find-ride" options={{ headerShown: false }} />
             <Stack.Screen name="receiver-details" options={{ headerShown: false }} />
             <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />

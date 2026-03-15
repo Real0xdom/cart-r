@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 
@@ -368,7 +368,9 @@ export default function BankDetails() {
             ))
         ) : (
             <View className="bg-gray-100 rounded-2xl p-5 items-center py-8">
-                <Text className="text-4xl mb-2">💸</Text>
+                <View className="mb-2 h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                  <Ionicons name="wallet-outline" size={30} color="#16a34a" />
+                </View>
                 <Text className="text-gray-400 text-center">{t('noWithdrawalHistory')}</Text>
             </View>
         )}

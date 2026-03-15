@@ -36,8 +36,8 @@ export async function initializeNotifications() {
     // 2. Setup channels (Android)
     if (Platform.OS === 'android') {
       try {
-        await Notifications.setNotificationChannelAsync('booking-updates', {
-          name: 'Booking Updates',
+        await Notifications.setNotificationChannelAsync('ride-requests', {
+          name: 'Ride Requests',
           importance: Notifications.AndroidImportance.HIGH,
           vibrationPattern: [0, 250, 250, 250],
           sound: 'default',
@@ -195,10 +195,10 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       let deviceId = 'unknown';
       try {
         const Constants = require('expo-constants').default;
-        deviceId = Constants.installationId || Constants.sessionId || 'default-device';
+        deviceId = Constants.installationId || Constants.sessionId || `customer-device-${userId.substring(0, 8)}`;
       } catch {
         // expo-constants not available
-        deviceId = `device-${Date.now()}`;
+        deviceId = `customer-device-${userId.substring(0, 8)}`;
       }
 
       await supabase

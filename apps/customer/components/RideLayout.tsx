@@ -58,7 +58,7 @@ const RideLayout = ({
     <GestureHandlerRootView className="flex-1">
       <View className="flex-1 bg-white">
         <View className="flex flex-col h-screen bg-gray-200">
-          <View className="flex flex-row absolute z-10 top-16 items-center justify-start px-5">
+          <View className="flex flex-row absolute z-10 top-16 items-center justify-start px-5 w-full pr-10">
             <TouchableOpacity onPress={() => router.back()}>
               <View className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-md">
                 <Image
@@ -68,9 +68,11 @@ const RideLayout = ({
                 />
               </View>
             </TouchableOpacity>
-            <Text className="text-xl font-JakartaSemiBold ml-5 text-black">
-              {title || "Go Back"}
-            </Text>
+            <View className="bg-white/95 px-5 py-2 rounded-full shadow-md ml-4 mr-5 flex-shrink">
+              <Text className="text-lg font-JakartaSemiBold text-black" numberOfLines={1}>
+                {title || "Go Back"}
+              </Text>
+            </View>
           </View>
 
           {/* Map selection mode indicator */}
@@ -98,7 +100,7 @@ const RideLayout = ({
             width: 40,
           }}
         >
-          {useView || title === "Choose a Rider" ? (
+          {useView || title === "Choose a driver" ? (
             <BottomSheetView
               style={{
                 flex: 1,

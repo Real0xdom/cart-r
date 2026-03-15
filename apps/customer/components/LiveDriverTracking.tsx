@@ -1,13 +1,15 @@
 // Live Driver Tracking Component for Customer App
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, TouchableOpacity, Linking, Platform, Image } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, AnimatedRegion } from 'react-native-maps';
-import MapViewDirections from "react-native-maps-directions";
+import MapView, { Marker, AnimatedRegion, UrlTile } from 'react-native-maps';
+import OlaMapViewDirections from "./OlaMapViewDirections";
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { subscribeToDriverLocation, getDriverCurrentLocation, estimateETA } from '@/lib/tracking';
 import { icons, images } from '@/constants';
 
-const directionsAPI = process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY;
+
+
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 interface DriverInfo {
   id: string;
@@ -156,15 +158,18 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
       <MapView
         ref={mapRef}
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
+        mapType="standard"
         initialRegion={{
           latitude: pickupLocation.latitude,
           longitude: pickupLocation.longitude,
           latitudeDelta: 0.02,
           longitudeDelta: 0.02,
         }}
-        customMapStyle={mapStyle}
+        // customMapStyle={lightOlaStyle}
       >
+
+        {/* Ola Light Theme Style */}
+        {/* Ola Light Theme - react-native-maps doesn't support Maplibre GL styles directly */}
         {/* Pickup Marker */}
         <Marker coordinate={pickupLocation} anchor={{ x: 0.5, y: 0.5 }}>
           <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
@@ -188,11 +193,10 @@ const LiveDriverTracking: React.FC<LiveDriverTrackingProps> = ({
         )}
 
         {/* Route Line */}
-        {driverLocation && directionsAPI && (
-          <MapViewDirections
+        {driverLocation && (
+          <OlaMapViewDirections
             origin={driverLocation}
             destination={bookingStatus === 'in_progress' ? dropLocation : pickupLocation}
-            apikey={directionsAPI}
             strokeColor="#22c55e"
             strokeWidth={4}
           />

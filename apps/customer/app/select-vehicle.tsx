@@ -1,10 +1,16 @@
-import CustomButton from "@/components/CustomButton";
+﻿import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
 import { useLocationStore, useRideStore, useBookingStore } from "@/store";
 import { useAuth } from "@/contexts/AuthContext";
 import { router } from "expo-router";
 import { useState, useEffect } from "react";
-import { getActiveVehicleTypes, getVehicleIcon, getVehicleDescription, VehicleType } from "@/lib/vehicleTypes";
+import {
+  getActiveVehicleTypes,
+  getVehicleIcon,
+  getVehicleDescription,
+  getVehicleDisplayName,
+  VehicleType,
+} from "@/lib/vehicleTypes";
 import {
   Text,
   View,
@@ -33,7 +39,7 @@ const SelectVehiclePage = () => {
     destinationLongitude,
   } = useLocationStore();
   
-  const { setSelectedVehicle, selectedVehicle } = useRideStore();
+  const { setSelectedVehicle, clearSelectedVehicle, selectedVehicle } = useRideStore();
   const { receiverDetails, setCurrentBooking } = useBookingStore();
 
   const [fares, setFares] = useState<FareEstimate[]>([]);
@@ -53,6 +59,8 @@ const SelectVehiclePage = () => {
   const [walletBalance, setWalletBalance] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | 'partial_wallet'>('cash');
   const [isPaying, setIsPaying] = useState(false);
+  const activeVehicleTypes = new Set(vehicleSpecs.map((vehicle) => vehicle.vehicle_type));
+  const visibleFares = fares.filter((fare) => activeVehicleTypes.has(fare.vehicle_type));
 
   // Redirect if missing required data
   useEffect(() => {
@@ -156,6 +164,12 @@ const SelectVehiclePage = () => {
       setShowAddonModal(false);
     }
   }, [selectedVehicle, availableAddons.length]);
+
+  useEffect(() => {
+    if (selectedVehicle && !activeVehicleTypes.has(selectedVehicle.vehicle_type)) {
+      clearSelectedVehicle();
+    }
+  }, [activeVehicleTypes, clearSelectedVehicle, selectedVehicle]);
 
   const handleSelectVehicle = (vehicle: FareEstimate) => {
     setSelectedVehicle(vehicle);
@@ -271,8 +285,10 @@ const SelectVehiclePage = () => {
     }
   };
 
-  const renderVehicleItem = ({ item }: { item: FareEstimate }) => (
+  const renderVehicleItem = ({ item, index }: { item: FareEstimate; index: number }) => (
     <TouchableOpacity
+      testID={'vehicle.option.' + index}
+      accessibilityLabel={'vehicle.option.' + index}
       onPress={() => handleSelectVehicle(item)}
       className={`flex-row items-center p-4 mb-3 rounded-2xl border ${
         selectedVehicle?.vehicle_type === item.vehicle_type
@@ -286,7 +302,7 @@ const SelectVehiclePage = () => {
       
       <View className="flex-1">
         <Text className="text-base font-JakartaBold capitalize text-gray-900">
-          {item.vehicle_type}
+          {getVehicleDisplayName(item.vehicle_type, vehicleSpecs)}
         </Text>
         <Text className="text-xs text-gray-500 font-JakartaMedium">
           {getVehicleDescription(item.vehicle_type, vehicleSpecs)}
@@ -315,6 +331,7 @@ const SelectVehiclePage = () => {
       snapPoints={["50%", "90%"]}
       useView={false}
     >
+      <View testID="vehicle.selectVehicle" accessibilityLabel="vehicle.selectVehicle">
 
         {loading ? (
           <View className="items-center justify-center py-10">
@@ -330,9 +347,9 @@ const SelectVehiclePage = () => {
           <>
             {/* Vehicle List only */}
             <View>
-              {fares.map((item) => (
+              {visibleFares.map((item, index) => (
                 <View key={item.vehicle_type}>
-                  {renderVehicleItem({ item })}
+                  {renderVehicleItem({ item, index })}
                 </View>
               ))}
             </View>
@@ -363,6 +380,8 @@ const SelectVehiclePage = () => {
 
                 <TouchableOpacity
                   onPress={handleBookNow}
+                  testID="booking.confirmButton"
+                  accessibilityLabel="booking.confirmButton"
                   disabled={!selectedVehicle || isBooking}
                   className={`flex-[2] py-4 rounded-xl items-center justify-center flex-row ${
                     selectedVehicle && !isBooking ? "bg-brand-500" : "bg-gray-300"
@@ -422,6 +441,8 @@ const SelectVehiclePage = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => doCreateBookingAndNavigate(selectedAddonIds)}
+                  testID="booking.confirmButton"
+                  accessibilityLabel="booking.confirmButton"
                   disabled={isBooking}
                   className="flex-[2] py-4 rounded-xl items-center justify-center flex-row bg-brand-500"
                 >
@@ -439,8 +460,11 @@ const SelectVehiclePage = () => {
           </Pressable>
         </Pressable>
       </Modal>
+      </View>
     </RideLayout>
   );
 };
 
 export default SelectVehiclePage;
+
+

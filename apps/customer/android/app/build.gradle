@@ -170,6 +170,11 @@ android {
 dependencies {
     implementation platform('com.google.firebase:firebase-bom:34.9.0')
     implementation 'com.google.firebase:firebase-analytics'
+    // Ola Map SDK (matches SDK docs)
+    implementation(files("libs/OlaMapSdk-1.0.0.aar"))
+    implementation("org.maplibre.gl:android-sdk:11.13.1")
+    implementation("org.maplibre.gl:android-plugin-annotation-v9:3.0.2")
+    implementation("org.maplibre.gl:android-plugin-markerview-v9:3.0.2")
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

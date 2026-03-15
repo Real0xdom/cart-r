@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useRe
 import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, Booking } from '@/lib/bookings';
 import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
 import { useAuth } from '@/contexts/AuthContext';
-import { router } from 'expo-router';
+import { router, useRootNavigationState } from 'expo-router';
 import { Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from '@notifee/react-native';
@@ -34,10 +34,40 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
   const { driverProfile } = useAuth();
   const [currentNotification, setCurrentNotification] = useState<Booking | null>(null);
   const hasHandledInitial = useRef(false);
+  const navigationState = useRootNavigationState();
+  const [pendingRoute, setPendingRoute] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingRoute && navigationState?.key) {
+      console.log('[NOTIFICATION CONTEXT] Executing pending route:', pendingRoute);
+      router.push(pendingRoute as any);
+      setPendingRoute(null);
+    }
+  }, [pendingRoute, navigationState?.key]);
+
+  const navigateTo = (path: string) => {
+    if (navigationState?.key) {
+      router.push(path as any);
+    } else {
+      console.log('[NOTIFICATION CONTEXT] Delaying route until routing is ready:', path);
+      setPendingRoute(path);
+    }
+  };
 
   // Subscribe to new ride requests
   useEffect(() => {
-    if (!driverProfile?.vehicle_type || !driverProfile?.is_online) {
+    console.log('[NOTIFICATION CONTEXT] Checking subscription conditions:', { 
+      vehicle_type: driverProfile?.vehicle_type, 
+      is_online: driverProfile?.is_online 
+    });
+    
+    if (!driverProfile?.vehicle_type) {
+      console.log('[NOTIFICATION CONTEXT] No vehicle type set - cannot subscribe');
+      return;
+    }
+    
+    if (!driverProfile?.is_online) {
+      console.log('[NOTIFICATION CONTEXT] Driver is offline - notifications disabled. Go online to receive ride requests.');
       return;
     }
 
@@ -135,9 +165,9 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
           if (pressAction.id === 'accept_ride') {
              // First let's check if it's already accepted by this driver (via background task)
              const { data: booking } = await getBookingById(bookingId);
-             if (booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+              if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
                 console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
-                router.push(`/ride/${bookingId}`);
+                navigateTo(`/ride/${bookingId}`);
              } else {
                 await acceptRide(bookingId);
              }
@@ -145,6 +175,14 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
             // Just dismiss the notification — don't persist decline
             console.log('[NOTIFICATION CONTEXT] Decline pressed — dismissing notification only');
             hideNotification();
+          } else if (pressAction.id === 'default') {
+             // Tapped the notification body
+             const { data: booking } = await getBookingById(bookingId);
+             if (driverProfile?.id && booking?.driver_id === driverProfile.id && ['accepted', 'driver_arrived', 'in_progress'].includes(booking?.status || '')) {
+                navigateTo(`/ride/${bookingId}`);
+             } else {
+                navigateTo(`/(tabs)/requests`);
+             }
           }
         }
         
@@ -168,7 +206,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         if (pendingBookingId) {
           console.log('[NOTIFICATION CONTEXT] Found pending route booking from background:', pendingBookingId);
           await SecureStore.deleteItemAsync('pending_route_booking_id');
-          router.push(`/ride/${pendingBookingId}`);
+          navigateTo(`/ride/${pendingBookingId}`);
         }
       } catch (e) {
         console.error('Error checking pending routes', e);
@@ -196,12 +234,9 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
             if (pressAction.id === 'accept_ride') {
                // First let's check if it's already accepted by this driver (via background task)
                const { data: booking } = await getBookingById(bookingId);
-               if (booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+             if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
                   console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
-                  // Use a timeout to ensure router is ready, especially on cold start
-                  setTimeout(() => {
-                    router.push(`/ride/${bookingId}`);
-                  }, 0);
+                  navigateTo(`/ride/${bookingId}`);
                } else {
                   await acceptRide(bookingId);
                }
@@ -209,6 +244,14 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
               // Cancel pressed from killed state — do nothing, just cancel the notification.
               // We do NOT persist this to the backend so other drivers can still see the booking.
               console.log('[NOTIFICATION CONTEXT] Decline from killed state — notification dismissed, no action taken.');
+            } else if (pressAction.id === 'default') {
+              // Tapped the notification body from killed state
+              const { data: booking } = await getBookingById(bookingId);
+              if (driverProfile?.id && booking?.driver_id === driverProfile.id && ['accepted', 'driver_arrived', 'in_progress'].includes(booking?.status || '')) {
+                 navigateTo(`/ride/${bookingId}`);
+              } else {
+                 navigateTo(`/(tabs)/requests`);
+              }
             }
           }
           
@@ -245,7 +288,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       hideNotification();
       
       // Navigate to ride screen
-      router.push(`/ride/${bookingId}`);
+      navigateTo(`/ride/${bookingId}`);
       
       Alert.alert('Success', 'Ride accepted! Navigate to pickup location.');
     } else {

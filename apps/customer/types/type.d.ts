@@ -1,7 +1,7 @@
 import { TextInputProps, TouchableOpacityProps } from "react-native";
 
 declare interface Driver {
-  id: number;
+  id: string;
   first_name: string;
   last_name: string;
   profile_image_url: string;
@@ -13,7 +13,7 @@ declare interface Driver {
 declare interface MarkerData {
   latitude: number;
   longitude: number;
-  id: number;
+  id: string;
   title: string;
   profile_image_url: string;
   car_image_url: string;
@@ -29,7 +29,7 @@ declare interface MapProps {
   destinationLatitude?: number;
   destinationLongitude?: number;
   onDriverTimesCalculated?: (driversWithTimes: MarkerData[]) => void;
-  selectedDriver?: number | null;
+  selectedDriver?: string | null;
   onMapReady?: () => void;
 }
 
@@ -43,7 +43,7 @@ declare interface Ride {
   ride_time: number;
   fare_price: number;
   payment_status: string;
-  driver_id: number;
+  driver_id: string;
   user_id: string;
   created_at: string;
   driver: {
@@ -99,7 +99,7 @@ declare interface PaymentProps {
   fullName: string;
   email: string;
   amount: string;
-  driverId: number;
+  driverId: string;
   rideTime: number;
 }
 
@@ -128,19 +128,20 @@ declare interface LocationStore {
     longitude: number;
     address: string;
   }) => void;
+  clearDestination: () => void;
 }
 
 declare interface DriverStore {
   drivers: MarkerData[];
-  selectedDriver: number | null;
-  setSelectedDriver: (driverId: number) => void;
+  selectedDriver: string | null;
+  setSelectedDriver: (driverId: string) => void;
   setDrivers: (drivers: MarkerData[]) => void;
   clearSelectedDriver: () => void;
 }
 
 declare interface DriverCardProps {
   item: MarkerData;
-  selected: number;
+  selected: string | null;
   setSelected: () => void;
 }
 declare interface SelectedVehicle {
@@ -249,4 +250,3 @@ declare interface BookingStore {
   // Clear all booking state (after trip completion)
   clearAll: () => void;
 }
-

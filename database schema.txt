@@ -229,6 +229,13 @@ CREATE TABLE public.drivers (
   bank_details jsonb,
   beneficiary_id text,
   beneficiary_status text DEFAULT 'not_created'::text CHECK (beneficiary_status = ANY (ARRAY['not_created'::text, 'pending'::text, 'active'::text, 'failed'::text])),
+  suspension_type text CHECK (suspension_type = ANY (ARRAY['temporary'::text, 'permanent'::text])),
+  suspension_reason text,
+  suspension_until timestamp with time zone,
+  aadhaar_number text,
+  pan_number text,
+  license_back_image_url text,
+  rc_back_image_url text,
   CONSTRAINT drivers_pkey PRIMARY KEY (id),
   CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
   CONSTRAINT drivers_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id)
@@ -522,6 +529,15 @@ CREATE TABLE public.users (
   total_ratings integer DEFAULT 0,
   referral_code character varying NOT NULL DEFAULT upper(SUBSTRING(md5((gen_random_uuid())::text) FROM 1 FOR 8)) UNIQUE,
   CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.vehicle_models (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  make text NOT NULL,
+  model text NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT vehicle_models_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.vehicle_specifications (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),

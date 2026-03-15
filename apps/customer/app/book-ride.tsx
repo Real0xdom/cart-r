@@ -16,7 +16,7 @@ const BookRide = () => {
   const [scheduledOffset, setScheduledOffset] = useState<number | null>(null);
 
   const driverDetails = drivers?.filter(
-    (driver) => +driver.id === selectedDriver,
+    (driver) => driver.id === selectedDriver,
   )[0];
 
 

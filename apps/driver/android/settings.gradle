@@ -44,7 +44,7 @@ if (getRNMinorVersion() >= 75) {
   }
 }
 
-rootProject.name = 'Carter Driver'
+rootProject.name = 'CarterDriver'
 
 dependencyResolutionManagement {
   versionCatalogs {

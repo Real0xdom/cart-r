@@ -1,4 +1,4 @@
-export type Locale = "en" | "hi";
+﻿export type Locale = "en" | "hi";
 
 export const translations: Record<Locale, Record<string, string>> = {
   en: {
@@ -6,7 +6,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     myProfile: "My Profile",
     savedAddresses: "Saved Addresses",
     helpCenter: "Help Center",
-    referYourFriends: "Refer your friends",
+    referYourFriends: "Invite friends",
+    inviteToCarterTitle: "Invite to Carter",
+    inviteToCarterMessage: "Invite your friends to Carter — on-demand logistics for moving goods and parcels. Download the app:",
     language: "Language",
     termsAndConditions: "Terms and Conditions",
     logOut: "Log Out",
@@ -453,3 +455,4 @@ export const translations: Record<Locale, Record<string, string>> = {
 };
 
 export const LANGUAGE_STORAGE_KEY = "app_language";
+

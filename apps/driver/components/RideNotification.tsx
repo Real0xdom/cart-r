@@ -3,7 +3,7 @@
 
 import { View, Text, TouchableOpacity, Animated, Dimensions } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { Booking } from '@/lib/bookings';
 
 const { width } = Dimensions.get('window');
@@ -96,7 +96,7 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
         <View className="bg-green-500 px-4 py-2 flex-row items-center justify-between">
           <View className="flex-row items-center">
             <View className="w-8 h-8 bg-white rounded-full items-center justify-center mr-2">
-              <Text className="text-lg">🚖</Text>
+              <MaterialCommunityIcons name="taxi" size={18} color="#16a34a" />
             </View>
             <Text className="text-white font-JakartaBold text-base">New Ride Request!</Text>
           </View>
@@ -115,7 +115,8 @@ export default function RideNotification({ booking, onAccept, onDecline, onDismi
           {/* Increased Fare Badge */}
           {hasIncreasedFare && (
             <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-3 flex-row items-center">
-              <Text className="text-white font-JakartaBold text-xs">🔥 Increased Fare</Text>
+              <Ionicons name="flash-outline" size={12} color="#fff" />
+              <Text className="ml-1 text-white font-JakartaBold text-xs">Increased Fare</Text>
               {booking.tip_amount && booking.tip_amount > 0 && (
                 <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{booking.tip_amount} tip</Text>
               )}

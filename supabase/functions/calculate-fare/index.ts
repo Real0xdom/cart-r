@@ -48,26 +48,70 @@ function toRad(deg: number): number {
   return deg * (Math.PI / 180)
 }
 
-// Estimate duration based on distance (rough estimate: 25 km/h avg speed in city)
-function estimateDuration(distanceKm: number): number {
-  return Math.ceil(distanceKm / 25 * 60) // minutes
+async function getRouteInfo(lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distanceKm: number }> {
+  const apiKey = Deno.env.get('OLA_MAPS_API_KEY');
+  
+  if (!apiKey) {
+    console.warn('Ola Maps API Key not found in env OLA_MAPS_API_KEY, falling back to straight-line distance');
+    return { distanceKm: calculateDistance(lat1, lon1, lat2, lon2) };
+  }
+
+  try {
+    const url = `https://api.olamaps.io/routing/v1/directions?origin=${lat1},${lon1}&destination=${lat2},${lon2}&api_key=${apiKey}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+        throw new Error(`Ola Maps API error: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.status === "SUCCESS" || data.routes) {
+      if (data.routes && data.routes.length > 0 && data.routes[0].legs && data.routes[0].legs.length > 0) {
+        const route = data.routes[0];
+        let distanceMeters = 0;
+        
+        if (route.legs && route.legs.length > 0) {
+          distanceMeters = route.legs[0].distance; // distance is in meters
+        }
+        
+        if (typeof distanceMeters === 'number' && distanceMeters > 0) {
+          console.log(`[CALCULATE-FARE] Fetched real route distance from Ola Maps: ${distanceMeters / 1000} km`);
+          return { distanceKm: distanceMeters / 1000 };
+        }
+      }
+    }
+    
+    console.warn(`[CALCULATE-FARE] Route fetch failed or empty: ${data.error_msg || 'unknown error'}`);
+  } catch (error) {
+    console.error('[CALCULATE-FARE] Error fetching route from Ola Maps:', error);
+  }
+
+  // Fallback if API fails
+  console.log('[CALCULATE-FARE] Falling back to straight-line Haversine distance');
+  return { distanceKm: calculateDistance(lat1, lon1, lat2, lon2) };
 }
 
-// =====================================================
-// DYNAMIC SURGE PRICING
-// =====================================================
-// Surge is calculated based on demand (pending bookings) vs supply (online drivers)
-// within a given radius of the pickup location.
-//
-// Surge tiers:
-//   Ratio <= 1.0  → 1.0x (normal — more drivers than bookings)
-//   Ratio 1.0-2.0 → 1.0x-1.3x (mild surge)
-//   Ratio 2.0-3.0 → 1.3x-1.6x (moderate surge)
-//   Ratio 3.0-5.0 → 1.6x-2.0x (high surge)
-//   Ratio > 5.0   → 2.0x (cap — never exceed 2x)
-//
-// The surge is always capped at 2.0x to protect customers.
-// =====================================================
+// Estimate duration based on distance and vehicle type.
+// This is intentionally a rough heuristic (used when we don't have routing/traffic data).
+const VEHICLE_SPEED_KMPH: Record<string, number> = {
+  bike: 20,
+  three_wheeler: 22,
+  auto: 22,
+  mini: 24,
+  sedan: 25,
+  suv: 24,
+  pickup: 23,
+  tempo: 21,
+  chota_hathi: 20,
+  truck: 18,
+}
+
+function estimateDuration(distanceKm: number, vehicleType?: string): number {
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return 0
+  const speedKmph = VEHICLE_SPEED_KMPH[vehicleType ?? ''] ?? 25
+  return Math.max(1, Math.ceil((distanceKm / speedKmph) * 60)) // minutes
+}
 
 async function calculateSurgeMultiplier(
   supabase: any,
@@ -77,7 +121,6 @@ async function calculateSurgeMultiplier(
   radiusKm: number = 5
 ): Promise<number> {
   try {
-    // Count pending bookings in the area (last 10 minutes)
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     
     let bookingsQuery = supabase
@@ -95,10 +138,9 @@ async function calculateSurgeMultiplier(
 
     if (bookingsError) {
       console.error('Error counting pending bookings:', bookingsError.message)
-      return 1.0 // Default to no surge on error
+      return 1.0
     }
 
-    // Count online drivers in the area
     let driversQuery = supabase
       .from('drivers')
       .select('id, current_latitude, current_longitude', { count: 'exact', head: true })
@@ -121,50 +163,37 @@ async function calculateSurgeMultiplier(
     const pendingBookings = pendingCount || 0
     const onlineDrivers = onlineDriverCount || 0
 
-    // If no pending bookings or plenty of drivers, no surge
     if (pendingBookings === 0 || onlineDrivers === 0) {
-      // If there are bookings but no drivers, apply max surge to attract drivers
       if (pendingBookings > 0 && onlineDrivers === 0) {
         return 2.0
       }
       return 1.0
     }
 
-    // Calculate demand/supply ratio
     const ratio = pendingBookings / onlineDrivers
-
-    // Apply tiered surge
     let surge: number
     if (ratio <= 1.0) {
-      surge = 1.0 // Normal — enough drivers
+      surge = 1.0
     } else if (ratio <= 2.0) {
-      // Linear interpolation: 1.0 → 1.3
       surge = 1.0 + (ratio - 1.0) * 0.3
     } else if (ratio <= 3.0) {
-      // Linear interpolation: 1.3 → 1.6
       surge = 1.3 + (ratio - 2.0) * 0.3
     } else if (ratio <= 5.0) {
-      // Linear interpolation: 1.6 → 2.0
       surge = 1.6 + (ratio - 3.0) * 0.2
     } else {
-      surge = 2.0 // Hard cap at 2x
+      surge = 2.0
     }
 
-    // Round to 1 decimal
     return Math.round(surge * 10) / 10
   } catch (error) {
     console.error('Surge calculation error:', error)
-    return 1.0 // Default to no surge on error
+    return 1.0
   }
 }
 
-// =====================================================
-// RATE LIMITING
-// =====================================================
-
 const ipRequestCounts = new Map<string, { count: number; resetAt: number }>()
-const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 30 // 30 requests per minute per IP
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
+const RATE_LIMIT_MAX_REQUESTS = 30
 
 function checkRateLimit(clientIp: string): boolean {
   const now = Date.now()
@@ -177,29 +206,17 @@ function checkRateLimit(clientIp: string): boolean {
 
   record.count++
   if (record.count > RATE_LIMIT_MAX_REQUESTS) {
-    return false // Rate limited
+    return false
   }
   return true
 }
 
-// Clean up stale entries every 5 minutes
-setInterval(() => {
-  const now = Date.now()
-  for (const [ip, record] of ipRequestCounts.entries()) {
-    if (now > record.resetAt) {
-      ipRequestCounts.delete(ip)
-    }
-  }
-}, 5 * 60 * 1000)
-
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Rate limiting
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
     if (!checkRateLimit(clientIp)) {
       return new Response(
@@ -214,7 +231,6 @@ serve(async (req) => {
 
     const { origin_lat, origin_lng, dest_lat, dest_lng, vehicle_type, get_all_vehicles }: FareRequest = await req.json()
 
-    // Validate inputs
     if (origin_lat == null || origin_lng == null || dest_lat == null || dest_lng == null) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: origin/destination coordinates' }),
@@ -229,11 +245,8 @@ serve(async (req) => {
       )
     }
 
-    // Calculate distance and duration once
-    const distanceKm = calculateDistance(origin_lat, origin_lng, dest_lat, dest_lng)
-    const durationMinutes = estimateDuration(distanceKm)
-
-    // Calculate dynamic surge multiplier based on demand/supply
+    const { distanceKm } = await getRouteInfo(origin_lat, origin_lng, dest_lat, dest_lng)
+    
     const surgeMultiplier = await calculateSurgeMultiplier(
       supabase,
       origin_lat,
@@ -241,8 +254,8 @@ serve(async (req) => {
       get_all_vehicles ? undefined : vehicle_type
     )
 
-    // Helper to calculate fare for a single config
     const calculateForConfig = (config: any): FareResponse => {
+        const durationMinutes = estimateDuration(distanceKm, config.vehicle_type)
         const baseFare = Number(config.base_fare)
         const distanceFare = distanceKm * Number(config.per_km_rate)
         const timeFare = durationMinutes * Number(config.per_minute_rate)
@@ -265,7 +278,6 @@ serve(async (req) => {
     }
 
     if (get_all_vehicles) {
-      // Fetch ALL active vehicle configs
       const { data: allConfigs, error: configsError } = await supabase
         .from('fare_config')
         .select('*')
@@ -281,8 +293,6 @@ serve(async (req) => {
       }
       
       const options = allConfigs.map(calculateForConfig)
-      
-      // Sort: bike first, then by price
       options.sort((a, b) => {
           if (a.vehicle_type === 'bike') return -1;
           if (b.vehicle_type === 'bike') return 1;
@@ -294,7 +304,6 @@ serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     } else {
-      // Single vehicle calculation
       const { data: fareConfig, error: configError } = await supabase
         .from('fare_config')
         .select('*')
@@ -310,18 +319,13 @@ serve(async (req) => {
       }
 
       const response = calculateForConfig(fareConfig)
-
       return new Response(
         JSON.stringify(response),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
   } catch (error) {
     console.error('Error calculating fare:', error)
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
   }
 })

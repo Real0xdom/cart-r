@@ -17,8 +17,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
-import MapViewDirections from "react-native-maps-directions";
+import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
+import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
@@ -29,12 +29,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAnimatedLocation } from "@/lib/mapAnimation";
 import { icons, images } from "@/constants";
 
+const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
+
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const { currentBooking, setCurrentBooking } = useBookingStore();
   const { destinationAddress } = useLocationStore();
 
-  const [booking, setBooking] = useState<Booking | null>(currentBooking);
+  const [booking, setBooking] = useState<Booking | null>(
+    currentBooking?.id === bookingId ? currentBooking : null
+  );
   const [driverLocation, setDriverLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -179,6 +183,10 @@ const TrackRidePage = () => {
           updatedBooking.cancellation_reason || 'This ride has been cancelled',
           [{ text: 'OK', onPress: () => router.replace("/(tabs)/home") }]
         );
+      } else if (updatedBooking.status === 'in_progress' && updatedBooking.delivery_otp) {
+        // Show delivery OTP in sheet (previous behavior) - stay on track-ride
+        console.log('[TRACK-RIDE] Delivery OTP generated:', updatedBooking.delivery_otp);
+        // OTP now prominently displayed in bottom sheet - no navigation needed
       }
     });
 
@@ -277,6 +285,8 @@ const TrackRidePage = () => {
         return { text: 'Driver has arrived at pickup', color: 'bg-yellow-500' };
       case 'in_progress':
         return { text: 'Shipment in progress', color: 'bg-green-500' };
+      case 'completed':
+        return { text: 'Shipment completed', color: 'bg-emerald-600' };
       default:
         return { text: 'Tracking shipment...', color: 'bg-gray-500' };
     }
@@ -295,14 +305,14 @@ const TrackRidePage = () => {
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <View testID="booking.trackRide" accessibilityLabel="booking.trackRide" className="flex-1 bg-white">
       {/* Map with driver tracking */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '55%' }}>
         {booking ? (
           <MapView
             ref={mapRef}
             style={{ width: '100%', height: '100%' }}
-            provider={PROVIDER_GOOGLE}
+            mapType="standard"
             initialRegion={{
               latitude: booking.origin_latitude,
               longitude: booking.origin_longitude,
@@ -312,6 +322,7 @@ const TrackRidePage = () => {
             showsUserLocation={false}
             showsMyLocationButton={false}
           >
+
             {/* Driver marker */}
             {driverLocation ? (
               <Marker.Animated
@@ -361,14 +372,13 @@ const TrackRidePage = () => {
             </Marker>
 
             {/* Route line from driver to current target */}
-            {driverLocation && process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY && (
-              <MapViewDirections
+            {driverLocation && (
+              <OlaMapViewDirections
                 origin={driverLocation}
                 destination={{
                   latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
                   longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude
                 }}
-                apikey={process.env.EXPO_PUBLIC_DIRECTIONS_API_KEY}
                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
                 strokeWidth={4}
               />
@@ -390,7 +400,9 @@ const TrackRidePage = () => {
           >
             <Feather name="chevron-left" size={24} color="black" />
           </TouchableOpacity>
-          <Text className="text-xl font-JakartaBold text-black">Track Shipment</Text>
+          <View className="bg-white/95 px-5 py-2 rounded-full shadow-md ml-4 mr-5 flex-shrink">
+            <Text className="text-xl font-JakartaBold text-black" numberOfLines={1}>Track Shipment</Text>
+          </View>
           <TouchableOpacity 
             className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-sm"
           >
@@ -500,17 +512,13 @@ const TrackRidePage = () => {
               {booking?.status === 'in_progress' || booking?.status === 'completed' ? (
                 <View className="items-center flex-1">
                   <Text className="text-xs text-gray-500">Delivery OTP</Text>
-                  <Text className="text-lg font-JakartaBold text-orange-600">
-                    {booking?.delivery_otp || '------'}
-                  </Text>
+                  <Text testID="booking.deliveryOtpValue" accessibilityLabel="booking.deliveryOtpValue" className="text-lg font-JakartaBold text-orange-600">{booking?.delivery_otp || "------"}</Text>
                   <Text className="text-[10px] text-gray-400 mt-1">Share with Driver to Receive</Text>
                 </View>
               ) : (
                 <View className="items-center flex-1">
                   <Text className="text-xs text-gray-500">Pickup OTP</Text>
-                  <Text className="text-lg font-JakartaBold text-blue-600">
-                    {booking?.pickup_otp}
-                  </Text>
+                  <Text testID="booking.pickupOtpValue" accessibilityLabel="booking.pickupOtpValue" className="text-lg font-JakartaBold text-blue-600">{booking?.pickup_otp}</Text>
                   <Text className="text-[10px] text-gray-400 mt-1">Give to driver</Text>
                 </View>
               )}
@@ -529,6 +537,8 @@ const TrackRidePage = () => {
                 or we can add a persistent button here if not paid. */}
             {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
                <TouchableOpacity
+                  testID="booking.payOnlineButton"
+                  accessibilityLabel="booking.payOnlineButton"
                   onPress={() => {
                       if (isNavigating) return;
                       setIsNavigating(true);
@@ -567,7 +577,9 @@ const TrackRidePage = () => {
           )}
 
           {/* SOS Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
+            testID="booking.sosButton"
+            accessibilityLabel="booking.sosButton"
             onPress={() => {
               Alert.alert(
                 "Emergency SOS", 
@@ -619,3 +631,5 @@ const TrackRidePage = () => {
 };
 
 export default TrackRidePage;
+
+

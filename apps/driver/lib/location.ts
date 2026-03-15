@@ -2,6 +2,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { supabase } from './supabase';
+import { getLocationWithFallback, isLocationUnavailableError } from './locationFallback';
 
 const LOCATION_TASK_NAME = 'cartr-driver-location';
 const LOCATION_UPDATE_INTERVAL = 10000; // 10 seconds
@@ -124,9 +125,9 @@ export async function startLocationTracking(): Promise<boolean> {
 
     // Start background location updates
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.Highest,
       timeInterval: LOCATION_UPDATE_INTERVAL,
-      distanceInterval: 50, // Update if moved 50 meters
+      distanceInterval: 10, // Update if moved 10 meters (was 50)
       foregroundService: {
         notificationTitle: 'CARTR Driver',
         notificationBody: 'Tracking your location for ride requests',
@@ -158,21 +159,36 @@ export async function stopLocationTracking(): Promise<void> {
   }
 }
 
+// Check if location services are enabled
+export async function checkLocationServices(): Promise<boolean> {
+  try {
+    return await Location.hasServicesEnabledAsync();
+  } catch (error) {
+    console.error('Error checking location services:', error);
+    return false;
+  }
+}
+
 // Get current location once
 export async function getCurrentLocation(): Promise<Location.LocationObject | null> {
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      return null;
+    const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
+    if (existingStatus !== 'granted') {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        return null;
+      }
     }
 
-    const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-    });
-
-    return location;
+    return await getLocationWithFallback(
+      async () => Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      }),
+      async () => Location.getLastKnownPositionAsync()
+    );
   } catch (error) {
-    console.error('Failed to get current location:', error);
+    const logMethod = isLocationUnavailableError(error) ? console.log : console.error;
+    logMethod('Failed to get current location:', error);
     return null;
   }
 }

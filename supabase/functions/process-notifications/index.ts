@@ -32,12 +32,11 @@ serve(async (req) => {
         title,
         body,
         data,
-        is_read,
-        users!inner(expo_push_token)
+        is_read
       `)
       .is('processed_at', null)
       .order('created_at', { ascending: true })
-      .limit(100)
+      .limit(50) // Reduce limit for manual token fetching efficiency
 
     if (fetchError) {
       console.error('Error fetching notifications:', fetchError)
@@ -54,45 +53,85 @@ serve(async (req) => {
       )
     }
 
-    // Prepare Expo push messages, grouped by token to avoid PUSH_TOO_MANY_EXPERIENCE_IDS
+    // Get unique user IDs to fetch tokens efficiently
+    const userIds = [...new Set(notifications.map(n => n.user_id))]
+    
+    // Fetch legacy tokens from users table
+    const { data: userTokens } = await supabase
+      .from('users')
+      .select('id, expo_push_token')
+      .in('id', userIds)
+    
+    // Fetch modern tokens from push_tokens table
+    const { data: multiDeviceTokens } = await supabase
+      .from('push_tokens')
+      .select('user_id, token')
+      .in('user_id', userIds)
+      .eq('is_active', true)
+
+    // Map user_id -> Set of tokens
+    const userTokenMap = new Map<string, Set<string>>()
+    
+    userTokens?.forEach(u => {
+      if (u.expo_push_token) {
+        if (!userTokenMap.has(u.id)) userTokenMap.set(u.id, new Set())
+        userTokenMap.get(u.id)?.add(u.expo_push_token)
+      }
+    })
+    
+    multiDeviceTokens?.forEach(t => {
+      if (t.token) {
+        if (!userTokenMap.has(t.user_id)) userTokenMap.set(t.user_id, new Set())
+        userTokenMap.get(t.user_id)?.add(t.token)
+      }
+    })
+
+    // Prepare Expo push messages
     const messagesByExperience = new Map<string, ExpoPushMessage[]>()
     const notificationIds: string[] = []
 
     for (const notification of notifications) {
-      const pushToken = (notification as any).users?.expo_push_token
+      const tokens = userTokenMap.get(notification.user_id)
 
-      if (!pushToken || !pushToken.startsWith('ExponentPushToken')) {
-        console.log(`Skipping notification ${notification.id}: Invalid push token "${pushToken}"`)
-        // Still mark as processed so we don't retry forever
+      if (!tokens || tokens.size === 0) {
+        console.log(`No tokens found for user ${notification.user_id} (notif ${notification.id})`)
         notificationIds.push(notification.id)
         continue
       }
 
-      // Extract experience ID from token for grouping
-      let expId = 'default'
-      const match = pushToken.match(/ExponentPushToken\[(.*?)\]/)
-      if (match && match[1]) {
-        expId = match[1]
-      }
+      for (const pushToken of tokens) {
+        if (!pushToken.startsWith('ExponentPushToken')) continue
 
-      const msg: ExpoPushMessage = {
-        to: pushToken,
-        data: notification.data || {},
-        sound: 'default',
-        priority: 'high',
-        channelId: 'ride-requests', // Ensures Android plays sound and wakes up for Notifee
-        ttl: 0,
-      }
+        // Extract experience ID from token for grouping
+        let expId = 'default'
+        const match = pushToken.match(/ExponentPushToken\[(.*?)\]/)
+        if (match && match[1]) {
+          expId = match[1]
+        }
 
-      // If it's a data-only notification, omit title and body so the OS doesn't show a headsup automatically
-      if (!notification.data?.is_data_only) {
-        msg.title = notification.title
-        msg.body = notification.body
-      }
+        const msg: ExpoPushMessage = {
+          to: pushToken,
+          data: notification.data || {},
+          sound: 'default',
+          priority: 'high',
+          channelId: 'ride-requests',
+          ttl: 0,
+        }
 
-      const group = messagesByExperience.get(expId) || []
-      group.push(msg)
-      messagesByExperience.set(expId, group)
+        // Handle data-only notifications with fallback
+        if (notification.data?.is_data_only) {
+           // Provide fallback for background delivery in case TaskManager is killed
+           msg.title = notification.title || '🚨 Ride Request Update'
+           msg.body = notification.body || 'New ride request details available.'
+        } else {
+          msg.title = notification.title
+          msg.body = notification.body
+        }
+
+        const group = messagesByExperience.get(expId) || []
+        group.push(msg)
+        messagesByExperience.set(expId, group)
+      }
 
       notificationIds.push(notification.id)
     }

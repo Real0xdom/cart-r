@@ -1,10 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text, View, Image, ActivityIndicator, Linking, Alert } from "react-native";
+import { ActivityIndicator, Alert, Linking, Text, View } from "react-native";
 
 import CustomButton from "@/components/CustomButton";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const VerificationPending = () => {
   const { user } = useAuth();
@@ -16,7 +17,6 @@ const VerificationPending = () => {
   useEffect(() => {
     checkVerificationStatus();
 
-    // Subscribe to real-time updates
     const channel = supabase
       .channel("driver-verification")
       .on(
@@ -34,7 +34,6 @@ const VerificationPending = () => {
             setRejectionReason(payload.new.rejection_reason);
           }
           if (newStatus === "approved") {
-            // Redirect to home after approval
             setTimeout(() => {
               router.replace("/(tabs)/home");
             }, 2000);
@@ -50,7 +49,7 @@ const VerificationPending = () => {
 
   const checkVerificationStatus = async () => {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("drivers")
         .select("verification_status, rejection_reason")
         .eq("user_id", user?.id)
@@ -71,49 +70,50 @@ const VerificationPending = () => {
   };
 
   const onContactSupport = () => {
-    // Open email client
     const supportEmail = "support@cartr.com";
     const subject = "Driver Application Support";
     const url = `mailto:${supportEmail}?subject=${subject}`;
-    Linking.openURL(url).catch(() => 
-      Alert.alert("Error", "Could not open email client. Please email support@cartr.com")
+    Linking.openURL(url).catch(() =>
+      Alert.alert(
+        "Error",
+        "Could not open email client. Please email support@cartr.com"
+      )
     );
   };
 
   const onRetryApplication = () => {
-    // Go back to start of onboarding to allow editing all info
     router.push("/onboarding/personal-info");
   };
 
   return (
-    <View className="flex-1 bg-white justify-center items-center px-5">
+    <View className="flex-1 items-center justify-center bg-white px-5">
       {status === "pending" ? (
         <>
-          {/* Pending State */}
-          <View className="w-32 h-32 bg-yellow-100 rounded-full items-center justify-center mb-6">
-            <Text className="text-6xl">⏳</Text>
+          <View className="mb-6 h-32 w-32 items-center justify-center rounded-full bg-yellow-100">
+            <Ionicons name="time-outline" size={56} color="#d97706" />
           </View>
 
-          <Text className="text-2xl font-JakartaBold text-gray-800 text-center mb-3">
+          <Text className="mb-3 text-center text-2xl font-JakartaBold text-gray-800">
             Verification in Progress
           </Text>
 
-          <Text className="text-gray-500 text-center mb-8 px-4">
-            Our team is reviewing your documents. This usually takes 24-48 hours.
-            We'll notify you once your account is verified.
+          <Text className="mb-8 px-4 text-center text-gray-500">
+            Our team is reviewing your documents. This usually takes 24-48
+            hours. We'll notify you once your account is verified.
           </Text>
 
-          <View className="flex-row items-center mb-8">
+          <View className="mb-8 flex-row items-center">
             <ActivityIndicator color="#22c55e" size="small" />
-            <Text className="text-green-600 ml-2 font-JakartaSemiBold">
+            <Text className="ml-2 font-JakartaSemiBold text-green-600">
               Under Review
             </Text>
           </View>
 
-          <View className="w-full p-5 bg-gray-50 rounded-xl mb-6">
-            <Text className="text-gray-600 text-center text-sm">
-              📱 You'll receive a notification when your account is approved.
-              Make sure notifications are enabled.
+          <View className="mb-6 w-full flex-row items-start rounded-xl bg-gray-50 p-5">
+            <Ionicons name="notifications-outline" size={18} color="#4b5563" />
+            <Text className="ml-2 flex-1 text-sm text-gray-600">
+              You'll receive a notification when your account is approved. Make
+              sure notifications are enabled.
             </Text>
           </View>
 
@@ -126,22 +126,25 @@ const VerificationPending = () => {
         </>
       ) : status === "rejected" ? (
         <>
-          {/* Rejected State */}
-          <View className="w-32 h-32 bg-red-100 rounded-full items-center justify-center mb-6">
-            <Text className="text-6xl">❌</Text>
+          <View className="mb-6 h-32 w-32 items-center justify-center rounded-full bg-red-100">
+            <Ionicons
+              name="close-circle-outline"
+              size={56}
+              color="#dc2626"
+            />
           </View>
 
-          <Text className="text-2xl font-JakartaBold text-gray-800 text-center mb-3">
+          <Text className="mb-3 text-center text-2xl font-JakartaBold text-gray-800">
             Verification Failed
           </Text>
 
-          <Text className="text-gray-500 text-center mb-4 px-4">
+          <Text className="mb-4 px-4 text-center text-gray-500">
             Unfortunately, we couldn't verify your documents.
           </Text>
 
           {rejectionReason && (
-            <View className="w-full p-4 bg-red-50 rounded-xl mb-6">
-              <Text className="text-red-800 font-JakartaSemiBold mb-1">
+            <View className="mb-6 w-full rounded-xl bg-red-50 p-4">
+              <Text className="mb-1 font-JakartaSemiBold text-red-800">
                 Reason:
               </Text>
               <Text className="text-red-700">{rejectionReason}</Text>
@@ -151,35 +154,38 @@ const VerificationPending = () => {
           <CustomButton
             title="Edit Application"
             onPress={onRetryApplication}
-            className="bg-green-500 w-full mb-3"
+            className="mb-3 w-full bg-green-500"
           />
 
           <CustomButton
             title="Contact Support"
             onPress={onContactSupport}
-            className="bg-gray-200 w-full"
+            className="w-full bg-gray-200"
             textVariant="secondary"
           />
         </>
       ) : (
         <>
-          {/* Approved State */}
-          <View className="w-32 h-32 bg-green-100 rounded-full items-center justify-center mb-6">
-            <Text className="text-6xl">✅</Text>
+          <View className="mb-6 h-32 w-32 items-center justify-center rounded-full bg-green-100">
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={56}
+              color="#16a34a"
+            />
           </View>
 
-          <Text className="text-2xl font-JakartaBold text-gray-800 text-center mb-3">
+          <Text className="mb-3 text-center text-2xl font-JakartaBold text-gray-800">
             You're Verified!
           </Text>
 
-          <Text className="text-gray-500 text-center mb-8 px-4">
+          <Text className="mb-8 px-4 text-center text-gray-500">
             Congratulations! Your account has been verified. You can now start
             accepting rides and earning.
           </Text>
 
-          <View className="flex-row items-center mb-8">
+          <View className="mb-8 flex-row items-center">
             <ActivityIndicator color="#22c55e" size="small" />
-            <Text className="text-green-600 ml-2">Redirecting to home...</Text>
+            <Text className="ml-2 text-green-600">Redirecting to home...</Text>
           </View>
         </>
       )}

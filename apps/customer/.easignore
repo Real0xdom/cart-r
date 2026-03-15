@@ -83,3 +83,28 @@ Thumbs.db
 # Environment
 .env.local
 .env.*.local
+
+# --- ADDED TO REDUCE ARCHIVE SIZE --- #
+# Massive Build Folders (Especially Admin Next.js)
+**/.next/**
+**/out/**
+**/build/**
+**/dist/**
+
+# Root-level Massive Folders
+**/e2e/**
+**/dist_test/**
+**/docs/**
+**/supabase/**
+**/tests/**
+**/testsprite_tests/**
+**/public-key/**
+**/cashfree-mcp/**
+
+# Redundant Ignores for Reliability
+**/.idea/**
+**/.vscode/**
+**/.git/**
+**/android_backup/**
+**/node_modules_backup/**
+
