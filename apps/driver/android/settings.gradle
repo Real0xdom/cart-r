@@ -4,7 +4,10 @@ pluginManagement {
   }.standardOutput.asText.get().trim()
   def (_, reactNativeMinor, reactNativePatch) = version.split("-")[0].tokenize('.').collect { it.toInteger() }
 
-  includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute(null, rootDir).text.trim()).getParentFile().toString())
+  def gradlePluginPath = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"].execute(null, rootDir).text.trim()
+  if (gradlePluginPath && gradlePluginPath != "/") {
+    includeBuild(new File(gradlePluginPath).getParentFile().toString())
+  }
   if(reactNativeMinor == 74 && reactNativePatch <= 3){
     includeBuild("react-settings-plugin")
   }
@@ -49,18 +52,36 @@ rootProject.name = 'CarterDriver'
 dependencyResolutionManagement {
   versionCatalogs {
     reactAndroidLibs {
-      from(files(new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), "../gradle/libs.versions.toml")))
+      def rnPackagePath = ["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()
+      if (rnPackagePath && rnPackagePath != "/") {
+        from(files(new File(rnPackagePath, "../gradle/libs.versions.toml")))
+      }
     }
   }
 }
 
-apply from: new File(["node", "--print", "require.resolve('expo/package.json')"].execute(null, rootDir).text.trim(), "../scripts/autolinking.gradle");
-useExpoModules()
+def expoPath = ["node", "--print", "require.resolve('expo/package.json')"].execute(null, rootDir).text.trim()
+if (expoPath && expoPath != "/") {
+  apply from: new File(expoPath, "../scripts/autolinking.gradle");
+  useExpoModules()
+} else {
+  println("Warning: Could not resolve expo package. Skipping expo autolinking.")
+}
 
 if (getRNMinorVersion() < 75) {
-  apply from: new File(["node", "--print", "require.resolve('@react-native-community/cli-platform-android/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim(), "../native_modules.gradle");
-  applyNativeModulesSettingsGradle(settings)
+  def cliPlatformAndroidPath = ["node", "--print", "require.resolve('@react-native-community/cli-platform-android/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()
+  if (cliPlatformAndroidPath && cliPlatformAndroidPath != "/") {
+    apply from: new File(cliPlatformAndroidPath, "../native_modules.gradle");
+    applyNativeModulesSettingsGradle(settings)
+  } else {
+    println("Warning: Could not resolve @react-native-community/cli-platform-android. Skipping native modules autolinking.")
+  }
 }
 
 include ':app'
-includeBuild(new File(["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile())
+def gradlePluginPath = ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()
+if (gradlePluginPath && gradlePluginPath != "/") {
+  includeBuild(new File(gradlePluginPath).getParentFile())
+} else {
+  println("Warning: Could not resolve @react-native/gradle-plugin.")
+}
