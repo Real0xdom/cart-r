@@ -14,10 +14,10 @@ import {
     Booking
 } from '@/lib/bookings';
 import { supabase } from '@/lib/supabase';
-import UpiQrView from '@/components/UpiQrView';
+
 
 // Helper to calculate total with fees (simplified for now)
-const calculateTotal = (booking: Booking) => booking.driver_payout || booking.total_fare;
+const calculateTotal = (booking: Booking) => booking.total_fare;
 
 const CollectPayment = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -37,17 +37,6 @@ const CollectPayment = () => {
     // Delivery OTP
     const [deliveryOtp, setDeliveryOtp] = useState('');
     const [showOtpInput, setShowOtpInput] = useState(false);
-
-    // Payment request status
-    const [paymentRequested, setPaymentRequested] = useState(false);
-
-    // UPI QR State
-    const [showQr, setShowQr] = useState(false);
-    const [qrLoading, setQrLoading] = useState(false);
-    const [qrValue, setQrValue] = useState('');
-    const [qrChannel, setQrChannel] = useState<string | null>(null);
-    const [qrAmount, setQrAmount] = useState(0);
-    const [qrPaid, setQrPaid] = useState(false);
 
     // SMS Status
     const [smsStatus, setSmsStatus] = useState<{ status: string; error?: string } | null>(null);
@@ -121,7 +110,7 @@ const CollectPayment = () => {
             // but ONLY if we aren't currently middle of manual completion (isProcessingRef.current)
             // to avoid alert conflicts.
             if (updatedBooking.payment_status === 'paid' && updatedBooking.status !== 'completed' && !isProcessingRef.current) {
-                setQrPaid(true);
+
                 Alert.alert('Payment Received! 💰', 'The payment has been confirmed online.');
             }
         });
@@ -281,108 +270,9 @@ const CollectPayment = () => {
         return true;
     };
 
-    // Generate UPI QR Code via Cashfree
-    const handleShowQR = async () => {
-        if (!booking || qrLoading) return;
 
-        // If we already have a QR URL, just show it without re-fetching
-        if (qrValue) {
-            setShowQr(true);
-            return;
-        }
 
-        setQrLoading(true);
-        try {
-            const { data, error } = await supabase.functions.invoke('create-upi-qr', {
-                body: { booking_id: booking.id }
-            });
 
-            if (error) throw error;
-            const resolvedQrValue =
-                data?.qr_payload ||
-                data?.qr_data?.payload ||
-                data?.qr_data?.qr_code ||
-                data?.qr_data?.qrCode ||
-                data?.checkout_url;
-
-            if (!data || !resolvedQrValue) {
-                throw new Error(data?.error || 'Failed to generate QR code');
-            }
-
-            setQrValue(resolvedQrValue);
-            setQrChannel(data.qr_channel || null);
-            setQrAmount(data.amount);
-            setQrPaid(false);
-            setShowQr(true);
-
-        } catch (err: any) {
-            console.error('QR generation error:', err);
-            Alert.alert('Error', err.message || 'Failed to generate QR code. Try again.');
-        } finally {
-            setQrLoading(false);
-        }
-    };
-
-    // Poll payment status while QR is shown
-    useEffect(() => {
-        if (!showQr || !bookingId || !qrValue || qrPaid) return;
-
-        const pollInterval = setInterval(async () => {
-            try {
-                const { data } = await getBookingById(bookingId);
-                if (data && data.payment_status === 'paid') {
-                    setQrPaid(true);
-                    setBooking(data);
-                    clearInterval(pollInterval);
-                    
-                    // Avoid showing this alert if the driver is already manually confirming
-                    if (!isProcessingRef.current) {
-                        Alert.alert('Payment Received! 💰', `₹${qrAmount} has been paid successfully.`);
-                    }
-                }
-            } catch (e) {
-                console.log('[QR Poll] Error checking payment status:', e);
-            }
-        }, 3000);
-
-        return () => clearInterval(pollInterval);
-    }, [showQr, bookingId, qrPaid, qrValue]);
-
-    // Trigger push notification to sender
-    const requestOnlinePayment = async () => {
-        if (!booking || !booking.customer || isProcessing) return;
-
-        setIsProcessing(true);
-        try {
-            const total = calculateTotal(booking);
-            const outstanding = booking.payment_status === 'partial_paid'
-                ? total - (booking.wallet_amount_used || 0)
-                : total;
-
-            const { error } = await supabase.rpc('send_notification_to_user', {
-                p_user_id: booking.customer_id,
-                p_title: 'Payment Requested',
-                p_body: `Your driver requested payment of ₹${outstanding} for your booking.`,
-                p_data: {
-                    booking_id: booking.id,
-                    type: 'payment_request',
-                    amount: outstanding
-                }
-            });
-
-            if (error) throw error;
-
-            setPaymentRequested(true);
-            setPaymentMethod('online');
-            Alert.alert('Request Sent', 'Notification sent to customer. Waiting for payment...');
-
-        } catch (err: any) {
-            Alert.alert('Error', 'Failed to send payment request.');
-            console.error(err);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
 
     const confirmTripCompletion = async () => {
         if (isProcessing) return;
@@ -493,11 +383,7 @@ const CollectPayment = () => {
     // - already paid online, OR
     // - collecting cash (always ready), OR
     // - online payment was requested and confirmed
-    const isCompleteEnabled = !isProcessing && (
-        isPaid ||
-        paymentMethod === 'cash' ||
-        (paymentMethod === 'online' && paymentRequested)
-    );
+    const isCompleteEnabled = !isProcessing && (isPaid || paymentMethod === 'cash');
 
     return (
         <SafeAreaView className="flex-1 bg-white">
@@ -516,8 +402,24 @@ const CollectPayment = () => {
                         ₹{isPaid ? fare : amountToCollect}
                     </Text>
 
+                    {/* Breakdown */}
+                    <View className="mt-4 w-full px-4 pt-4 border-t border-green-500/10">
+                        <View className="flex-row justify-between mb-1">
+                            <Text className="text-green-700/70 font-JakartaMedium text-sm">Total Fare:</Text>
+                            <Text className="text-green-800 font-JakartaSemiBold text-sm">₹{fare}</Text>
+                        </View>
+                        <View className="flex-row justify-between mb-1">
+                            <Text className="text-red-500/70 font-JakartaMedium text-sm">Platform Commission:</Text>
+                            <Text className="text-red-500 font-JakartaSemiBold text-sm">-₹{Math.round(fare * 0.2)}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
+                            <Text className="text-green-800 font-JakartaBold text-sm">Est. Net Earnings:</Text>
+                            <Text className="text-green-800 font-JakartaBold text-sm">₹{Math.round(fare * 0.8)}</Text>
+                        </View>
+                    </View>
+
                     {isPartial && (
-                        <View className="mt-2 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-200">
+                        <View className="mt-4 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-200">
                             <Text className="text-blue-700 text-xs font-JakartaMedium">
                                 Paid via Wallet: ₹{booking.wallet_amount_used}
                             </Text>
@@ -537,56 +439,7 @@ const CollectPayment = () => {
                     )}
                 </View>
 
-                {/* Payment Selection (Only if not paid) */}
-                {!isPaid && (
-                    <View className="mb-8">
-                        <Text className="text-gray-500 font-JakartaSemiBold mb-4">Collect Payment</Text>
 
-                        <View className="gap-4 items-center">
-                            <Text className="text-gray-500 text-center text-xs">
-                                Collect ₹{amountToCollect} cash, or show the UPI QR for the customer to scan.
-                            </Text>
-
-                            {!showQr ? (
-                                <TouchableOpacity
-                                    onPress={handleShowQR}
-                                    disabled={qrLoading}
-                                    className="w-64 p-4 rounded-xl flex-row items-center justify-center bg-blue-500 shadow-sm"
-                                >
-                                    {qrLoading ? (
-                                        <ActivityIndicator size="small" color="#fff" />
-                                    ) : (
-                                        <>
-                                            <Feather name="maximize" size={20} color="#fff" />
-                                            <Text className="ml-2 font-JakartaBold text-white">
-                                                Show UPI QR Code
-                                            </Text>
-                                        </>
-                                    )}
-                                </TouchableOpacity>
-                            ) : (
-                                <View className="items-center">
-                                    <UpiQrView
-                                        qrValue={qrValue}
-                                        amount={qrAmount}
-                                        isPaid={qrPaid}
-                                        isPolling={showQr && !qrPaid}
-                                        channel={qrChannel}
-                                    />
-
-                                    {!qrPaid && (
-                                        <TouchableOpacity
-                                            onPress={() => setShowQr(false)}
-                                            className="mt-3 py-2 px-4"
-                                        >
-                                            <Text className="text-gray-500 text-xs font-JakartaMedium">Hide QR Code</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                            )}
-                        </View>
-                    </View>
-                )}
 
                 {/* Delivery OTP Section */}
                 <View className="mb-6">

@@ -88,15 +88,15 @@ export interface Booking {
 
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
-const FARE_CONFIG_FALLBACK: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number }> = {
-  bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30 },
-  tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60 },
-  sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90 },
-  truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180 },
+const FARE_CONFIG_FALLBACK: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number; cancellationFee: number; driverSearchRadiusKm: number }> = {
+  bike: { baseFare: 25, perKmRate: 8, perMinRate: 1, minimumFare: 30, cancellationFee: 20, driverSearchRadiusKm: 20 },
+  tempo: { baseFare: 40, perKmRate: 15, perMinRate: 2, minimumFare: 60, cancellationFee: 20, driverSearchRadiusKm: 20 },
+  sedan: { baseFare: 60, perKmRate: 18, perMinRate: 2.5, minimumFare: 90, cancellationFee: 20, driverSearchRadiusKm: 20 },
+  truck: { baseFare: 120, perKmRate: 25, perMinRate: 3.5, minimumFare: 180, cancellationFee: 20, driverSearchRadiusKm: 20 },
 };
 
 // Cache for DB fare config (refreshed every 5 minutes)
-let fareConfigCache: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number }> | null = null;
+let fareConfigCache: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number; cancellationFee: number; driverSearchRadiusKm: number }> | null = null;
 let fareConfigCacheExpiry = 0;
 
 async function getFareConfig(): Promise<typeof FARE_CONFIG_FALLBACK> {
@@ -108,7 +108,7 @@ async function getFareConfig(): Promise<typeof FARE_CONFIG_FALLBACK> {
   try {
     const { data, error } = await supabase
       .from('fare_config')
-      .select('vehicle_type, base_fare, per_km_rate, per_minute_rate, minimum_fare')
+      .select('vehicle_type, base_fare, per_km_rate, per_minute_rate, minimum_fare, cancellation_fee, driver_search_radius_km')
       .eq('is_active', true);
     
     if (!error && data && data.length > 0) {
@@ -119,6 +119,8 @@ async function getFareConfig(): Promise<typeof FARE_CONFIG_FALLBACK> {
           perKmRate: Number(row.per_km_rate),
           perMinRate: Number(row.per_minute_rate),
           minimumFare: Number(row.minimum_fare),
+          cancellationFee: Number(row.cancellation_fee ?? 20),
+          driverSearchRadiusKm: Number(row.driver_search_radius_km ?? 20),
         };
       }
       fareConfigCacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
@@ -129,6 +131,15 @@ async function getFareConfig(): Promise<typeof FARE_CONFIG_FALLBACK> {
   }
   
   return FARE_CONFIG_FALLBACK;
+}
+
+/**
+ * Get the admin-configured driver search radius for a vehicle type.
+ * Falls back to 20 km if not configured.
+ */
+export async function getDriverSearchRadius(vehicleType: string): Promise<number> {
+  const config = await getFareConfig();
+  return config[vehicleType]?.driverSearchRadiusKm ?? 20;
 }
 
 /**

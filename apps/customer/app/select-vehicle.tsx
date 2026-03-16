@@ -1,4 +1,4 @@
-﻿import CustomButton from "@/components/CustomButton";
+import CustomButton from "@/components/CustomButton";
 import RideLayout from "@/components/RideLayout";
 import { useLocationStore, useRideStore, useBookingStore } from "@/store";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,6 +9,7 @@ import {
   getVehicleIcon,
   getVehicleDescription,
   getVehicleDisplayName,
+  getVehicleImageSource,
   VehicleType,
 } from "@/lib/vehicleTypes";
 import {
@@ -20,6 +21,8 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Image,
+
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { calculateFares, FareEstimate } from "@/lib/fare";
@@ -296,8 +299,22 @@ const SelectVehiclePage = () => {
           : 'bg-white border-gray-100'
       }`}
     >
-      <View className="w-12 h-12 bg-gray-50 rounded-full items-center justify-center mr-3">
-        <Text className="text-xl">{getVehicleIcon(item.vehicle_type, vehicleSpecs)}</Text>
+      <View className="w-16 h-16 bg-gray-50 rounded-xl items-center justify-center mr-3 overflow-hidden">
+        {(() => {
+          const spec = vehicleSpecs.find(v => v.vehicle_type === item.vehicle_type);
+          const source = getVehicleImageSource(item.vehicle_type, spec?.icon_url);
+          
+          if (source) {
+            return (
+              <Image 
+                source={source} 
+                className="w-full h-full"
+                resizeMode="contain" 
+              />
+            );
+          }
+          return <Text className="text-xl">{getVehicleIcon(item.vehicle_type, vehicleSpecs)}</Text>;
+        })()}
       </View>
       
       <View className="flex-1">

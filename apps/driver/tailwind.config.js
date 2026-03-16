@@ -17,6 +17,17 @@ module.exports = {
         JakartaSemiBold: ["Jakarta-SemiBold", "sans-serif"],
       },
       colors: {
+        brand: {
+          100: "#FFF3E0",
+          200: "#FFE0B2",
+          300: "#FFCC80",
+          400: "#FFB74D",
+          500: "#FF9800", // Main Brand Orange
+          600: "#F57C00",
+          700: "#EF6C00",
+          800: "#E65100",
+          900: "#A63B00",
+        },
         primary: {
           100: "#F5F8FF",
           200: "#EBF4FF",

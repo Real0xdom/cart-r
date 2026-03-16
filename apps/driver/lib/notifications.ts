@@ -127,7 +127,7 @@ export async function setupNotificationChannels() {
 
   // Register background task for push notifications (works on iOS & Android)
   try {
-    await Notifications.registerRemoteNotificationsTask(BACKGROUND_NOTIFICATION_TASK);
+    await Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK);
     console.log('✅ Background push task registered');
   } catch (err) {
     console.error('❌ Failed to register background push task:', err);

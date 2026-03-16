@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { images } from '@/constants';
 
 /**
  * Vehicle Type from database with all specifications
@@ -8,6 +9,7 @@ export interface VehicleType {
   display_name: string;
   description: string;
   icon_emoji: string;
+  icon_url: string | null;
   base_fare: number;
   per_km_rate: number;
   minimum_fare: number;
@@ -84,4 +86,35 @@ export function getVehicleSuitableFor(
     return '';
   }
   return vehicle.suitable_for.join(', ');
+}
+
+/**
+ * Get vehicle image source (URL or local asset)
+ */
+export function getVehicleImageSource(
+  vehicleType: string,
+  iconUrl?: string | null
+) {
+  if (iconUrl) {
+    return { uri: iconUrl };
+  }
+
+  // Fallback to local images
+  switch (vehicleType) {
+    case 'bike':
+      return images.bike;
+    case 'chota_hathi':
+      return images.chotaHathi;
+    case 'pickup':
+      return images.pickup;
+    case 'tempo':
+      return images.tempo;
+    case 'truck':
+      return images.truck;
+    case 'auto':
+    case 'three_wheeler':
+      return images.chotaHathi; // Fallback for auto/three-wheeler if not specific
+    default:
+      return null;
+  }
 }

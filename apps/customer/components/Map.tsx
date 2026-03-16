@@ -9,8 +9,7 @@ import { supabase } from "@/lib/supabase";
 import {
   calculateRegion,
 } from "@/lib/map";
-import { useDriverStore, useLocationStore } from "@/store";
-import { MarkerData } from "@/types/type";
+import { useLocationStore } from "@/store";
 import { reverseGeocode } from "@/lib/location";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
@@ -42,16 +41,13 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
     setUserLocation,
     setDestinationLocation,
   } = useLocationStore();
-  const { selectedDriver, setDrivers } = useDriverStore();
-
   const mapRef = useRef<MapView>(null);
   const destinationMarkerRef = useRef<any>(null);
 
   // Temporary marker for selection
   const [tempMarker, setTempMarker] = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // Fetch drivers from Supabase
-  const [markers, setMarkers] = useState<MarkerData[]>([]);
+  // Note: Drivers fetch removed as requested ("remove fake car icons")
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,65 +60,6 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
       }, 500);
     }
   }, [destinationLatitude, destinationLongitude]);
-
-  useEffect(() => {
-    const fetchDrivers = async () => {
-      // Only fetch if we have user location
-      if (!userLatitude || !userLongitude) return;
-
-      setLoading(true);
-      try {
-        // Fetch active drivers
-        const { data: driversData, error: driversError } = await supabase
-          .from('drivers')
-          .select(`
-            id,
-            rating,
-            vehicle_type,
-            user_id,
-            current_latitude,
-            current_longitude,
-            users:users!drivers_user_id_fkey (
-              name,
-              avatar_url
-            )
-          `)
-          .eq('is_online', true)
-          .eq('verification_status', 'approved')
-          .not('current_latitude', 'is', null)
-          .not('current_longitude', 'is', null);
-
-        if (driversError) throw driversError;
-
-        const loadedMarkers: MarkerData[] = (driversData || []).map((driver: any) => ({
-          id: driver.id,
-          latitude: Number(driver.current_latitude),
-          longitude: Number(driver.current_longitude),
-          title: driver.users?.name || 'Driver',
-          profile_image_url: driver.users?.avatar_url || 'https://via.placeholder.com/100',
-          car_image_url: 'https://via.placeholder.com/100',
-          car_seats: 4,
-          rating: driver.rating,
-          first_name: driver.users?.name?.split(' ')[0] || 'Driver',
-          last_name: driver.users?.name?.split(' ')[1] || '',
-          time: 5,
-          price: '150',
-        }));
-
-        setMarkers(loadedMarkers);
-        setDrivers(loadedMarkers);
-      } catch (err: any) {
-        console.error("Error fetching drivers:", err);
-        setError(err.message);
-        setMarkers([]);
-        setDrivers([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDrivers();
-  }, [setDrivers, userLatitude, userLongitude]);
 
   const region = useMemo(() => {
     if (userLatitude && userLongitude) {
@@ -244,21 +181,6 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
           </Callout>
         </Marker>
       )}
-
-      {/* Driver markers */}
-      {markers.map((marker) => (
-        <Marker
-          key={marker.id}
-          coordinate={{
-            latitude: marker.latitude,
-            longitude: marker.longitude,
-          }}
-          title={marker.title}
-          image={
-            selectedDriver === +marker.id ? icons.selectedMarker : icons.marker
-          }
-        />
-      ))}
 
       {/* Temporary selection marker */}
       {tempMarker && (

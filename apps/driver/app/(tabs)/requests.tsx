@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, getDriverActiveBookings, getDriverCompletedTrips, getDriverAllBookings, Booking } from '@/lib/bookings';
+import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, getDriverActiveBookings, getDriverCompletedTrips, getDriverAllBookings, Booking, getDriverSearchRadius } from '@/lib/bookings';
 import * as Location from 'expo-location';
 import { checkLocationServices } from '@/lib/location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -115,6 +115,7 @@ const RideRequestCard = ({ request, index, onAccept, onReject }: { request: Book
                 </View>
                 <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
                     <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
+                    <Text className="text-green-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">Est. Payout: ₹{Math.round(request.total_fare * 0.8)}</Text>
                 </View>
             </View>
 
@@ -196,8 +197,8 @@ const ActiveRideCard = ({ booking }: { booking: Booking }) => {
                         {booking.status === 'in_progress' ? booking.destination_address : booking.origin_address}
                     </Text>
                 </View>
-                <View className="bg-green-100 px-3 py-1 rounded-full">
-                    <Text className="text-green-700 font-JakartaBold">₹{booking.driver_payout || booking.total_fare}</Text>
+                <View className="bg-green-100 px-3 py-1 rounded-full items-center justify-center">
+                    <Text className="text-green-700 font-JakartaBold">₹{booking.total_fare}</Text>
                 </View>
             </View>
             <Text className="text-blue-600 font-JakartaMedium text-sm mt-2 text-center">Tap to view navigation</Text>
@@ -241,10 +242,15 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
                         {booking.origin_address} → {booking.destination_address}
                     </Text>
                 </View>
-                <View className="bg-emerald-100 px-3 py-1 rounded-full">
+                <View className="bg-emerald-100 px-3 py-1 rounded-full items-center justify-center">
                     <Text className="text-emerald-700 font-JakartaBold">
-                        ₹{booking.driver_payout || booking.total_fare}
+                        ₹{booking.total_fare}
                     </Text>
+                    {booking.driver_payout && (
+                        <Text className="text-emerald-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">
+                            Payout: ₹{booking.driver_payout}
+                        </Text>
+                    )}
                 </View>
             </View>
             <View className="flex-row gap-2 mt-2">
@@ -298,11 +304,13 @@ const DriverRequests = () => {
         try {
             let availableBookings: Booking[] = [];
             if (location && driverProfile.vehicle_type) {
+                // Fetch admin-configured search radius for this vehicle type
+                const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
                 const { data } = await getAvailableBookings(
                     location.latitude,
                     location.longitude,
                     driverProfile.vehicle_type,
-                    20
+                    searchRadiusKm
                 );
                 availableBookings = data || [];
             }

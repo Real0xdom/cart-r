@@ -34,6 +34,11 @@ import signUpCar from "@/assets/images/signup-car.png";
 import deliveryTruck from "@/assets/images/delivery-truck.png";
 import truckTransparent from "@/assets/images/truck-transparent.png";
 import homeBanner from "@/assets/images/home-banner.png";
+import bike from "@/assets/images/bike.png";
+import chotaHathi from "@/assets/images/chota-hathi.png";
+import pickup from "@/assets/images/pickup.png";
+import tempo from "@/assets/images/tempo.png";
+import truck from "@/assets/images/truck.png";
 
 import loginHero from "@/assets/login-hero.jpg";
 
@@ -50,6 +55,11 @@ export const images = {
   noResult,
   message,
   loginHero,
+  bike,
+  chotaHathi,
+  pickup,
+  tempo,
+  truck,
 };
 
 export const icons = {

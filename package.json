@@ -1,42 +1,48 @@
 {
-    "name":  "carter-project",
-    "version":  "1.0.0",
-    "private":  true,
-    "description":  "Carter - Pune\u0027s Logistics App",
-    "scripts":  {
-                    "customer":  "cd apps/customer \u0026\u0026 npx expo start",
-                    "driver":  "cd apps/driver \u0026\u0026 npm run start",
-                    "test:mobile":  "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results mocha --config mobile-tests/.mocharc.cjs",
-                    "test:web":  "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results playwright test -c web-tests/playwright.config.ts",
-                    "test:all":  "npm run test:web \u0026\u0026 npm run test:mobile",
-                    "report:clean":  "rimraf reports/allure-results reports/allure-report",
-                    "report:allure":  "allure generate reports/allure-results -o reports/allure-report --clean",
-                    "appium:server":  "appium --relaxed-security --log-level info",
-                    "appium:install:android":  "appium driver install uiautomator2",
-                    "playwright:install":  "playwright install --with-deps chromium"
-                },
-    "dependencies":  {
-                         "@supabase/supabase-js":  "^2.91.1",
-                         "expo-dev-client":  "^55.0.11",
-                         "node-fetch":  "^2.7.0",
-                         "pg":  "^8.17.2"
-                     },
-    "devDependencies":  {
-                            "typescript":  "^5.9.3",
-                            "@playwright/test":  "^1.55.0",
-                            "allure-commandline":  "^2.34.0",
-                            "allure-mocha":  "^3.0.0",
-                            "allure-playwright":  "^3.0.0",
-                            "chai":  "^5.2.0",
-                            "cross-env":  "^7.0.3",
-                            "dotenv":  "^16.6.0",
-                            "mocha":  "^11.7.0",
-                            "rimraf":  "^6.0.1",
-                            "tsx":  "^4.20.0",
-                            "webdriverio":  "^9.20.0",
-                            "zod":  "^4.3.6",
-                            "@types/node":  "^22.18.0",
-                            "@types/mocha":  "^10.0.10",
-                            "@types/chai":  "^5.2.2"
-                        }
+  "name": "carter-project",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "description": "Carter - Pune's Logistics App",
+  "scripts": {
+    "customer": "cd apps/customer && npx expo start",
+    "driver": "cd apps/driver && npm run start",
+    "test:mobile": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results mocha --config mobile-tests/.mocharc.cjs",
+    "test:web": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results playwright test -c web-tests/playwright.config.ts",
+    "test:all": "npm run test:web && npm run test:mobile",
+    "report:clean": "rimraf reports/allure-results reports/allure-report",
+    "report:allure": "allure generate reports/allure-results -o reports/allure-report --clean",
+    "appium:server": "appium --relaxed-security --log-level info",
+    "appium:install:android": "appium driver install uiautomator2",
+    "playwright:install": "playwright install --with-deps chromium"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.1",
+    "@supabase/supabase-js": "^2.91.1",
+    "expo-dev-client": "^55.0.11",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.17.2"
+  },
+  "resolutions": {
+    "react-native-maps": "1.14.0",
+    "eslint-visitor-keys": "3.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@playwright/test": "^1.55.0",
+    "allure-commandline": "^2.34.0",
+    "allure-mocha": "^3.0.0",
+    "allure-playwright": "^3.0.0",
+    "chai": "^5.2.0",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.6.0",
+    "mocha": "^11.7.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.20.0",
+    "webdriverio": "^9.20.0",
+    "zod": "^4.3.6",
+    "@types/node": "^22.18.0",
+    "@types/mocha": "^10.0.10",
+    "@types/chai": "^5.2.2"
+  }
 }

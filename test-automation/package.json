@@ -1,0 +1,41 @@
+{
+  "name": "cart-r-test-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test:mobile:customer": "cross-env ALLURE_RESULTS_DIR=reports/allure-results node --import tsx ./node_modules/mocha/bin/mocha \"mobile-tests/customer/**/*.spec.ts\" --timeout 900000 --reporter allure-mocha",
+    "test:mobile:driver": "cross-env ALLURE_RESULTS_DIR=reports/allure-results node --import tsx ./node_modules/mocha/bin/mocha \"mobile-tests/driver/**/*.spec.ts\" --timeout 900000 --reporter allure-mocha",
+    "test:mobile:interaction": "cross-env ALLURE_RESULTS_DIR=reports/allure-results node --import tsx ./node_modules/mocha/bin/mocha \"mobile-tests/interaction/**/*.spec.ts\" --timeout 1200000 --reporter allure-mocha",
+
+    "test:web:admin": "cross-env ALLURE_RESULTS_DIR=reports/allure-results playwright test",
+    "test:web:interaction": "cross-env ALLURE_RESULTS_DIR=reports/allure-results playwright test web-tests/interaction",
+
+    "allure:generate": "allure generate reports/allure-results --clean -o reports/allure-report",
+    "allure:open": "allure open reports/allure-report",
+    "reports:clean": "rimraf reports/allure-results reports/allure-report",
+
+    "lint": "eslint . --max-warnings=0"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "allure-commandline": "^2.34.0",
+    "allure-mocha": "^3.3.0",
+    "allure-playwright": "^3.3.0",
+    "appium": "^2.19.0",
+    "chai": "^5.3.0",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.35.0",
+    "mocha": "^11.7.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "webdriverio": "^9.22.2"
+  }
+}

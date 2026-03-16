@@ -1,0 +1,89 @@
+appId: com.carter.customer
+name: "Customer - Book Ride Flow"
+tags:
+  - customer
+  - booking
+---
+# Assumes user is already signed in (run 01_sign_in first, or use clearState: false)
+- launchApp:
+    clearState: false
+
+# ── 1. Home screen visible ──────────────────────────────────────
+- assertVisible:
+    id: "customer.home"
+    timeout: 15000
+
+# ── 2. Tap "Start Shipment" / Book ride button ──────────────────
+- tapOn:
+    id: "customer.startRideButton"
+
+# ── 3. Find Ride screen ─────────────────────────────────────────
+- assertVisible:
+    id: "ride.findRide"
+    timeout: 10000
+
+# ── 4. Enter Pickup location ────────────────────────────────────
+- tapOn:
+    id: "ride.pickupInput"
+- eraseText
+- inputText: "Connaught Place, New Delhi"
+- wait: 2000
+# Tap the first suggestion in the autocomplete list
+- tapOn:
+    text: "Connaught Place"
+    index: 0
+- wait: 1000
+
+# ── 5. Enter Drop location ──────────────────────────────────────
+- tapOn:
+    id: "ride.dropInput"
+- eraseText
+- inputText: "India Gate, New Delhi"
+- wait: 2000
+- tapOn:
+    text: "India Gate"
+    index: 0
+- wait: 1000
+
+# ── 6. Proceed to Receiver Details ──────────────────────────────
+- tapOn:
+    id: "ride.nextToReceiverDetails"
+
+# ── 7. Receiver details screen ──────────────────────────────────
+- assertVisible:
+    id: "receiver.nameInput"
+    timeout: 8000
+
+- tapOn:
+    id: "receiver.nameInput"
+- eraseText
+- inputText: "Test Receiver"
+
+- tapOn:
+    id: "receiver.phoneInput"
+- eraseText
+- inputText: "8888888888"
+
+- tapOn:
+    id: "receiver.nextToVehicle"
+
+# ── 8. Vehicle selection screen ─────────────────────────────────
+- assertVisible:
+    id: "vehicle.selectVehicle"
+    timeout: 10000
+
+# Tap the first vehicle option
+- tapOn:
+    id: "vehicle.option.0"
+- wait: 500
+
+# ── 9. Confirm booking ──────────────────────────────────────────
+- tapOn:
+    id: "booking.confirmButton"
+
+# ── 10. Waiting for driver screen ───────────────────────────────
+- assertVisible:
+    id: "booking.waiting"
+    timeout: 15000
+
+- takeScreenshot: "waiting_for_driver"
