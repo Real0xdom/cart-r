@@ -37,10 +37,11 @@ const ignoredPaths = [
   path.resolve(workspaceRoot, 'node_modules', '.cache'),
 ];
 
-// Keep Metro scoped to the driver app, with a narrow exception for the shared package.
-// Watching the entire monorepo can exceed watcher startup limits and
-// cause "Failed to start watch mode" before the dev server finishes booting.
-config.watchFolders = [sharedPackageRoot];
+// Enable package exports resolution - fixes SHA-1 computation issues
+config.resolver.unstable_enablePackageExports = true;
+
+// Keep Metro scoped to the driver app, with exceptions for shared package and root node_modules (for hoisted deps)
+config.watchFolders = [sharedPackageRoot, path.resolve(workspaceRoot, 'node_modules')];
 
 // Resolve dependencies from the app first, with the workspace root as a fallback.
 config.resolver.nodeModulesPaths = [
@@ -48,16 +49,35 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// Ignore generated folders and repo metadata even if Metro is asked to crawl wider paths.
-// We use a more aggressive regex for Windows performance.
-// FIXED: Commented blockList to prevent expo-router/entry.js exclusion
-// config.resolver.blockList = ignoredPaths.map(
-//   (filePath) => new RegExp(`^${pathToPattern(filePath)}(?:[\\\\/].*)?$`)
-// );
+// Ignore generated folders and repo metadata
+config.resolver.blockList = ignoredPaths.map(
+  (filePath) => new RegExp(`^${pathToPattern(filePath)}(?:[\\\\/].*)?$`)
+);
 
-// REMOVED: unblockFile doesn't exist in Metro API
+// Use hierarchical lookup for monorepo fallback resolution
+config.resolver.disableHierarchicalLookup = true;
 
-// Allow hierarchical lookup for monorepo fallback resolution
-config.resolver.disableHierarchicalLookup = false;
+// Fix for react-native-cashfree-pg-sdk unable to resolve ../package.json
+const originalResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (
+    moduleName === '../package.json' &&
+    context.originModulePath.includes('react-native-cashfree-pg-sdk')
+  ) {
+    return {
+      filePath: path.resolve(
+        __dirname,
+        'node_modules/react-native-cashfree-pg-sdk/package.json'
+      ),
+      type: 'sourceFile',
+    };
+  }
+
+  if (originalResolveRequest) {
+    return originalResolveRequest(context, moduleName, platform);
+  }
+
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 module.exports = config;
