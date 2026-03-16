@@ -5,6 +5,8 @@
 import RideLayout from "@/components/RideLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBookingStore, useRideStore, useLocationStore } from "@/store";
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from "@/lib/vehicleTypes";
+import { images } from "@/constants";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { 
@@ -15,6 +17,7 @@ import {
   Animated,
   Easing,
   TouchableOpacity,
+  Image,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { TextInput } from "react-native";
@@ -41,6 +44,7 @@ const WaitingForDriverPage = () => {
   const [tipAmount, setTipAmount] = useState(booking?.tip_amount || 0);
   const [customTipInput, setCustomTipInput] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
+  const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
 
   // Animation for pulsing effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -68,6 +72,15 @@ const WaitingForDriverPage = () => {
     pulse.start();
     return () => pulse.stop();
   }, [driverAccepted, showTimeout]);
+
+  // Fetch vehicle specifications
+  useEffect(() => {
+    const fetchVehicleSpecs = async () => {
+      const { data } = await getActiveVehicleTypes();
+      if (data) setVehicleSpecs(data);
+    };
+    fetchVehicleSpecs();
+  }, []);
 
   // Watch for driverAccepted state changes
   useEffect(() => {
@@ -158,21 +171,24 @@ const WaitingForDriverPage = () => {
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
 
-      if (updatedBooking.status === 'accepted' || updatedBooking.status === 'driver_arrived' || updatedBooking.status === 'in_progress') {
-        console.log(`[WAITING] Status changed to ${updatedBooking.status}! Fetching full details`);
-        // Fetch full booking with driver details
-        getBookingById(bookingId).then(({ data }) => {
-          if (data && data.driver) {
-            console.log('[WAITING] Full booking with driver loaded');
-            console.log('[WAITING] Driver details:', data.driver);
-            setBooking(data);
-            setCurrentBooking(data);
-            // Only set driverAccepted after we have the full driver object
-            setDriverAccepted(true);
-          } else {
-            console.error('[WAITING] Failed to fetch full booking details or driver data missing');
-          }
-        });
+      // Transition to Driver Assigned state if driver is available in the update
+      if (['accepted', 'driver_arrived', 'in_progress'].includes(updatedBooking.status)) {
+        if (updatedBooking.driver) {
+          console.log(`[WAITING] Driver found in update (${updatedBooking.status}) - updating state`);
+          setDriverAccepted(true);
+        } else {
+          console.log(`[WAITING] Status changed to ${updatedBooking.status} but driver data missing, fetching full details`);
+          // Fetch full booking with driver details as fallback (e.g. if re-hydration failed/delayed)
+          getBookingById(bookingId).then(({ data }) => {
+            if (data && data.driver) {
+              setBooking(data);
+              setCurrentBooking(data);
+              setDriverAccepted(true);
+            } else {
+              console.error('[WAITING] Failed to fetch full booking details or driver data missing');
+            }
+          });
+        }
       } else if (updatedBooking.status === 'pending') {
           console.log('[WAITING] Status reverted to pending (driver cancelled). Resetting search.');
           setDriverAccepted(false);
@@ -491,12 +507,19 @@ const WaitingForDriverPage = () => {
         ) : (
           /* Searching State */
           <View className="items-center">
-            {/* Animated Search Icon */}
+            {/* Animated Vehicle Icon */}
             <Animated.View
               style={{ transform: [{ scale: pulseAnim }] }}
-              className="bg-brand-100 rounded-full p-6 mb-6"
+              className="bg-brand-100 rounded-full p-2 mb-6 w-32 h-32 items-center justify-center overflow-hidden"
             >
-              <Feather name="search" size={40} color="#FF9800" />
+              <Image 
+                source={(() => {
+                  const spec = vehicleSpecs.find(s => s.vehicle_type === booking?.vehicle_type);
+                  return getVehicleImageSource(booking?.vehicle_type || "", spec?.icon_url) || images.truckTransparent;
+                })()}
+                className="w-24 h-24"
+                resizeMode="contain"
+              />
             </Animated.View>
 
             <Text className="text-xl font-JakartaBold text-gray-800 text-center mb-2">

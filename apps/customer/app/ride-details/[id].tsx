@@ -1,9 +1,11 @@
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { getBookingById } from '@/lib/bookings';
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from '@/lib/vehicleTypes';
+import { images } from '@/constants';
 import { hasUserRated } from '@/lib/ratingUtils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -18,6 +20,7 @@ const RideDetails = () => {
     const [review, setReview] = useState('');
     const [isSubmittingRating, setIsSubmittingRating] = useState(false);
     const [alreadyRated, setAlreadyRated] = useState(false);
+    const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
 
     useEffect(() => {
         if (!id) {
@@ -40,6 +43,12 @@ const RideDetails = () => {
         };
 
         fetchBooking();
+
+        const fetchVehicleSpecs = async () => {
+            const { data } = await getActiveVehicleTypes();
+            if (data) setVehicleSpecs(data);
+        };
+        fetchVehicleSpecs();
     }, [id, profile?.id]);
 
     const handleRateTrip = async () => {
@@ -47,6 +56,8 @@ const RideDetails = () => {
             Alert.alert('Rate Trip', 'Please select a star rating');
             return;
         }
+
+        if (!booking) return;
 
         const driverUserId = (booking.driver as { user_id?: string })?.user_id;
         if (!booking?.driver_id || !driverUserId) {
@@ -169,10 +180,22 @@ const RideDetails = () => {
                         </View>
                     </View>
                     
-                    <View className="flex-row justify-between border-t border-gray-100 pt-4">
-                        <View>
-                            <Text className="text-gray-500 text-xs">Vehicle</Text>
-                            <Text className="font-JakartaSemiBold capitalize">{booking.vehicle_type}</Text>
+                    <View className="flex-row justify-between border-t border-gray-100 pt-4 items-center">
+                        <View className="flex-row items-center flex-1">
+                            <View className="w-12 h-12 bg-gray-50 rounded-lg items-center justify-center mr-3 overflow-hidden">
+                                <Image 
+                                    source={(() => {
+                                        const spec = vehicleSpecs.find(s => s.vehicle_type === booking.vehicle_type);
+                                        return getVehicleImageSource(booking.vehicle_type, spec?.icon_url) || images.truckTransparent;
+                                    })()}
+                                    className="w-full h-full"
+                                    resizeMode="contain"
+                                />
+                            </View>
+                            <View>
+                                <Text className="text-gray-500 text-xs">Vehicle</Text>
+                                <Text className="font-JakartaSemiBold capitalize">{booking.vehicle_type.replace('_', ' ')}</Text>
+                            </View>
                         </View>
                         <View>
                             <Text className="text-gray-500 text-xs text-right">Distance</Text>

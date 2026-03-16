@@ -1,0 +1,51 @@
+appId: com.carter.driver
+name: "Driver - Sign In Flow"
+tags:
+  - driver
+  - auth
+---
+# ── 1. Launch driver app ────────────────────────────────────────
+- launchApp:
+    clearState: true
+
+# ── 2. Sign-in screen visible ───────────────────────────────────
+- assertVisible:
+    id: "auth.phoneInput"
+    timeout: 10000
+
+# ── 3. Enter phone number (includes +91 prefix already in field) ─
+- tapOn:
+    id: "auth.phoneInput"
+- eraseText
+- inputText: "+919999999998"   # Replace with a registered driver test number
+
+# ── 4. Accept Terms ─────────────────────────────────────────────
+- tapOn:
+    id: "auth.termsCheckbox"
+- wait: 500
+
+# ── 5. Request OTP ──────────────────────────────────────────────
+- tapOn:
+    id: "auth.requestOtpButton"
+
+# ── 6. OTP input appears ─────────────────────────────────────────
+- assertVisible:
+    id: "auth.otpInput"
+    timeout: 15000
+
+# ── 7. Enter OTP ────────────────────────────────────────────────
+- tapOn:
+    id: "auth.otpInput"
+- eraseText
+- inputText: "123456"     # Replace with real OTP or Maestro env ${OTP}
+
+# ── 8. Verify ───────────────────────────────────────────────────
+- tapOn:
+    id: "auth.verifyOtpButton"
+
+# ── 9. Driver home screen ────────────────────────────────────────
+- assertVisible:
+    id: "driver.home"
+    timeout: 20000
+
+- takeScreenshot: "driver_home_after_login"

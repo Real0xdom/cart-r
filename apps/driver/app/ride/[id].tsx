@@ -570,7 +570,7 @@ const ActiveRide = () => {
                             <View className="flex-1">
                                 <Text className="text-gray-500 text-xs">Fare</Text>
                                 <Text className="text-green-600 font-JakartaBold">
-                                    ₹{booking.driver_payout || booking.total_fare}
+                                    ₹{booking.total_fare}
                                 </Text>
                             </View>
                         </View>

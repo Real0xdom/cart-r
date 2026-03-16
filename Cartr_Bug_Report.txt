@@ -1,0 +1,550 @@
+CARTR — BUG REPORT & DEVELOPER TASK BRIEF
+Advaita AI Systems | Total Issues: 20
+============================================================
+
+PRIORITY LEGEND
+----------------------------------------
+  CRITICAL  — Fix before any release
+  HIGH      — Fix in next sprint
+  MEDIUM    — Fix within 2 sprints
+  LOW       — Fix when capacity allows
+
+ISSUE SUMMARY
+----------------------------------------
+BUG-001  [HIGH]  Duplicate Email Error — No User-Friendly UI Feedback
+BUG-002  [MEDIUM]  Replace Emojis with Professional Icons Throughout Driver App
+BUG-003  [HIGH]  Input Validation Missing on Driver Registration Form
+BUG-004  [HIGH]  Vehicle Details — Dropdowns for Model & Color + Date Picker for Licence Expiry
+BUG-005  [HIGH]  Document Upload — Cache Docs on Back Navigation
+BUG-006  [CRITICAL]  All Documents Must Fully Upload to Supabase Before Redirecting to Verification Screen
+BUG-007  [HIGH]  Admin: Add Request Resubmission Button on Driver Verification Screen
+BUG-008  [HIGH]  Push Notifications to Driver on Approval, Rejection and Resubmission
+BUG-009  [CRITICAL]  Suspended Driver Must See a Proper Ban Screen — Not Verification Failed
+BUG-010  [CRITICAL]  Pickup Location Showing Incorrect on Driver App Map
+BUG-011  [HIGH]  Driver App Map Doesnt Show Road Route to Drop Location
+BUG-012  [CRITICAL]  QR Code After Ride Opens Supabase URL — Replace With CashFree In-App Payment
+BUG-013  [HIGH]  OTP Verification Too Slow — Add Retry Logic and UX Fixes
+BUG-014  [HIGH]  App Stuck in Loading After Delivery OTP Accepted
+BUG-015  [MEDIUM]  Driver Rides Tab — Show Ride History, Ongoing Rides and New Requests Together
+BUG-016  [HIGH]  Customer App Shows Shipment In Progress After Trip Is Completed
+BUG-017  [HIGH]  Previous Trip Details Pre-filled When Starting a New Booking
+BUG-018  [HIGH]  Driver App Shows No Floating Notification for New Ride Requests
+BUG-019  [HIGH]  Accepting Ride from Notification Does Not Show Route in App
+BUG-020  [CRITICAL]  Payment Completion Flow Needs Multi-Step Confirmation — Single Tap Is a Major Risk
+
+============================================================
+DETAILED ISSUE SPECIFICATIONS
+============================================================
+
+────────────────────────────────────────────────────────────
+BUG-001 — [HIGH]
+Duplicate Email Error — No User-Friendly UI Feedback
+────────────────────────────────────────────────────────────
+Module:   Driver App → Registration Screen
+Priority: HIGH
+
+Summary:
+When a driver registers with an existing email, the app shows no proper error. User gets confused and may attempt multiple re-registrations.
+
+Problem Statement:
+  • Supabase returns a duplicate email error but it is not caught or displayed
+  • No inline message or toast tells the user their email is already registered
+  • User experience breaks at a critical onboarding step
+
+Developer Tasks:
+  1. Catch Supabase auth error code for duplicate email (AuthApiError: User already registered)
+  2. Display inline error below the email field with red border highlight and icon
+  3. Show message: An account with this email already exists. Please log in instead.
+  4. Include a tappable Log in link within the error message that redirects to login screen
+  5. Add a toast/snackbar so the error is unmissable on all screen sizes
+
+Notes:
+  Reference: https://supabase.com/docs/reference/javascript/auth-signup
+
+────────────────────────────────────────────────────────────
+BUG-002 — [MEDIUM]
+Replace Emojis with Professional Icons Throughout Driver App
+────────────────────────────────────────────────────────────
+Module:   Driver App → Registration Screen + All Screens
+Priority: MEDIUM
+
+Summary:
+Various screens use emoji characters as UI icons. This looks unprofessional and renders inconsistently across Android/iOS versions.
+
+Problem Statement:
+  • Emojis render differently across devices and OS versions
+  • Emojis cannot be styled consistently with the rest of the UI
+  • Appearance is unprofessional in a commercial driver-facing product
+
+Developer Tasks:
+  1. Audit all screens for emoji usage and document each instance with its location and intended meaning
+  2. Replace with icons from lucide-react-native or @expo/vector-icons
+  3. Ensure all icons follow consistent sizing (20-24px) and theme colors
+  4. Registration screen: replace camera emoji with Camera icon, vehicle with Car icon, document with FileText icon
+  5. Test rendering on Android 10+, Android 14, iOS 15, and iOS 17
+
+Notes:
+  Recommended: lucide-react-native or @expo/vector-icons (both MIT licensed)
+
+────────────────────────────────────────────────────────────
+BUG-003 — [HIGH]
+Input Validation Missing on Driver Registration Form
+────────────────────────────────────────────────────────────
+Module:   Driver App → Registration Screen
+Priority: HIGH
+
+Summary:
+The registration form accepts malformed or incomplete data without validation, causing downstream errors in Supabase.
+
+Problem Statement:
+  • Phone number accepts non-numeric characters and invalid lengths
+  • Email field does not validate format before submission
+  • Name fields accept special characters and single-character entries
+  • No feedback shown when user submits with invalid data
+
+Developer Tasks:
+  1. Add inline real-time validation: email (RFC 5322 format), phone (10-digit Indian format), full name (min 3 chars, alpha + spaces), Aadhaar (12-digit numeric), PAN (ABCDE1234F regex)
+  2. Show inline error messages below each field on blur or as user types
+  3. Disable the Submit/Continue button until all fields pass validation
+  4. Show a green checkmark inside the field when input is valid
+  5. Sanitize all inputs before sending to Supabase
+
+Notes:
+  Use react-hook-form + zod or yup for schema-based validation
+
+────────────────────────────────────────────────────────────
+BUG-004 — [HIGH]
+Vehicle Details — Dropdowns for Model & Color + Date Picker for Licence Expiry
+────────────────────────────────────────────────────────────
+Module:   Driver App → Vehicle Details Screen
+Priority: HIGH
+
+Summary:
+Vehicle model and color are free-text inputs causing inconsistent data. Licence expiry has no date picker and no validation.
+
+Problem Statement:
+  • Vehicle model is free-text — drivers enter inconsistent values (swift, Swift Dzire, SWIFT)
+  • Vehicle color is free-text — same inconsistency problem
+  • Licence expiry is a text input with no calendar picker
+  • No error shown if a past date is entered for licence expiry
+  • No error shown for invalid time/date value combinations
+
+Developer Tasks:
+  1. Replace vehicle model with a searchable dropdown of Indian commercial vehicles — allow Other with manual entry
+  2. Replace color input with a dropdown of standard vehicle colors
+  3. Replace licence expiry text input with DateTimePicker from @react-native-community/datetimepicker
+  4. Validate: licence expiry must be a future date — show error if past date selected
+  5. Show error for invalid/null date values: Please select a valid date
+  6. Store date in ISO 8601 format (YYYY-MM-DD) in Supabase
+  7. Store vehicle model list in a Supabase lookup table so admin can update without a code release
+
+────────────────────────────────────────────────────────────
+BUG-005 — [HIGH]
+Document Upload — Cache Docs on Back Navigation
+────────────────────────────────────────────────────────────
+Module:   Driver App → Document Upload Screen
+Priority: HIGH
+
+Summary:
+When a driver uploads documents and taps back, all uploaded files are lost. Driver must re-upload everything from scratch.
+
+Problem Statement:
+  • Uploaded document state is not persisted when navigating back
+  • Driver loses progress if they accidentally tap back or background the app
+  • No visual indication of what has already been uploaded in the session
+
+Developer Tasks:
+  1. Use Zustand, Redux, or React Context to cache all uploaded document URIs and metadata in app memory
+  2. On re-entry to the document upload screen, pre-populate uploaded documents with a Uploaded checkmark badge
+  3. Do NOT clear document upload state on back navigation — only clear on successful submission or explicit Start Over
+  4. Persist upload state to AsyncStorage so backgrounding the app does not lose progress
+  5. Show upload progress (percentage or loading bar) per document
+  6. If a doc was already uploaded to Supabase bucket, show its filename — no need to re-upload
+
+Notes:
+  Reference: react-navigation keep-alive screens or a persistent Zustand store
+
+────────────────────────────────────────────────────────────
+BUG-006 — [CRITICAL]
+All Documents Must Fully Upload to Supabase Before Redirecting to Verification Screen
+────────────────────────────────────────────────────────────
+Module:   Driver App → Document Upload → Verification Pending | Admin → Driver Approval Page
+Priority: CRITICAL
+
+Summary:
+Drivers are redirected to the Under Review screen before documents have finished uploading. Admin sees No File for vehicle photo in the approval panel.
+
+Problem Statement:
+  • App navigates to verification screen regardless of whether file uploads completed
+  • Race condition: DB record is written before storage upload resolves
+  • Admin sees No File for vehicle photo because upload had not resolved when record was saved
+  • No retry or error handling if a single document upload fails
+
+Developer Tasks:
+  1. Refactor submission flow: upload ALL documents to Supabase storage using Promise.all() — wait for ALL promises to resolve
+  2. Only after ALL storage uploads succeed, write the driver record to DB with resolved public URLs
+  3. If any upload fails, show an error toast with the specific document name and a retry button — DO NOT submit
+  4. Show loading state during upload+submit: Uploading documents... X of Y
+  5. After all uploads and DB write succeed, THEN navigate to Verification Pending screen
+  6. In admin panel: add null check for document URLs — show Not Uploaded with a red badge instead of blank
+
+Notes:
+  Use Promise.all([uploadDoc1, uploadDoc2, uploadDoc3]) then save record. Do NOT use Promise.allSettled — any failure should block submission.
+
+────────────────────────────────────────────────────────────
+BUG-007 — [HIGH]
+Admin: Add Request Resubmission Button on Driver Verification Screen
+────────────────────────────────────────────────────────────
+Module:   Admin Web Console → Driver Verification / Approval Screen
+Priority: HIGH
+
+Summary:
+Admin can only Approve or Reject. No option to request specific corrections with a message, forcing full rejection for minor issues.
+
+Problem Statement:
+  • Admin cannot communicate what needs to be fixed without outright rejecting
+  • Driver has no context on what to resubmit when rejected
+  • No Request Resubmission CTA exists in admin console
+
+Developer Tasks:
+  1. Add a Request Resubmission button below the Approve Driver button on admin driver detail screen
+  2. When clicked, show a modal with a text area: Enter resubmission instructions for driver (max 500 chars)
+  3. On confirm, update driver status in Supabase to resubmission_requested and save admin message to resubmission_note field
+  4. In driver app: when status is resubmission_requested, show a dedicated screen with admin message and Resubmit Documents CTA
+  5. Send a push notification to driver immediately when resubmission is requested
+  6. Log all admin actions (approve/reject/resubmit) with timestamp and admin user ID in an audit table
+
+Notes:
+  Driver statuses: pending | under_review | resubmission_requested | approved | rejected | suspended | banned
+
+────────────────────────────────────────────────────────────
+BUG-008 — [HIGH]
+Push Notifications to Driver on Approval, Rejection and Resubmission
+────────────────────────────────────────────────────────────
+Module:   Driver App → Notification System
+Priority: HIGH
+
+Summary:
+Drivers waiting for approval receive no notification when their status changes. They must manually check the app.
+
+Problem Statement:
+  • No push notification triggered when driver is approved, rejected, or asked to resubmit
+  • Driver submits documents, gets no feedback, loses trust in the platform
+
+Developer Tasks:
+  1. Set up a Supabase DB trigger or edge function that fires when driver status changes
+  2. On status change, call FCM or Expo Notifications with the driver device token
+  3. Notification messages: Approved → Youre approved! Start accepting rides on Cartr. | Rejected → Your application was not approved. Check the app for details. | Resubmission → Action needed: Admin has requested changes to your documents.
+  4. Store notification history in a notifications table in Supabase
+  5. Show in-app notification badge and notification center screen in driver app
+  6. Handle stale device token edge case — refresh token on app open
+
+Notes:
+  Use Expo Notifications for React Native. For Supabase triggers: use pg_notify + edge function or direct webhook.
+
+────────────────────────────────────────────────────────────
+BUG-009 — [CRITICAL]
+Suspended Driver Must See a Proper Ban Screen — Not Verification Failed
+────────────────────────────────────────────────────────────
+Module:   Driver App → Post-Suspension Screen
+Priority: CRITICAL
+
+Summary:
+When admin suspends a driver, the app incorrectly shows the Verification Failed screen. Driver has no idea why or for how long.
+
+Problem Statement:
+  • Suspended driver is routed to verification failed screen — completely wrong context
+  • Admin cannot set a suspension reason or duration (temporary vs permanent)
+  • No distinction between temporary suspension and permanent ban in the app flow
+
+Developer Tasks:
+  1. Add suspension_type field to driver record: temporary | permanent
+  2. Add suspension_reason (text) and suspension_until (timestamp, null if permanent) fields
+  3. In admin console: suspension form must include type (Temporary/Permanent), reason, and end date if temporary
+  4. In driver app: on app load check driver status — if suspended, route to a dedicated Suspension Screen not verification failed
+  5. Suspension screen must show: Your account has been suspended, the admin reason, duration (Until [date] or This suspension is permanent), and a Contact Support button
+  6. If suspension_until is in the past, automatically restore access and notify driver
+  7. For permanent ban use status banned — show You have been permanently banned screen with no re-registration path
+
+Notes:
+  Critical trust and compliance issue. Wrong messaging could cause legal/support escalations.
+
+────────────────────────────────────────────────────────────
+BUG-010 — [CRITICAL]
+Pickup Location Showing Incorrect on Driver App Map
+────────────────────────────────────────────────────────────
+Module:   Driver App → Active Ride → Map View
+Priority: CRITICAL
+
+Summary:
+After accepting a ride, the pickup location pin on the driver map is incorrect or misaligned. Driver navigates to wrong location.
+
+Problem Statement:
+  • Pickup coordinates passed to the map component may be lat/lng reversed
+  • Customer pickup location may be stored as a string instead of parsed {lat, lng} object
+  • Map may be showing driver own location instead of customer pickup location
+
+Developer Tasks:
+  1. Audit the full data flow: customer pickup coordinates → stored in Supabase → fetched by driver app → passed to map component
+  2. Verify coordinate format consistency (lat first, lng second) across all layers
+  3. Add console logging in dev build to confirm exact coordinates being rendered
+  4. Test with known Pune landmark coordinates to verify pin accuracy
+  5. If using Google Maps SDK: confirm Marker position prop receives {latitude, longitude} not {lng, lat}
+  6. Add visible coordinate display in debug mode to make QA easier
+
+Notes:
+  Common bug: coordinates stored as [lng, lat] in PostGIS/GeoJSON format but read as [lat, lng] by React Native maps.
+
+────────────────────────────────────────────────────────────
+BUG-011 — [HIGH]
+Driver App Map Doesnt Show Road Route to Drop Location
+────────────────────────────────────────────────────────────
+Module:   Driver App → Active Ride → Map View
+Priority: HIGH
+
+Summary:
+After pickup, the driver app map shows no road route to the drop location. Driver has no in-app navigation guidance.
+
+Problem Statement:
+  • No route polyline drawn on map between current location and drop location
+  • Driver app is not calling Google Directions API or equivalent
+  • Map likely shows a straight line or no line at all
+
+Developer Tasks:
+  1. Integrate Google Directions API (or OSRM for free): call with origin = driver GPS, destination = drop coordinates
+  2. Decode polyline from API response and render as a Polyline component on the map
+  3. Update route in real-time as driver location changes
+  4. Show a turn-by-turn direction summary at top of screen (optional but recommended)
+  5. Add deep-link to Google Maps / Waze as fallback navigation option
+  6. Cache route on ride accept so it loads instantly on poor connectivity
+
+Notes:
+  Google Directions API: ~ per 1000 requests. Alternative: use react-native-maps-directions package.
+
+────────────────────────────────────────────────────────────
+BUG-012 — [CRITICAL]
+QR Code After Ride Opens Supabase URL — Replace With CashFree In-App Payment
+────────────────────────────────────────────────────────────
+Module:   Driver App → Ride Completion → Payment Flow
+Priority: CRITICAL
+
+Summary:
+The post-ride QR code encodes a raw Supabase URL. This is a broken dev artifact shipped to production. No real payment processing exists.
+
+Problem Statement:
+  • QR code encodes a Supabase storage or table URL — this is a development artifact in production
+  • No real payment gateway integration for the ride payment flow
+  • Driver cannot confirm receipt of payment through the app
+  • Customer scanning QR has no idea what to do or what amount to pay
+
+Developer Tasks:
+  1. REMOVE the QR code entirely from the ride completion screen
+  2. Integrate Cashfree Payment Gateway using Cashfree React Native SDK
+  3. Payment flow: Driver taps Collect Payment → App creates a Cashfree order via API (amount, order_id, customer details) → Launch Cashfree checkout in-app → On success callback, update ride status to payment_received in Supabase → Show success screen
+  4. Show payment amount clearly before payment: Collect Rs.[amount] from [customer name]
+  5. Support both: in-app Cashfree payment AND a Mark as Cash Collected option for cash rides
+  6. Never redirect user out of the app — use Cashfree in-app SDK not a webview redirect
+  7. Test with Cashfree sandbox environment before going live
+
+Notes:
+  Cashfree React Native SDK docs: https://docs.cashfree.com/docs/react-native-integration — Use PG_ENV_SANDBOX for testing
+
+────────────────────────────────────────────────────────────
+BUG-013 — [HIGH]
+OTP Verification Too Slow — Add Retry Logic and UX Fixes
+────────────────────────────────────────────────────────────
+Module:   Driver App → OTP Verification Screen
+Priority: HIGH
+
+Summary:
+OTP verification is slow with no feedback during the delay. No retry option if OTP fails, no timeout handling, no resend functionality.
+
+Problem Statement:
+  • OTP verification API call is slow with no loading indicator
+  • If OTP times out or fails, user is stuck with no actionable option
+  • No Resend OTP functionality with countdown timer
+  • No limit on incorrect OTP attempts
+
+Developer Tasks:
+  1. Add visible loading spinner immediately when user submits OTP
+  2. Set a 30-second timeout on the OTP API call — show error if exceeded: Verification is taking longer than expected. Please try again.
+  3. Add Resend OTP button with a 30-second countdown timer before it becomes active
+  4. Implement retry logic: auto-retry the OTP API call up to 2 times on network failure before showing error
+  5. Lock screen after 5 failed OTP attempts: Too many attempts. Please request a new OTP.
+  6. Use optimistic UI: auto-advance when 6th digit is entered — do not require manual Verify button tap
+
+Notes:
+  Wrap Supabase verifyOtp() in a Promise with AbortController for timeout control
+
+────────────────────────────────────────────────────────────
+BUG-014 — [HIGH]
+App Stuck in Loading After Delivery OTP Accepted
+────────────────────────────────────────────────────────────
+Module:   Driver App → Delivery OTP → Trip Completion Screen
+Priority: HIGH
+
+Summary:
+After driver enters delivery OTP and it is accepted, the app stays in a loading state indefinitely and never shows Trip Completed.
+
+Problem Statement:
+  • OTP is verified successfully but subsequent state update silently fails or is not awaited
+  • No error handling after OTP success — if trip completion call fails, user sees infinite loading
+  • Driver cannot exit this state without force-closing the app
+
+Developer Tasks:
+  1. Ensure the trip completion mutation is properly awaited after OTP verification resolves
+  2. Add explicit error handling after OTP success — if trip completion fails, show error toast with retry option
+  3. Set a 15-second maximum loading time — if not completed, show: Something went wrong. Tap to retry.
+  4. Add a force complete fallback for edge cases with logging for admin review
+  5. Test the full flow end-to-end: OTP entry → verify → mark trip complete → payment screen → home
+
+Notes:
+  Likely cause: Promise chain not properly awaited after verifyOtp() resolves, or Supabase update call missing await
+
+────────────────────────────────────────────────────────────
+BUG-015 — [MEDIUM]
+Driver Rides Tab — Show Ride History, Ongoing Rides and New Requests Together
+────────────────────────────────────────────────────────────
+Module:   Driver App → Rides / Requests Tab
+Priority: MEDIUM
+
+Summary:
+The rides tab only shows new incoming requests. No ride history and no ongoing ride visible, making it impossible for drivers to track their work.
+
+Problem Statement:
+  • No ride history section on the rides tab
+  • Ongoing active ride does not appear in the rides tab
+  • Driver cannot distinguish between new requests, active ride, and completed rides in one view
+
+Developer Tasks:
+  1. Redesign Rides tab with three sections: (1) New Requests at top with Accept/Decline CTAs, (2) Ongoing Ride with navigation CTA, (3) Ride History with pagination
+  2. Use tab segments or vertical scroll with sticky section headers
+  3. Fetch ride history from Supabase with pagination (20 per page, load more on scroll)
+  4. Show ride history card: pickup to drop, date/time, fare earned, ride status badge
+  5. New ride requests should show a countdown timer for time remaining to accept
+
+────────────────────────────────────────────────────────────
+BUG-016 — [HIGH]
+Customer App Shows Shipment In Progress After Trip Is Completed
+────────────────────────────────────────────────────────────
+Module:   Customer App → Track Shipment Screen
+Priority: HIGH
+
+Summary:
+Even after ride is marked complete, the customer app keeps showing Shipment In Progress. UI state is not updating in real-time.
+
+Problem Statement:
+  • Customer app is not subscribing to real-time trip status updates from Supabase
+  • Trip status change (in_progress → completed) is not reflected in customer UI
+  • Customer may rebook or raise a support complaint thinking ride is still active
+
+Developer Tasks:
+  1. Implement Supabase real-time subscription on the trip/ride record in customer app — listen for status changes
+  2. When status changes to completed, immediately update UI to show Trip Completed screen with summary
+  3. Add polling fallback every 10 seconds in case real-time subscription drops
+  4. Test the full lifecycle: booking → accepted → pickup → in_progress → completed — verify UI updates at each stage
+  5. Clear active ride context/state in customer app on completion to prevent stale data
+
+Notes:
+  Use: supabase.channel(trip).on(UPDATE, handler).subscribe() — filter by trip ID
+
+────────────────────────────────────────────────────────────
+BUG-017 — [HIGH]
+Previous Trip Details Pre-filled When Starting a New Booking
+────────────────────────────────────────────────────────────
+Module:   Customer App → New Booking → Select Location / Receiver Details Screen
+Priority: HIGH
+
+Summary:
+After completing a trip, the pickup, drop, and receiver details from the previous trip are pre-filled in the new booking form.
+
+Problem Statement:
+  • Trip/booking form state is not reset after a trip is completed
+  • Customer may not notice pre-filled details and accidentally book a duplicate or old route
+  • Receiver details (name, phone) from previous booking persist into new booking form
+
+Developer Tasks:
+  1. On trip completion (status = completed), explicitly reset the booking form state to empty defaults
+  2. Clear the active booking context/store (Redux/Zustand) on trip completion
+  3. Navigate customer to home/new booking screen after completion with a fresh state
+  4. Optional: offer Book same route again? as a prompt after completion — but make it opt-in, not default
+  5. Add a unit test to verify form state is empty when navigating to new booking from completion screen
+
+────────────────────────────────────────────────────────────
+BUG-018 — [HIGH]
+Driver App Shows No Floating Notification for New Ride Requests
+────────────────────────────────────────────────────────────
+Module:   Driver App → Background / Foreground Notification
+Priority: HIGH
+
+Summary:
+When a new ride request comes in, no floating heads-up notification appears. Drivers miss requests if not actively watching the app.
+
+Problem Statement:
+  • Foreground push notifications are not configured — FCM/Expo only works in background
+  • No heads-up notification banner while app is open
+  • Driver misses ride requests silently
+
+Developer Tasks:
+  1. Configure FCM/Expo Notifications for HIGH priority foreground notifications on Android (requires IMPORTANCE_HIGH channel)
+  2. Use expo-notifications setNotificationHandler to show notifications when app is foregrounded
+  3. On new ride request: trigger high-priority push notification with sound and vibration
+  4. In-app: show a floating bottom sheet or modal with ride request details (pickup, drop, fare, timer)
+  5. Notification should include: pickup area, drop area, estimated fare, time to respond
+  6. If driver does not respond within time window, auto-decline and notify
+
+Notes:
+  Android requires a notification channel with IMPORTANCE_HIGH for heads-up notifications. Set this up during app initialization.
+
+────────────────────────────────────────────────────────────
+BUG-019 — [HIGH]
+Accepting Ride from Notification Does Not Show Route in App
+────────────────────────────────────────────────────────────
+Module:   Driver App → Notification → In-App Ride View
+Priority: HIGH
+
+Summary:
+When a driver taps Accept on a ride notification, the app opens but shows no ride details or route. Driver is left on a blank screen.
+
+Problem Statement:
+  • Deep link from notification to app does not pass the ride/request ID
+  • App opens but does not navigate to the active ride screen
+  • Accepted ride does not appear in rides tab after accepting from notification
+
+Developer Tasks:
+  1. Implement deep linking: notification payload must include ride_request_id
+  2. On notification tap, use expo-notifications response handler to navigate to ActiveRide screen with correct ride_request_id
+  3. Fetch and display accepted ride details (pickup, drop, map route) immediately on navigation
+  4. Update rides tab to show newly accepted ride under Ongoing section
+  5. Test: accept ride from notification while app is in background, foreground, and killed — all three must navigate correctly
+
+Notes:
+  Use expo-notifications addNotificationResponseReceivedListener for handling notification taps
+
+────────────────────────────────────────────────────────────
+BUG-020 — [CRITICAL]
+Payment Completion Flow Needs Multi-Step Confirmation — Single Tap Is a Major Risk
+────────────────────────────────────────────────────────────
+Module:   Driver App → Drop Location → Payment Collection → Trip Completion
+Priority: CRITICAL
+
+Summary:
+Tapping Complete and Collect Payment immediately marks trip as done and assumes payment was received. This is a critical business logic flaw.
+
+Problem Statement:
+  • Single tap completes trip AND marks payment received — no confirmation step
+  • If driver taps button accidentally, trip is completed and customer charged with no recourse
+  • No verification that payment was actually received before trip is marked complete
+  • This flow differs from industry standard — Porter, Swiggy Genie, Dunzo all use multi-step confirmation
+
+Developer Tasks:
+  1. Redesign drop-location flow as multi-step: Step 1 — Driver arrives: show I Have Arrived button. Step 2 — Delivery confirmation: customer OTP or customer confirms receipt. Step 3 — Payment collection: show amount + options (Cashfree in-app or Cash). Step 4 — Payment confirmed: only after success callback or explicit Cash Collected confirmation with double-confirm dialog → mark trip complete. Step 5 — Trip Complete summary screen.
+  2. Add confirmation dialog before any irreversible action: Are you sure you want to mark this trip as complete? This cannot be undone.
+  3. For cash: show Confirm Cash Received → secondary: You are confirming receipt of Rs.[amount] in cash. Confirm?
+  4. Log all payment events with timestamp, method, and driver confirmation in Supabase
+  5. Study Porter and Dunzo flows — both require explicit payment confirmation before trip close
+  6. Add a Raise Issue option for cases where payment was not received despite trip being marked complete
+
+Notes:
+  Revenue-critical bug. Reference: Porter cash confirmation modal, Dunzo OTP + payment before completion.
+

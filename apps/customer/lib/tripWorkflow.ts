@@ -168,14 +168,27 @@ export async function cancelBooking(
     // Check if driver is already assigned — apply cancellation fee
     const { data: booking } = await supabase
       .from('bookings')
-      .select('status, driver_id, total_fare')
+      .select('status, driver_id, total_fare, vehicle_type')
       .eq('id', bookingId)
       .single();
 
     let cancellationFee = 0;
     if (booking?.status === 'accepted' && booking?.driver_id) {
-      // Driver already on the way — charge cancellation fee (₹50 or 10% of fare, whichever is higher)
-      cancellationFee = Math.max(50, Math.round((booking.total_fare || 0) * 0.1));
+      // Fetch cancellation fee from admin-configured fare_config
+      let configFee: number | null = null;
+      if (booking.vehicle_type) {
+        const { data: fareConfig } = await supabase
+          .from('fare_config')
+          .select('cancellation_fee')
+          .eq('vehicle_type', booking.vehicle_type)
+          .eq('is_active', true)
+          .single();
+        if (fareConfig?.cancellation_fee != null) {
+          configFee = Number(fareConfig.cancellation_fee);
+        }
+      }
+      // Use admin-configured fee; fall back to max(₹50, 10% of fare) if not set
+      cancellationFee = configFee ?? Math.max(50, Math.round((booking.total_fare || 0) * 0.1));
     }
 
     const { error } = await supabase

@@ -50,16 +50,14 @@ config.resolver.nodeModulesPaths = [
 
 // Ignore generated folders and repo metadata even if Metro is asked to crawl wider paths.
 // We use a more aggressive regex for Windows performance.
-config.resolver.blockList = ignoredPaths.map(
-  (filePath) => new RegExp(`^${pathToPattern(filePath)}(?:[\\\\/].*)?$`)
-);
+// FIXED: Commented blockList to prevent expo-router/entry.js exclusion
+// config.resolver.blockList = ignoredPaths.map(
+//   (filePath) => new RegExp(`^${pathToPattern(filePath)}(?:[\\\\/].*)?$`)
+// );
 
-// Optional: If you still face issues, you can try to exclude the entire node_modules from the watcher
-// but keep it for resolution. This is tricky, but adding it here usually helps the crawler.
-// config.resolver.blockList.push(/.*node_modules[\\/]((?!(@clerk|expo|react|shared|nativewind)).*)/);
+// REMOVED: unblockFile doesn't exist in Metro API
 
-// Avoid walking parent folders while resolving modules. This reduces unnecessary
-// filesystem access on Windows and keeps Metro from probing outside the app.
-config.resolver.disableHierarchicalLookup = true;
+// Allow hierarchical lookup for monorepo fallback resolution
+config.resolver.disableHierarchicalLookup = false;
 
 module.exports = config;

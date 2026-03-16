@@ -1,4 +1,4 @@
-﻿export type Locale = "en" | "hi";
+export type Locale = "en" | "hi";
 
 export const translations: Record<Locale, Record<string, string>> = {
   en: {
@@ -43,7 +43,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     selectAction: "Select →",
     gpsOutsideServiceArea: "Your GPS is outside our service area. Tap to select a supported pickup location.",
     loadingShipments: "Loading shipments...",
-    currentShipments: "Current Shipments",
+    ongoingShipments: "Ongoing Shipments",
     seeAll: "See All",
     from: "From",
     to: "To",
@@ -52,8 +52,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     driver: "Driver",
     waitingForAcceptance: "Waiting for acceptance",
     assigned: "Assigned",
-    noActiveDeliveries: "No Active Deliveries",
-    noShipmentsTransit: "You don't have any shipments in transit right now. Book a delivery to get started!",
+    noActiveDeliveries: "No Ongoing Shipments",
+    noShipmentsTransit: "You don't have any ongoing shipments for tracking right now. Book a delivery to get started!",
     bookDelivery: "Book Delivery",
     recentHistory: "Recent History",
     // Find ride
@@ -273,7 +273,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     selectAction: "चुनें →",
     gpsOutsideServiceArea: "आपका GPS हमारे सर्विस एरिया के बाहर है। सपोर्टेड पिकअप लोकेशन चुनने के लिए टैप करें।",
     loadingShipments: "शिपमेंट लोड हो रहे हैं...",
-    currentShipments: "वर्तमान शिपमेंट",
+    ongoingShipments: "चल रहे शिपमेंट",
     seeAll: "सभी देखें",
     from: "से",
     to: "तक",
@@ -282,8 +282,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     driver: "ड्राइवर",
     waitingForAcceptance: "स्वीकृति की प्रतीक्षा",
     assigned: "असाइन किया",
-    noActiveDeliveries: "कोई सक्रिय डिलीवरी नहीं",
-    noShipmentsTransit: "आपके पास अभी ट्रांजिट में कोई शिपमेंट नहीं है। शुरू करने के लिए डिलीवरी बुक करें!",
+    noActiveDeliveries: "कोई चल रहा शिपमेंट नहीं",
+    noShipmentsTransit: "आपके पास अभी ट्रैकिंग के लिए कोई चल रहा शिपमेंट नहीं है। शुरू करने के लिए डिलीवरी बुक करें!",
     bookDelivery: "डिलीवरी बुक करें",
     recentHistory: "हाल की हिस्ट्री",
     selectLocations: "लोकेशन चुनें",

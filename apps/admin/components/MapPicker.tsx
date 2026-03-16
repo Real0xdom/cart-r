@@ -67,6 +67,7 @@ export default function MapPicker({ centerLat, centerLng, radiusKm, onCenterChan
       style={{ width: '100%', height: '100%' }}
       scrollWheelZoom={true}
       className="z-0"
+      attributionControl={false}
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

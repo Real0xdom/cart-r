@@ -6,7 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
-import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings } from '@/lib/bookings';
+import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings, getDriverSearchRadius } from '@/lib/bookings';
 import * as Location from 'expo-location';
 
 // Countdown timer hook for ride requests - MUST be called at top level
@@ -200,11 +200,13 @@ const DriverHome = () => {
         }
 
         const fetchRideRequests = async () => {
+            // Fetch admin-configured search radius for this vehicle type
+            const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
             const { data, error } = await getAvailableBookings(
                 location.latitude,
                 location.longitude,
                 driverProfile.vehicle_type,
-                20 // 20km radius
+                searchRadiusKm
             );
             
             if (!error && data) {

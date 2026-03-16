@@ -2,19 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-server';
 
+import { createClient } from '@/lib/supabase/server';
+
 async function requireAdmin() {
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get('admin_session')?.value;
-  if (!sessionToken) {
-    return null;
-  }
-  try {
-    const decoded = JSON.parse(Buffer.from(sessionToken, 'base64').toString());
-    if (decoded.exp && decoded.exp < Date.now()) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !user.email) return null;
+  const { data: adminRecord } = await supabaseAdmin
+    .from('admins')
+    .select('id, role')
+    .eq('email', user.email.toLowerCase().trim())
+    .single();
+  if (!adminRecord) return null;
+  return { ...user, role: adminRecord.role };
 }
 
 export async function GET() {

@@ -10,11 +10,12 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { images } from "@/constants";
 import { getCustomerBookings } from "@/lib/bookings";
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from "@/lib/vehicleTypes";
 import type { Booking } from "@/types/type";
 
 // Pending booking expired? (no driver + expires_at passed)
 const isPendingExpired = (b: Booking) =>
-  b.status === 'pending' && !b.driver_id && b.expires_at && new Date(b.expires_at) < new Date();
+  !!(b.status === 'pending' && !b.driver_id && b.expires_at && new Date(b.expires_at) < new Date());
 
 // Status badge colors (t for translation)
 const getStatusConfig = (status: Booking['status'], t: (k: string) => string, isExpired = false) => {
@@ -45,11 +46,13 @@ const BookingCard = ({
   onPress,
   onDownloadInvoice,
   t,
+  vehicleSpecs,
 }: {
   booking: Booking;
   onPress: () => void;
   onDownloadInvoice?: (bookingId: string) => void;
   t: (k: string) => string;
+  vehicleSpecs?: VehicleType[];
 }) => {
   const expired = isPendingExpired(booking);
   const statusConfig = getStatusConfig(booking.status, t, expired);
@@ -97,9 +100,18 @@ const BookingCard = ({
         {/* Footer with fare, vehicle, and invoice (for completed) */}
         <View className="flex-row justify-between items-center pt-3 border-t border-gray-100">
           <View className="flex-row items-center flex-1">
-            <Feather name="truck" size={14} color="#6b7280" />
-            <Text className="ml-1 text-gray-500 text-xs capitalize font-JakartaMedium">
-              {booking.vehicle_type}
+            <View className="w-5 h-5 mr-1 overflow-hidden">
+                <Image 
+                    source={(() => {
+                        const spec = vehicleSpecs?.find((s: any) => s.vehicle_type === booking.vehicle_type);
+                        return getVehicleImageSource(booking.vehicle_type, spec?.icon_url) || images.truckTransparent;
+                    })()}
+                    className="w-full h-full"
+                    resizeMode="contain"
+                />
+            </View>
+            <Text className="text-gray-500 text-xs capitalize font-JakartaMedium">
+              {booking.vehicle_type.replace('_', ' ')}
             </Text>
             {booking.estimated_distance != null && booking.estimated_distance > 0 ? (
               <>
@@ -145,6 +157,7 @@ const Rides = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
 
 
   const fetchBookings = useCallback(async () => {
@@ -160,6 +173,12 @@ const Rides = () => {
 
   useEffect(() => {
     fetchBookings();
+    
+    const fetchVehicleSpecs = async () => {
+        const { data } = await getActiveVehicleTypes();
+        if (data) setVehicleSpecs(data);
+    };
+    fetchVehicleSpecs();
   }, [fetchBookings]);
 
   const handleRefresh = () => {
@@ -204,6 +223,7 @@ const Rides = () => {
               router.push({ pathname: "/invoice", params: { bookingId } })
             }
             t={t}
+            vehicleSpecs={vehicleSpecs}
           />
         )}
         keyExtractor={(item) => item.id}

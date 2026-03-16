@@ -1,0 +1,50 @@
+appId: com.carter.customer
+name: "Customer - Sign In Flow"
+tags:
+  - customer
+  - auth
+---
+# ── 1. Launch app ──────────────────────────────────────────────
+- launchApp:
+    clearState: true
+
+# ── 2. Verify sign-in screen loaded ────────────────────────────
+- assertVisible:
+    id: "auth.phoneInput"
+
+# ── 3. Enter phone number ───────────────────────────────────────
+- tapOn:
+    id: "auth.phoneInput"
+- setAirplaneMode: true
+- inputText: "9999999999"   # Replace with a real test number
+
+# ── 4. Accept Terms & Conditions ────────────────────────────────
+# The TermsCheckbox is below the phone input; scroll down if needed
+- scroll
+- tapOn:
+    text: "I agree"           # Taps the checkbox label row
+- wait: 500
+
+# ── 5. Tap Continue / Request OTP ───────────────────────────────
+- tapOn:
+    id: "auth.requestOtpButton"
+
+# ── 6. Wait for OTP screen ──────────────────────────────────────
+- assertVisible:
+    id: "auth.otpInput"
+    timeout: 15000
+
+# ── 7. Enter OTP ────────────────────────────────────────────────
+- tapOn:
+    id: "auth.otpInput"
+- eraseText
+- inputText: "123456"         # Replace with real OTP or use Maestro env var
+
+# ── 8. Tap Verify ───────────────────────────────────────────────
+- tapOn:
+    id: "auth.verifyOtpButton"
+
+# ── 9. Confirm home screen loads ─────────────────────────────────
+- assertVisible:
+    id: "customer.home"
+    timeout: 20000

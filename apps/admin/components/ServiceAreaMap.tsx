@@ -64,6 +64,7 @@ export default function ServiceAreaMap({
       zoom={zoom} 
       className={`rounded-xl z-0 ${className}`}
       scrollWheelZoom={interactive}
+      attributionControl={false}
     >
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

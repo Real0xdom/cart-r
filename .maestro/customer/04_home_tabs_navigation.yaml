@@ -1,0 +1,39 @@
+appId: com.carter.customer
+name: "Customer - Tab Navigation Smoke Test"
+tags:
+  - customer
+  - navigation
+---
+- launchApp:
+    clearState: false
+
+# ── 1. Home tab ──────────────────────────────────────────────────
+- assertVisible:
+    id: "customer.home"
+    timeout: 15000
+- takeScreenshot: "tab_home"
+
+# ── 2. Rides / History tab ───────────────────────────────────────
+- tapOn:
+    text: "Rides"
+- wait: 1500
+- takeScreenshot: "tab_rides"
+
+# ── 3. Payment tab ───────────────────────────────────────────────
+- tapOn:
+    text: "Payment"
+- wait: 1500
+- takeScreenshot: "tab_payment"
+
+# ── 4. Profile tab ───────────────────────────────────────────────
+- tapOn:
+    text: "Profile"
+- wait: 1500
+- takeScreenshot: "tab_profile"
+
+# ── 5. Return to Home ────────────────────────────────────────────
+- tapOn:
+    text: "Home"
+- assertVisible:
+    id: "customer.home"
+    timeout: 5000

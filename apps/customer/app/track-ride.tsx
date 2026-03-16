@@ -23,6 +23,7 @@ import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBo
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from "@/lib/vehicleTypes";
 import type { Booking } from "@/types/type";
 import { saveRoute, saveAddress } from "@/lib/savedPlaces";
 import { useAuth } from "@/contexts/AuthContext";
@@ -48,6 +49,7 @@ const TrackRidePage = () => {
   const [completedBookingAmount, setCompletedBookingAmount] = useState(0);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
   const mapRef = useRef<MapView>(null);
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
@@ -119,6 +121,15 @@ const TrackRidePage = () => {
     setIsSavingRoute(false);
     Alert.alert("Success", "Route and addresses saved to your favorites!");
   };
+
+  // Fetch vehicle specifications
+  useEffect(() => {
+    const fetchVehicleSpecs = async () => {
+      const { data } = await getActiveVehicleTypes();
+      if (data) setVehicleSpecs(data);
+    };
+    fetchVehicleSpecs();
+  }, []);
 
   // Fetch booking and set up subscriptions
   useEffect(() => {
@@ -340,8 +351,11 @@ const TrackRidePage = () => {
                   justifyContent: 'center',
                 }}>
                   <Image 
-                    source={images.truckTransparent}
-                    style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }} // Adjust rotation if the asset doesn't face up
+                    source={(() => {
+                      const spec = vehicleSpecs.find(s => s.vehicle_type === booking?.vehicle_type);
+                      return getVehicleImageSource(booking?.vehicle_type || "", spec?.icon_url) || images.truckTransparent;
+                    })()}
+                    style={{ width: 44, height: 44, resizeMode: 'contain' }} 
                   />
                 </Animated.View>
               </Marker.Animated>
@@ -536,7 +550,7 @@ const TrackRidePage = () => {
                 For now we rely on status='in_progress' and user check manually via push notification, 
                 or we can add a persistent button here if not paid. */}
             {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
-               <TouchableOpacity
+                <TouchableOpacity
                   testID="booking.payOnlineButton"
                   accessibilityLabel="booking.payOnlineButton"
                   onPress={() => {
@@ -547,13 +561,10 @@ const TrackRidePage = () => {
                       setTimeout(() => setIsNavigating(false), 2000);
                   }}
                   disabled={isNavigating}
-                  className="mt-4 bg-primary-100 p-3 rounded-lg flex-row items-center justify-between"
+                  className={`mt-4 w-full py-4 rounded-xl flex-row items-center justify-center shadow-md shadow-primary-300 ${isNavigating ? 'bg-gray-400' : 'bg-primary-500'}`}
                >
-                  <View className="flex-row items-center">
-                      <Feather name="credit-card" size={18} color="#FF9800" />
-                      <Text className="ml-2 text-primary-600 font-JakartaSemiBold">Pay Online</Text>
-                  </View>
-                  <Feather name="chevron-right" size={18} color="#FF9800" />
+                  <Text className="text-white font-JakartaBold text-lg mr-2">Pay Now</Text>
+                  <Feather name="arrow-right" size={20} color="white" />
                </TouchableOpacity>
             )}
 

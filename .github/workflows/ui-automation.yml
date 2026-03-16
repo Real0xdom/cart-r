@@ -1,0 +1,129 @@
+name: UI Automation (Appium + Playwright)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'test-automation/**'
+      - 'apps/admin/**'
+      - '.github/workflows/ui-automation.yml'
+  pull_request:
+    paths:
+      - 'test-automation/**'
+      - 'apps/admin/**'
+      - '.github/workflows/ui-automation.yml'
+
+jobs:
+  web-admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: test-automation
+    env:
+      TARGET_ENV: staging
+      ADMIN_START_LOCAL: '1'
+      ADMIN_BASE_URL: http://127.0.0.1:3000
+      ADMIN_PORT: '3000'
+      ALLURE_RESULTS_DIR: reports/allure-results
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install admin dependencies
+        run: npm ci --prefix ../apps/admin
+
+      - name: Install test automation dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Admin web happy flow
+        env:
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: npm run test:web:admin
+
+      - name: Generate Allure report
+        if: always()
+        run: npm run allure:generate
+
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-web-report
+          path: test-automation/reports
+
+  mobile-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: test-automation
+    env:
+      TARGET_ENV: staging
+      APPIUM_SERVER_URL: http://127.0.0.1:4723
+      ANDROID_DEVICE_NAME: Android Emulator
+      ALLURE_RESULTS_DIR: reports/allure-results
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install test automation dependencies
+        run: npm install
+
+      - name: Install Appium driver (uiautomator2)
+        run: npx appium driver install uiautomator2
+
+      # Provide APKs via artifacts, releases, or your own build steps.
+      # This workflow expects APK paths to exist at these locations.
+      - name: Prepare APKs (placeholder)
+        run: |
+          mkdir -p ../artifacts
+          echo "Place customer.apk and driver.apk into ../artifacts/ (or replace this step to download/build them)."
+
+      - name: Start Appium server
+        run: |
+          nohup npx appium --port 4723 --log-level info > appium.log 2>&1 &
+          sleep 3
+
+      - name: Run on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            cd test-automation
+            export CUSTOMER_APK_PATH=$GITHUB_WORKSPACE/artifacts/customer.apk
+            export DRIVER_APK_PATH=$GITHUB_WORKSPACE/artifacts/driver.apk
+            export CUSTOMER_PHONE=${{ secrets.CUSTOMER_PHONE }}
+            export CUSTOMER_OTP=${{ secrets.CUSTOMER_OTP }}
+            export DRIVER_PHONE=${{ secrets.DRIVER_PHONE }}
+            export DRIVER_OTP=${{ secrets.DRIVER_OTP }}
+            export ADMIN_BASE_URL=http://127.0.0.1:3000
+            export ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+            export ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+
+            npm run test:mobile:customer
+            npm run test:mobile:driver
+
+      - name: Generate Allure report
+        if: always()
+        run: npm run allure:generate
+
+      - name: Upload logs + Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-allure-report
+          path: |
+            test-automation/reports
+            test-automation/appium.log
