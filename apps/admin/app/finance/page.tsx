@@ -2,17 +2,26 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { IndianRupee, FileText, TrendingUp, RefreshCw, Search, Download, Filter } from 'lucide-react';
+import { IndianRupee, FileText, TrendingUp, RefreshCw, Search, Filter, X, MapPin, Circle, Truck, Package, Clock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface Invoice {
   id: string;
   booking_id: string;
   invoice_number: string;
+  invoice_date?: string;
   customer_name: string;
   customer_phone: string;
   driver_name: string;
   driver_phone: string;
+  vehicle_type?: string;
+  vehicle_number?: string;
+  pickup_address?: string;
+  dropoff_address?: string;
+  pickup_time?: string;
+  dropoff_time?: string;
+  distance_km?: number;
+  base_fare?: number;
   total_amount: number;
   payment_method: string;
   payment_status: string;
@@ -23,6 +32,7 @@ interface Invoice {
   tip_amount?: number;
   addon_charges?: number;
   waiting_charges?: number;
+  addons?: Array<{ name: string; price: number }>;
 }
 
 interface Stats {
@@ -30,13 +40,210 @@ interface Stats {
   platformEarnings: number; driverPayouts: number; pendingAmount: number;
 }
 
+function formatCurrency(amount: number | null | undefined): string {
+  const n = amount ?? 0;
+  return `₹${Number(n).toFixed(2)}`;
+}
+
+function formatDate(dateString?: string): string {
+  if (!dateString) return '—';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function formatInvoiceNumber(invoiceNumber: string): string {
+  if (!invoiceNumber) return '—';
+  if (invoiceNumber.startsWith('INV-')) return invoiceNumber;
+  const year = new Date().getFullYear();
+  return `INV-${year}-${invoiceNumber.padStart(6, '0')}`;
+}
+
+/* ── Invoice Detail Modal ─────────────────────────────────────────── */
+function InvoiceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <FileText className="text-orange-500" size={20} />
+            <span className="text-lg font-bold text-gray-900">Invoice Details</span>
+          </div>
+          <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        {/* Invoice Content */}
+        <div className="overflow-y-auto flex-1 p-6 space-y-5">
+
+          {/* Invoice Header */}
+          <div className="flex items-start justify-between bg-orange-50 rounded-2xl p-5">
+            <div>
+              <p className="text-2xl font-black text-orange-500">Cart-R</p>
+              <p className="text-xs text-gray-500 mt-0.5">Goods Transportation Services</p>
+            </div>
+            <span className="bg-orange-500 text-white text-sm font-bold px-4 py-2 rounded-xl">INVOICE</span>
+          </div>
+
+          {/* Invoice Meta */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-xl p-4">
+              <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Invoice Number</p>
+              <p className="text-sm font-bold text-gray-900">{formatInvoiceNumber(invoice.invoice_number)}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4">
+              <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Invoice Date</p>
+              <p className="text-sm font-bold text-gray-900">{formatDate(invoice.invoice_date || invoice.created_at)}</p>
+            </div>
+          </div>
+
+          {/* Customer & Driver */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-blue-50 rounded-xl p-4">
+              <p className="text-[10px] text-blue-400 uppercase font-bold tracking-wider mb-2">Customer Details</p>
+              <p className="text-sm font-bold text-gray-900">{invoice.customer_name || '—'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{invoice.customer_phone || ''}</p>
+            </div>
+            <div className="bg-purple-50 rounded-xl p-4">
+              <p className="text-[10px] text-purple-400 uppercase font-bold tracking-wider mb-2">Driver Details</p>
+              <p className="text-sm font-bold text-gray-900">{invoice.driver_name || '—'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{invoice.driver_phone || ''}</p>
+              {invoice.vehicle_number && <p className="text-xs text-gray-500">{invoice.vehicle_number}</p>}
+            </div>
+          </div>
+
+          {/* Shipment Details */}
+          {(invoice.pickup_address || invoice.dropoff_address) && (
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+              <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Shipment Details</p>
+
+              {invoice.pickup_address && (
+                <div className="flex items-start gap-3">
+                  <Circle className="text-green-500 mt-0.5 shrink-0" size={12} fill="currentColor" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-gray-400 uppercase font-bold">Pickup Location</p>
+                    <p className="text-sm text-gray-900 mt-0.5">{invoice.pickup_address}</p>
+                    {invoice.pickup_time && <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(invoice.pickup_time)}</p>}
+                  </div>
+                </div>
+              )}
+
+              {invoice.pickup_address && invoice.dropoff_address && (
+                <div className="ml-1.5 w-0.5 h-4 bg-gray-200 mx-[5px]" />
+              )}
+
+              {invoice.dropoff_address && (
+                <div className="flex items-start gap-3">
+                  <MapPin className="text-red-500 mt-0.5 shrink-0" size={12} fill="currentColor" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-gray-400 uppercase font-bold">Drop Location</p>
+                    <p className="text-sm text-gray-900 mt-0.5">{invoice.dropoff_address}</p>
+                    {invoice.dropoff_time && <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(invoice.dropoff_time)}</p>}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-gray-200 pt-3 grid grid-cols-2 gap-2">
+                {invoice.vehicle_type && (
+                  <div className="flex items-center gap-2">
+                    <Truck size={12} className="text-gray-400" />
+                    <span className="text-xs text-gray-600">{invoice.vehicle_type}</span>
+                  </div>
+                )}
+                {(invoice.distance_km != null && invoice.distance_km > 0) && (
+                  <div className="flex items-center gap-2">
+                    <Package size={12} className="text-gray-400" />
+                    <span className="text-xs text-gray-600">{Number(invoice.distance_km).toFixed(2)} km</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Charges Breakdown */}
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-3">Charges Breakdown</p>
+            <div className="space-y-2">
+              {(invoice.base_fare != null && invoice.base_fare > 0) && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Base Fare</span>
+                  <span className="font-medium text-gray-900">{formatCurrency(invoice.base_fare)}</span>
+                </div>
+              )}
+              {(invoice.tip_amount != null && invoice.tip_amount > 0) && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Tip</span>
+                  <span className="font-medium text-gray-900">{formatCurrency(invoice.tip_amount)}</span>
+                </div>
+              )}
+              {(invoice.addon_charges != null && invoice.addon_charges > 0) && (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Add-on Services</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(invoice.addon_charges)}</span>
+                  </div>
+                  {invoice.addons && invoice.addons.length > 0 && invoice.addons.map((addon, i) => (
+                    <div key={i} className="flex justify-between text-xs pl-3">
+                      <span className="text-gray-400">• {addon.name}</span>
+                      <span className="text-gray-400">{formatCurrency(addon.price)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {(invoice.waiting_charges != null && invoice.waiting_charges > 0) && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600"><Clock size={12} className="inline mr-1" />Waiting Charges</span>
+                  <span className="font-medium text-gray-900">{formatCurrency(invoice.waiting_charges)}</span>
+                </div>
+              )}
+
+              <div className="border-t-2 border-gray-900 pt-2 mt-2 flex justify-between">
+                <span className="font-bold text-gray-900">Total Amount</span>
+                <span className="text-lg font-black text-green-600">{formatCurrency(invoice.total_amount)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Info */}
+          <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Payment Method</p>
+              <p className="text-sm font-bold text-gray-900 uppercase">{invoice.payment_method}</p>
+            </div>
+            <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase ${
+              invoice.payment_status === 'paid'
+                ? 'bg-green-100 text-green-700'
+                : invoice.payment_status === 'failed'
+                ? 'bg-red-100 text-red-700'
+                : invoice.payment_status === 'refunded'
+                ? 'bg-purple-100 text-purple-700'
+                : 'bg-yellow-100 text-yellow-700'
+            }`}>{invoice.payment_status}</span>
+          </div>
+
+          {/* Footer */}
+          <div className="text-center py-3 border-t border-gray-100">
+            <p className="text-sm font-semibold text-gray-700">Thank you for using Cart-R!</p>
+            <p className="text-xs text-gray-400 mt-0.5">For support, contact: support@cart-r.com</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Finance Page ────────────────────────────────────────────── */
 export default function FinancePage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalInvoices: 0, avgAmount: 0, platformEarnings: 0, driverPayouts: 0, pendingAmount: 0 });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [tab, setTab] = useState<'invoices' | 'summary'>('invoices');
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => { fetchInvoices(); }, []);
 
@@ -160,6 +367,7 @@ export default function FinancePage() {
                     <th className="px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">GST</th>
                     <th className="px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Payment</th>
                     <th className="px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Invoice</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -187,6 +395,15 @@ export default function FinancePage() {
                       <td className="px-5 py-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusColor(inv.payment_status)}`}>{inv.payment_status}</span>
                       </td>
+                      <td className="px-5 py-4">
+                        <button
+                          onClick={() => setSelectedInvoice(inv)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-semibold rounded-lg transition-colors border border-orange-200"
+                        >
+                          <FileText size={12} />
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -195,6 +412,11 @@ export default function FinancePage() {
           )}
         </div>
       </div>
+
+      {/* Invoice Modal */}
+      {selectedInvoice && (
+        <InvoiceModal invoice={selectedInvoice} onClose={() => setSelectedInvoice(null)} />
+      )}
     </div>
   );
 }

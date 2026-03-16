@@ -7,7 +7,6 @@ import {
   Package,
   Truck,
   Users,
-  BarChart3,
   LogOut,
   ChevronRight,
   User,
@@ -17,10 +16,10 @@ import {
   Car,
   MapPin,
   Puzzle,
-  IndianRupee,
   FileText,
   Receipt,
   Wallet,
+  Settings,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -54,7 +53,6 @@ const navSections: NavSection[] = [
       { href: '/vehicle-types', label: 'Vehicle Types', icon: Car },
       { href: '/service-areas', label: 'Service Areas', icon: MapPin },
       { href: '/addons', label: 'Addon Services', icon: Puzzle },
-      { href: '/pricing', label: 'Pricing', icon: IndianRupee },
       { href: '/legal', label: 'Legal', icon: FileText },
     ],
   },
@@ -64,8 +62,8 @@ const navSections: NavSection[] = [
       { href: '/finance', label: 'Finance', icon: Receipt },
       { href: '/payouts', label: 'Payouts', icon: Wallet },
       { href: '/notifications', label: 'Notifications', icon: Bell },
+      { href: '/settings', label: 'Settings', icon: Settings },
       { href: '/support', label: 'Support', icon: MessageSquare },
-      { href: '/analytics', label: 'Analytics', icon: BarChart3 },
     ],
   },
 ];

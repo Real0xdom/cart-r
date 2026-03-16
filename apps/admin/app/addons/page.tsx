@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { Puzzle, Plus, Save, RefreshCw, X, Trash2, ChevronDown } from 'lucide-react';
+import { Puzzle, Plus, Save, RefreshCw, X, Trash2, ChevronDown, Edit2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface AddonService {
@@ -30,6 +30,13 @@ export default function AddonsPage() {
   const [vehicleTypesDropdownOpen, setVehicleTypesDropdownOpen] = useState(false);
   const vehicleDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Edit modal state
+  const [editingAddon, setEditingAddon] = useState<AddonService | null>(null);
+  const [editForm, setEditForm] = useState(emptyAddon);
+  const [editVehicleDropdownOpen, setEditVehicleDropdownOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const editVehicleDropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => { fetchAddons(); }, []);
 
   useEffect(() => {
@@ -46,8 +53,8 @@ export default function AddonsPage() {
         setVehicleTypes([]);
       }
     }
-    if (showAdd) fetchVehicleTypes();
-  }, [showAdd]);
+    if (showAdd || editingAddon) fetchVehicleTypes();
+  }, [showAdd, editingAddon]);
 
   useEffect(() => {
     if (!vehicleTypesDropdownOpen) return;
@@ -59,6 +66,17 @@ export default function AddonsPage() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [vehicleTypesDropdownOpen]);
+
+  useEffect(() => {
+    if (!editVehicleDropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (editVehicleDropdownRef.current && !editVehicleDropdownRef.current.contains(e.target as Node)) {
+        setEditVehicleDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editVehicleDropdownOpen]);
 
   async function fetchAddons() {
     setLoading(true);
@@ -122,8 +140,57 @@ export default function AddonsPage() {
     finally { setAdding(false); }
   };
 
+  const openEdit = (addon: AddonService) => {
+    setEditingAddon(addon);
+    setEditForm({
+      code: addon.code,
+      name: addon.name,
+      description: addon.description || '',
+      price: addon.price,
+      icon_emoji: addon.icon_emoji,
+      applicable_vehicle_types: [...(addon.applicable_vehicle_types || [])],
+      display_order: addon.display_order,
+    });
+    setEditVehicleDropdownOpen(false);
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editingAddon) return;
+    if (!editForm.name) { toast.error('Name is required'); return; }
+    setEditing(true);
+    try {
+      const res = await fetch(`/api/addons/${editingAddon.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name,
+          description: editForm.description || null,
+          price: Number(editForm.price),
+          icon_emoji: editForm.icon_emoji,
+          display_order: Number(editForm.display_order),
+          applicable_vehicle_types: editForm.applicable_vehicle_types,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const updated = await res.json();
+      setAddons(prev => prev.map(a => a.id === editingAddon.id ? updated : a));
+      toast.success(`${editForm.name} updated!`);
+      setEditingAddon(null);
+    } catch (e: any) { toast.error('Failed: ' + (e.message || 'Update failed')); }
+    finally { setEditing(false); }
+  };
+
   const toggleVehicleType = (vehicleType: string) => {
     setForm(prev => ({
+      ...prev,
+      applicable_vehicle_types: prev.applicable_vehicle_types.includes(vehicleType)
+        ? prev.applicable_vehicle_types.filter(t => t !== vehicleType)
+        : [...prev.applicable_vehicle_types, vehicleType],
+    }));
+  };
+
+  const toggleEditVehicleType = (vehicleType: string) => {
+    setEditForm(prev => ({
       ...prev,
       applicable_vehicle_types: prev.applicable_vehicle_types.includes(vehicleType)
         ? prev.applicable_vehicle_types.filter(t => t !== vehicleType)
@@ -216,21 +283,17 @@ export default function AddonsPage() {
                         <div className="flex items-center gap-3">
                           <span className="text-2xl">{a.icon_emoji}</span>
                           <div>
-                            <input type="text" value={a.name} onChange={(e) => upd(a.id, 'name', e.target.value)}
-                              className="font-bold text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-500 focus:outline-none px-1 py-0.5" />
-                            <input type="text" value={a.description || ''} onChange={(e) => upd(a.id, 'description', e.target.value)}
-                              placeholder="Description..." className="block text-xs text-gray-500 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-500 focus:outline-none px-1 py-0.5 w-48" />
+                            <p className="font-bold text-gray-900">{a.name}</p>
+                            <p className="text-xs text-gray-500">{a.description || <span className="italic text-gray-300">No description</span>}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4"><span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-mono font-medium">{a.code}</span></td>
                       <td className="px-6 py-4">
-                        <input type="number" value={a.price} onChange={(e) => upd(a.id, 'price', e.target.value)}
-                          className="w-20 px-3 py-1.5 bg-gray-50 border border-transparent hover:border-gray-200 focus:border-orange-500 rounded-lg text-sm font-medium text-gray-900 focus:outline-none" />
+                        <span className="font-semibold text-gray-900">₹{Number(a.price).toLocaleString()}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <input type="number" value={a.display_order} onChange={(e) => upd(a.id, 'display_order', e.target.value)}
-                          className="w-14 px-2 py-1 bg-gray-50 border border-transparent hover:border-gray-200 focus:border-orange-500 rounded-lg text-sm font-medium text-gray-900 focus:outline-none" />
+                        <span className="text-sm text-gray-600">{a.display_order}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1 max-w-[180px]">
@@ -248,9 +311,9 @@ export default function AddonsPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleSave(a.id)} disabled={saving === a.id}
-                            className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-50">
-                            {saving === a.id ? <div className="w-4 h-4 border-2 border-orange-600 border-t-transparent rounded-full animate-spin" /> : <Save size={16} />}
+                          <button onClick={() => openEdit(a)} title="Edit addon"
+                            className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
+                            <Edit2 size={16} />
                           </button>
                           <button onClick={() => handleDelete(a.id, a.name)} className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg"><Trash2 size={16} /></button>
                         </div>
@@ -356,6 +419,109 @@ export default function AddonsPage() {
               <button onClick={() => setShowAdd(false)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">Cancel</button>
               <button onClick={handleAdd} disabled={adding} className="flex-1 btn-primary flex items-center justify-center gap-2">
                 {adding ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Plus size={16} /> Add Addon</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editingAddon && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-lg p-8 mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Edit Addon Service</h2>
+                <p className="text-xs text-gray-400 mt-0.5 font-mono">{editingAddon.code}</p>
+              </div>
+              <button onClick={() => setEditingAddon(null)} className="p-2 hover:bg-gray-100 rounded-xl"><X size={20} className="text-gray-500" /></button>
+            </div>
+            <div className="space-y-4">
+              <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Name *</label>
+                <input type="text" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="input-field text-sm" /></div>
+              <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Description</label>
+                <input type="text" value={editForm.description || ''} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="input-field text-sm" /></div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Icon</label>
+                  <input type="text" value={editForm.icon_emoji} onChange={(e) => setEditForm({ ...editForm, icon_emoji: e.target.value })} className="input-field text-sm text-center text-2xl" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Price (₹)</label>
+                  <input type="number" value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: Number(e.target.value) })} className="input-field text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Order</label>
+                  <input type="number" value={editForm.display_order} onChange={(e) => setEditForm({ ...editForm, display_order: Number(e.target.value) })} className="input-field text-sm" />
+                </div>
+              </div>
+              <div className="relative" ref={editVehicleDropdownRef}>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Vehicle Types</label>
+                <button
+                  type="button"
+                  onClick={() => setEditVehicleDropdownOpen(prev => !prev)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:border-orange-300 focus:border-orange-500 focus:outline-none transition-colors"
+                >
+                  <span className="text-sm text-gray-700">
+                    {editForm.applicable_vehicle_types.length === 0
+                      ? 'All vehicles (leave empty for all)'
+                      : `${editForm.applicable_vehicle_types.length} selected`}
+                  </span>
+                  <ChevronDown size={18} className={`text-gray-500 transition-transform ${editVehicleDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {editVehicleDropdownOpen && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto py-2">
+                    {vehicleTypes.length === 0 ? (
+                      <p className="px-4 py-2 text-sm text-gray-500">No vehicle types found. Add them in Vehicle Types first.</p>
+                    ) : (
+                      vehicleTypes.map((v) => (
+                        <label
+                          key={v.vehicle_type}
+                          className="flex items-center gap-3 px-4 py-2 hover:bg-orange-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editForm.applicable_vehicle_types.includes(v.vehicle_type)}
+                            onChange={() => toggleEditVehicleType(v.vehicle_type)}
+                            className="rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                          />
+                          <span className="text-sm font-medium text-gray-800 capitalize">{v.display_name || v.vehicle_type}</span>
+                          <span className="text-xs text-gray-400 font-mono">{v.vehicle_type}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+                {editForm.applicable_vehicle_types.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {editForm.applicable_vehicle_types.map((t) => {
+                      const label = vehicleTypes.find(v => v.vehicle_type === t)?.display_name || t;
+                      return (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-medium"
+                        >
+                          {label}
+                          <button
+                            type="button"
+                            onClick={() => toggleEditVehicleType(t)}
+                            className="hover:bg-orange-200 rounded-full p-0.5"
+                            aria-label={`Remove ${label}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-1.5">Leave empty to show this addon for all vehicle types.</p>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button onClick={() => setEditingAddon(null)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">Cancel</button>
+              <button onClick={handleEditSubmit} disabled={editing} className="flex-1 btn-primary flex items-center justify-center gap-2">
+                {editing ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={16} /> Save Changes</>}
               </button>
             </div>
           </div>
