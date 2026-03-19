@@ -1,0 +1,126 @@
+# Build & Dependencies
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+.next/
+out/
+build/
+
+# Android
+android/
+android_backup/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+*.aab
+
+# Backup & Temp
+*_backup/
+*.backup
+.gradle/
+build/
+tmp/
+temp/
+*.tmp
+
+# iOS (if exists)
+ios/
+ios/Pods/
+ios/build/
+
+# Certificates & Keys
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+key.properties
+
+# Logs & Debug
+npm-debug.*
+yarn-error.log
+build_log*.txt
+test_output*.txt
+device_list.txt
+integration-tests.ts
+*.log
+*.log.*
+db_error_log.txt
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Testing
+**/__tests__/
+**/*.test.js
+**/*.spec.js
+coverage/
+.turbo/
+dist_test/
+
+# Version Control
+.git/
+.gitignore
+.github/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Misc
+.pnp
+lerna-debug.log*
+.pnpm-debug.log*
+
+*.swo
+*.iml
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env.local
+.env.*.local
+
+# --- ADDED TO REDUCE ARCHIVE SIZE --- #
+# Massive Build Folders (Especially Admin Next.js)
+**/.next/**
+**/out/**
+**/build/**
+**/dist/**
+
+# Root-level Massive Folders
+**/e2e/**
+**/dist_test/**
+**/docs/**
+**/supabase/**
+**/tests/**
+**/testsprite_tests/**
+**/public-key/**
+**/cashfree-mcp/**
+
+# Redundant Ignores for Reliability
+**/.idea/**
+**/.vscode/**
+**/.git/**
+**/android_backup/**
+**/node_modules_backup/**
+

@@ -1,0 +1,43 @@
+# Maestro Test Suite - Carter App
+# ─────────────────────────────────────────────────────────────────
+#
+# SETUP
+# ─────
+# 1. Install Maestro:  curl -Ls "https://get.maestro.mobile.dev" | bash
+# 2. Connect Android device / start emulator
+# 3. Install the customer dev build on the device
+# 4. Install the driver dev build on the device
+#
+# ENVIRONMENT VARIABLES
+# ──────────────────────
+# Set these before running so tests work with real OTPs:
+#   MAESTRO_CUSTOMER_PHONE=9999999999
+#   MAESTRO_DRIVER_PHONE=9999999998
+#   MAESTRO_OTP=123456   (from Supabase test OTP or SMS)
+#
+# RUN INDIVIDUAL FLOW
+# ────────────────────
+#   maestro test .maestro/customer/01_sign_in.yaml
+#   maestro test .maestro/driver/01_sign_in.yaml
+#
+# RUN ALL CUSTOMER FLOWS
+# ───────────────────────
+#   maestro test .maestro/customer/
+#
+# RUN ALL DRIVER FLOWS
+# ─────────────────────
+#   maestro test .maestro/driver/
+#
+# OPEN MAESTRO STUDIO (interactive mode)
+# ───────────────────────────────────────
+#   maestro studio
+#   - Use Studio to inspect element IDs on screen
+#   - Record interactions visually
+#   - Tweak flows live before saving
+#
+# TIPS
+# ─────
+# - If OTP changes each run, pass it via env: ${OTP} in yaml
+# - Add  assertVisible: text: "Error"  negations to catch error banners
+# - Use takeScreenshot at key steps to catch visual regressions
+# - Increase timeout on assertVisible for network-dependent screens

@@ -1,0 +1,56 @@
+appId: com.carter.driver
+name: "Driver - Go Online & Accept Ride"
+tags:
+  - driver
+  - booking
+---
+- launchApp:
+    clearState: false
+
+# ── 1. Home screen ───────────────────────────────────────────────
+- assertVisible:
+    id: "driver.home"
+    timeout: 15000
+
+- takeScreenshot: "driver_home_offline"
+
+# ── 2. Toggle online ─────────────────────────────────────────────
+- tapOn:
+    id: "driver.toggleOnline"
+- wait: 2000
+
+- takeScreenshot: "driver_home_online"
+
+# ── 3. Verify "View Requests" appears when online ────────────────
+- assertVisible:
+    id: "driver.viewRequestsButton"
+    timeout: 8000
+
+# ── 4. Tap View Requests ─────────────────────────────────────────
+- tapOn:
+    id: "driver.viewRequestsButton"
+
+# ── 5. Requests screen ───────────────────────────────────────────
+- assertVisible:
+    id: "driver.requests"
+    timeout: 10000
+- takeScreenshot: "driver_requests_screen"
+
+# ── 6. Wait for a ride request card to appear ────────────────────
+- assertVisible:
+    id: "request.card.0"
+    timeout: 30000       # Give time for a booking to come in
+
+- takeScreenshot: "ride_request_appeared"
+
+# ── 7. Accept the first request ──────────────────────────────────
+- tapOn:
+    id: "request.accept.0"
+- wait: 2000
+
+# ── 8. Active ride screen appears ─────────────────────────────────
+- assertVisible:
+    id: "driver.activeRide"
+    timeout: 15000
+
+- takeScreenshot: "driver_active_ride"

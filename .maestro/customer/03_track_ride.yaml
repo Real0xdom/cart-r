@@ -1,0 +1,51 @@
+appId: com.carter.customer
+name: "Customer - Track Ride & Pay Online"
+tags:
+  - customer
+  - tracking
+  - payment
+---
+# Assumes a ride is already in_progress (driver accepted + started ride)
+- launchApp:
+    clearState: false
+
+# ── 1. Track ride screen must be visible ────────────────────────
+- assertVisible:
+    id: "booking.trackRide"
+    timeout: 20000
+
+- takeScreenshot: "track_ride_initial"
+
+# ── 2. Verify OTP is displayed ──────────────────────────────────
+- assertVisible:
+    id: "booking.pickupOtpValue"
+    timeout: 5000
+
+# ── 3. Scroll down to see Pay Online button ─────────────────────
+- scroll
+
+# ── 4. Check Pay Online button appears when in_progress & not paid
+- assertVisible:
+    id: "booking.payOnlineButton"
+    timeout: 5000
+
+- takeScreenshot: "pay_online_button_visible"
+
+# ── 5. Tap Pay Online ────────────────────────────────────────────
+- tapOn:
+    id: "booking.payOnlineButton"
+
+# ── 6. Pay booking screen should load ───────────────────────────
+- assertVisible:
+    text: "Pay"
+    timeout: 10000
+
+- takeScreenshot: "pay_booking_screen"
+
+# ── 7. Go back ───────────────────────────────────────────────────
+- back
+
+# ── 8. SOS button visible ────────────────────────────────────────
+- assertVisible:
+    id: "booking.sosButton"
+    timeout: 5000

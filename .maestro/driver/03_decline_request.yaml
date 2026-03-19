@@ -1,0 +1,43 @@
+appId: com.carter.driver
+name: "Driver - Decline Ride Request"
+tags:
+  - driver
+  - booking
+---
+- launchApp:
+    clearState: false
+
+- assertVisible:
+    id: "driver.home"
+    timeout: 15000
+
+# Go online if not already
+- tapOn:
+    id: "driver.toggleOnline"
+- wait: 1500
+
+- tapOn:
+    id: "driver.viewRequestsButton"
+
+- assertVisible:
+    id: "driver.requests"
+    timeout: 10000
+
+# Wait for a request
+- assertVisible:
+    id: "request.card.0"
+    timeout: 30000
+
+- takeScreenshot: "request_before_decline"
+
+# Decline the first request
+- tapOn:
+    id: "request.decline.0"
+- wait: 2000
+
+- takeScreenshot: "after_decline"
+
+# Request card should disappear or list should update
+- assertNotVisible:
+    id: "request.card.0"
+    timeout: 8000

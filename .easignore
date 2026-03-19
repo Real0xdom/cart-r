@@ -1,0 +1,46 @@
+node_modules/
+.expo/
+android/
+ios/
+android_backup/
+node_modules_backup/
+npm-debug.log
+yarn-error.log
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.DS_Store
+
+# --- ADDED TO REDUCE ARCHIVE SIZE --- #
+# Aggressive Glob Ignores for Monorepo
+# We only ignore specific directories that are NOT needed for the build.
+# For example, when building customer, we don't necessarily need admin or driver.
+# However, to avoid complexity, we'll keep it simple and just ignore large subfolders.
+
+# Massive Build Folders (Especially Admin Next.js)
+**/.next/**
+**/out/**
+**/build/**
+**/dist/**
+
+# Root-level Massive Folders
+**/e2e/**
+**/dist_test/**
+**/docs/**
+**/supabase/**
+**/tests/**
+**/testsprite_tests/**
+**/public-key/**
+**/cashfree-mcp/**
+
+# Redundant Ignores for Reliability
+**/.idea/**
+**/.vscode/**
+**/.git/**
+**/android_backup/**
+**/node_modules_backup/**
+

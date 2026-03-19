@@ -1,0 +1,631 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.addon_services (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  code character varying NOT NULL UNIQUE,
+  name character varying NOT NULL,
+  description text,
+  price numeric NOT NULL,
+  icon_emoji character varying DEFAULT '🔧'::character varying,
+  is_active boolean DEFAULT true,
+  applicable_vehicle_types ARRAY DEFAULT ARRAY[]::vehicle_type[],
+  display_order integer DEFAULT 0,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT addon_services_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.admin (
+  id uuid NOT NULL DEFAULT auth.uid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  is_active boolean NOT NULL DEFAULT true,
+  CONSTRAINT admin_pkey PRIMARY KEY (id, created_at, is_active),
+  CONSTRAINT admin_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.admins (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  role text DEFAULT 'admin'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT admins_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  table_name text NOT NULL,
+  record_id uuid NOT NULL,
+  action text NOT NULL,
+  old_data jsonb,
+  new_data jsonb,
+  user_id uuid,
+  ip_address inet,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.booking_addons (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  booking_id uuid NOT NULL,
+  addon_id uuid NOT NULL,
+  quantity integer DEFAULT 1 CHECK (quantity > 0),
+  unit_price numeric NOT NULL,
+  total_price numeric DEFAULT ((quantity)::numeric * unit_price),
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT booking_addons_pkey PRIMARY KEY (id),
+  CONSTRAINT booking_addons_addon_id_fkey FOREIGN KEY (addon_id) REFERENCES public.addon_services(id),
+  CONSTRAINT booking_addons_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.bookings (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  booking_number character varying NOT NULL UNIQUE,
+  customer_id uuid NOT NULL,
+  driver_id uuid,
+  origin_address text NOT NULL,
+  origin_latitude numeric NOT NULL,
+  origin_longitude numeric NOT NULL,
+  origin_landmark text,
+  destination_address text NOT NULL,
+  destination_latitude numeric NOT NULL,
+  destination_longitude numeric NOT NULL,
+  destination_landmark text,
+  vehicle_type USER-DEFINED NOT NULL,
+  estimated_distance numeric,
+  estimated_duration integer,
+  actual_distance numeric,
+  actual_duration integer,
+  base_fare numeric NOT NULL,
+  distance_fare numeric DEFAULT 0,
+  time_fare numeric DEFAULT 0,
+  surge_multiplier numeric DEFAULT 1.00,
+  discount_amount numeric DEFAULT 0,
+  total_fare numeric NOT NULL,
+  payment_status USER-DEFINED DEFAULT 'pending'::payment_status,
+  payment_method USER-DEFINED DEFAULT 'cash'::payment_method,
+  payment_id character varying,
+  status USER-DEFINED DEFAULT 'pending'::booking_status,
+  scheduled_at timestamp with time zone,
+  accepted_at timestamp with time zone,
+  driver_arrived_at timestamp with time zone,
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  pickup_otp character varying,
+  customer_notes text,
+  driver_notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  receiver_name character varying,
+  receiver_phone character varying,
+  goods_description text,
+  goods_weight_kg numeric,
+  tip_amount numeric DEFAULT 0,
+  fare_multiplier numeric DEFAULT 1.00,
+  driver_payout numeric,
+  delivery_otp character varying,
+  delivery_confirmed_at timestamp with time zone,
+  delivery_proof_url text,
+  expires_at timestamp with time zone,
+  payment_confirmed_by_customer boolean DEFAULT false,
+  customer_reported_payment_method text,
+  idempotency_key text UNIQUE,
+  wallet_amount_used numeric DEFAULT 0,
+  payment_session_id text,
+  online_payment_order_id text,
+  free_waiting_time_minutes integer DEFAULT 5,
+  waiting_charge_per_minute numeric DEFAULT 2,
+  waiting_charges numeric DEFAULT 0,
+  addon_charges numeric DEFAULT 0,
+  waiting_start_time timestamp with time zone,
+  waiting_end_time timestamp with time zone,
+  waiting_duration_minutes integer DEFAULT 0,
+  free_waiting_minutes integer DEFAULT 2,
+  cancellation_fee numeric DEFAULT 0,
+  waiting_fare numeric DEFAULT 0,
+  applied_waiting_rate numeric DEFAULT 0,
+  cashfree_order_id character varying,
+  payment_initiated_at timestamp with time zone,
+  refund_preference character varying DEFAULT 'bank'::character varying,
+  CONSTRAINT bookings_pkey PRIMARY KEY (id),
+  CONSTRAINT bookings_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.users(id),
+  CONSTRAINT bookings_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT bookings_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.driver_locations (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  driver_id uuid NOT NULL,
+  booking_id uuid,
+  latitude numeric NOT NULL,
+  longitude numeric NOT NULL,
+  heading numeric,
+  speed numeric,
+  accuracy numeric,
+  recorded_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_locations_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_locations_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT driver_locations_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.driver_rejections (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  booking_id uuid NOT NULL,
+  driver_id uuid NOT NULL,
+  rejected_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_rejections_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_rejections_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
+  CONSTRAINT driver_rejections_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
+);
+CREATE TABLE public.driver_verification_history (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL,
+  action text NOT NULL CHECK (action = ANY (ARRAY['submitted'::text, 'approved'::text, 'rejected'::text, 'resubmitted'::text])),
+  rejection_reason text,
+  document_snapshot jsonb,
+  admin_id uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_verification_history_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_verification_history_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT driver_verification_history_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.driver_wallet_transactions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL,
+  booking_id uuid,
+  withdrawal_id uuid,
+  type text NOT NULL CHECK (type = ANY (ARRAY['earning'::text, 'release'::text, 'withdrawal'::text, 'reversal'::text, 'adjustment'::text, 'payout_fee'::text, 'platform_fee'::text])),
+  amount numeric NOT NULL CHECK (amount > 0::numeric),
+  balance_type text NOT NULL CHECK (balance_type = ANY (ARRAY['pending'::text, 'available'::text])),
+  direction text NOT NULL CHECK (direction = ANY (ARRAY['credit'::text, 'debit'::text])),
+  status text NOT NULL DEFAULT 'completed'::text CHECK (status = ANY (ARRAY['pending'::text, 'completed'::text, 'failed'::text])),
+  reference_id text,
+  description text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT driver_wallet_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_wallet_transactions_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT driver_wallet_transactions_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
+  CONSTRAINT driver_wallet_transactions_withdrawal_id_fkey FOREIGN KEY (withdrawal_id) REFERENCES public.withdrawals(id)
+);
+CREATE TABLE public.driver_wallets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL UNIQUE,
+  pending_balance numeric NOT NULL DEFAULT 0 CHECK (pending_balance >= 0::numeric),
+  available_balance numeric NOT NULL DEFAULT 0,
+  total_earned numeric NOT NULL DEFAULT 0,
+  total_withdrawn numeric NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  total_commission_owed numeric DEFAULT 0 CHECK (total_commission_owed >= 0::numeric),
+  CONSTRAINT driver_wallets_pkey PRIMARY KEY (id),
+  CONSTRAINT driver_wallets_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
+);
+CREATE TABLE public.drivers (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid UNIQUE,
+  vehicle_type USER-DEFINED NOT NULL,
+  vehicle_number character varying NOT NULL,
+  vehicle_model character varying NOT NULL,
+  vehicle_color character varying,
+  vehicle_image_url text,
+  license_number character varying NOT NULL,
+  license_expiry date NOT NULL,
+  license_image_url text,
+  rc_image_url text,
+  insurance_image_url text,
+  verification_status USER-DEFINED DEFAULT 'pending'::verification_status,
+  verified_at timestamp with time zone,
+  verified_by uuid,
+  rejection_reason text,
+  is_online boolean DEFAULT false,
+  current_latitude numeric,
+  current_longitude numeric,
+  last_location_update timestamp with time zone,
+  rating numeric DEFAULT 5.00,
+  total_trips integer DEFAULT 0,
+  total_earnings numeric DEFAULT 0.00,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  is_verified boolean DEFAULT false,
+  status text DEFAULT 'pending'::text,
+  payment_flags integer DEFAULT 0,
+  bank_details jsonb,
+  beneficiary_id text,
+  beneficiary_status text DEFAULT 'not_created'::text CHECK (beneficiary_status = ANY (ARRAY['not_created'::text, 'pending'::text, 'active'::text, 'failed'::text])),
+  suspension_type text CHECK (suspension_type = ANY (ARRAY['temporary'::text, 'permanent'::text])),
+  suspension_reason text,
+  suspension_until timestamp with time zone,
+  aadhaar_number text,
+  pan_number text,
+  license_back_image_url text,
+  rc_back_image_url text,
+  CONSTRAINT drivers_pkey PRIMARY KEY (id),
+  CONSTRAINT drivers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT drivers_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.emergency_alerts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  booking_id uuid,
+  latitude numeric,
+  longitude numeric,
+  alert_type character varying DEFAULT 'sos'::character varying,
+  status character varying DEFAULT 'active'::character varying CHECK (status::text = ANY (ARRAY['active'::character varying, 'resolved'::character varying, 'false_alarm'::character varying]::text[])),
+  notified_contacts ARRAY,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  resolved_at timestamp with time zone,
+  CONSTRAINT emergency_alerts_pkey PRIMARY KEY (id),
+  CONSTRAINT emergency_alerts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT emergency_alerts_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.emergency_contacts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  name character varying NOT NULL,
+  phone character varying NOT NULL,
+  relationship character varying,
+  is_primary boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT emergency_contacts_pkey PRIMARY KEY (id),
+  CONSTRAINT emergency_contacts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.expansion_interests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  latitude double precision NOT NULL,
+  longitude double precision NOT NULL,
+  address text,
+  requested_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT expansion_interests_pkey PRIMARY KEY (id),
+  CONSTRAINT expansion_interests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.faqs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  question text NOT NULL,
+  answer text NOT NULL,
+  target_audience character varying DEFAULT 'all'::character varying CHECK (target_audience::text = ANY (ARRAY['customer'::character varying, 'driver'::character varying, 'all'::character varying]::text[])),
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT faqs_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.fare_config (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  vehicle_type USER-DEFINED NOT NULL UNIQUE,
+  base_fare numeric NOT NULL,
+  per_km_rate numeric NOT NULL,
+  per_minute_rate numeric NOT NULL,
+  minimum_fare numeric NOT NULL,
+  cancellation_fee numeric DEFAULT 0,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  driver_search_radius_km numeric DEFAULT 10,
+  CONSTRAINT fare_config_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.fare_discrepancies (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  booking_id uuid NOT NULL,
+  estimated_distance_km numeric NOT NULL,
+  actual_distance_km numeric NOT NULL,
+  deviation_percentage numeric NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT fare_discrepancies_pkey PRIMARY KEY (id),
+  CONSTRAINT fare_discrepancies_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.fast2sms_otp_requests (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  phone_number text NOT NULL,
+  otp_code character varying NOT NULL,
+  purpose text NOT NULL,
+  status text DEFAULT 'pending'::text,
+  attempts integer DEFAULT 0,
+  max_attempts integer DEFAULT 3,
+  expires_at timestamp with time zone NOT NULL,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  user_id uuid,
+  booking_id uuid,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT fast2sms_otp_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT fast2sms_otp_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT fast2sms_otp_requests_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.legal_documents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  type character varying NOT NULL,
+  title character varying NOT NULL,
+  content text NOT NULL,
+  version character varying NOT NULL DEFAULT 'v1.0'::character varying,
+  is_published boolean DEFAULT false,
+  published_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  target_audience character varying NOT NULL DEFAULT 'both'::character varying,
+  CONSTRAINT legal_documents_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  title character varying NOT NULL,
+  body text NOT NULL,
+  data jsonb,
+  is_read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  processed_at timestamp with time zone,
+  notification_type text DEFAULT 'general'::text,
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.phone_otps (
+  phone text NOT NULL,
+  otp text NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT phone_otps_pkey PRIMARY KEY (phone)
+);
+CREATE TABLE public.platform_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  key text NOT NULL UNIQUE,
+  value jsonb NOT NULL DEFAULT '{}'::jsonb,
+  description text,
+  is_public boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT platform_settings_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.push_tokens (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  token text NOT NULL,
+  device_id text NOT NULL,
+  platform text NOT NULL DEFAULT 'unknown'::text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT push_tokens_pkey PRIMARY KEY (id),
+  CONSTRAINT push_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.ratings (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  booking_id uuid NOT NULL,
+  from_user_id uuid NOT NULL,
+  to_user_id uuid NOT NULL,
+  rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  review text,
+  is_from_customer boolean NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  rated_by uuid NOT NULL,
+  rated_user uuid NOT NULL,
+  rater_type text NOT NULL CHECK (rater_type = ANY (ARRAY['customer'::text, 'driver'::text])),
+  tags ARRAY DEFAULT ARRAY[]::text[],
+  CONSTRAINT ratings_pkey PRIMARY KEY (id),
+  CONSTRAINT ratings_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
+  CONSTRAINT ratings_from_user_id_fkey FOREIGN KEY (from_user_id) REFERENCES public.users(id),
+  CONSTRAINT ratings_to_user_id_fkey FOREIGN KEY (to_user_id) REFERENCES public.users(id),
+  CONSTRAINT ratings_rated_by_fkey FOREIGN KEY (rated_by) REFERENCES public.users(id),
+  CONSTRAINT ratings_rated_user_fkey FOREIGN KEY (rated_user) REFERENCES public.users(id)
+);
+CREATE TABLE public.referrals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  referrer_id uuid NOT NULL,
+  referred_id uuid NOT NULL UNIQUE,
+  referral_code_used character varying NOT NULL,
+  source_app character varying NOT NULL CHECK (source_app::text = ANY (ARRAY['customer_app'::character varying, 'driver_app'::character varying]::text[])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT referrals_pkey PRIMARY KEY (id),
+  CONSTRAINT referrals_referrer_id_fkey FOREIGN KEY (referrer_id) REFERENCES public.users(id),
+  CONSTRAINT referrals_referred_id_fkey FOREIGN KEY (referred_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.rides (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  driver_id uuid,
+  status text,
+  pickup text,
+  dropoff text,
+  created_at timestamp with time zone DEFAULT now(),
+  completed_at timestamp with time zone,
+  CONSTRAINT rides_pkey PRIMARY KEY (id),
+  CONSTRAINT rides_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT rides_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
+);
+CREATE TABLE public.saved_addresses (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+  label character varying NOT NULL,
+  address text NOT NULL,
+  latitude numeric NOT NULL,
+  longitude numeric NOT NULL,
+  icon_type character varying DEFAULT 'place'::character varying,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT saved_addresses_pkey PRIMARY KEY (id),
+  CONSTRAINT saved_addresses_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.saved_routes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+  name character varying NOT NULL,
+  origin_address text NOT NULL,
+  origin_latitude numeric NOT NULL,
+  origin_longitude numeric NOT NULL,
+  destination_address text NOT NULL,
+  destination_latitude numeric NOT NULL,
+  destination_longitude numeric NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT saved_routes_pkey PRIMARY KEY (id),
+  CONSTRAINT saved_routes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.service_areas (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  city character varying NOT NULL,
+  state character varying NOT NULL,
+  country character varying DEFAULT 'India'::character varying,
+  geometry USER-DEFINED,
+  center_latitude numeric NOT NULL,
+  center_longitude numeric NOT NULL,
+  radius_km numeric DEFAULT 10,
+  is_active boolean DEFAULT true,
+  priority integer DEFAULT 1,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT service_areas_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.sms_queue (
+  id bigint NOT NULL DEFAULT nextval('sms_queue_id_seq'::regclass),
+  phone_number text NOT NULL,
+  message text NOT NULL,
+  booking_id uuid,
+  status text DEFAULT 'pending'::text,
+  attempts integer DEFAULT 0,
+  last_attempt_at timestamp with time zone,
+  sent_at timestamp with time zone,
+  error_message text,
+  created_at timestamp with time zone DEFAULT now(),
+  purpose text DEFAULT 'general'::text,
+  CONSTRAINT sms_queue_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.spatial_ref_sys (
+  srid integer NOT NULL CHECK (srid > 0 AND srid <= 998999),
+  auth_name character varying,
+  auth_srid integer,
+  srtext character varying,
+  proj4text character varying,
+  CONSTRAINT spatial_ref_sys_pkey PRIMARY KEY (srid)
+);
+CREATE TABLE public.support_tickets (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  booking_id uuid,
+  subject character varying NOT NULL,
+  description text NOT NULL,
+  status character varying DEFAULT 'open'::character varying CHECK (status::text = ANY (ARRAY['open'::character varying, 'in_progress'::character varying, 'resolved'::character varying, 'closed'::character varying]::text[])),
+  priority character varying DEFAULT 'medium'::character varying CHECK (priority::text = ANY (ARRAY['low'::character varying, 'medium'::character varying, 'high'::character varying, 'urgent'::character varying]::text[])),
+  assigned_to uuid,
+  resolved_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  source_app character varying CHECK (source_app IS NULL OR (source_app::text = ANY (ARRAY['customer_app'::character varying, 'driver_app'::character varying]::text[]))),
+  CONSTRAINT support_tickets_pkey PRIMARY KEY (id),
+  CONSTRAINT support_tickets_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT support_tickets_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
+  CONSTRAINT support_tickets_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES public.users(id)
+);
+CREATE TABLE public.ticket_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  ticket_id uuid NOT NULL,
+  sender_id uuid NOT NULL,
+  sender_type character varying NOT NULL CHECK (sender_type::text = ANY (ARRAY['user'::character varying, 'support'::character varying]::text[])),
+  message text NOT NULL,
+  attachment_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT ticket_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES public.support_tickets(id),
+  CONSTRAINT ticket_messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_terms_acceptance (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  terms_version character varying NOT NULL DEFAULT 'v1.0'::character varying,
+  accepted_at timestamp with time zone NOT NULL DEFAULT now(),
+  ip_address inet,
+  user_agent text,
+  device_info jsonb,
+  CONSTRAINT user_terms_acceptance_pkey PRIMARY KEY (id),
+  CONSTRAINT user_terms_acceptance_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  email character varying NOT NULL UNIQUE,
+  name character varying NOT NULL,
+  phone character varying,
+  role USER-DEFINED DEFAULT 'customer'::user_role,
+  avatar_url text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  expo_push_token text,
+  balance numeric DEFAULT 0.00,
+  terms_accepted boolean DEFAULT false,
+  terms_accepted_at timestamp with time zone,
+  terms_version character varying DEFAULT 'v1.0'::character varying,
+  rating numeric DEFAULT 5.00,
+  total_ratings integer DEFAULT 0,
+  referral_code character varying NOT NULL DEFAULT upper(SUBSTRING(md5((gen_random_uuid())::text) FROM 1 FOR 8)) UNIQUE,
+  CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.vehicle_models (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  make text NOT NULL,
+  model text NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT vehicle_models_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.vehicle_specifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  vehicle_type USER-DEFINED NOT NULL UNIQUE,
+  display_name character varying NOT NULL,
+  description text,
+  icon_emoji character varying DEFAULT '🚗'::character varying,
+  max_weight_kg numeric,
+  max_volume_cubic_meters numeric,
+  passenger_capacity integer DEFAULT 0,
+  suitable_for ARRAY,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  icon_url text,
+  CONSTRAINT vehicle_specifications_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.waiting_charges_config (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  vehicle_type USER-DEFINED NOT NULL UNIQUE,
+  charge_per_minute numeric NOT NULL DEFAULT 1.67,
+  free_waiting_minutes integer NOT NULL DEFAULT 2,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT waiting_charges_config_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.wallet_transactions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL,
+  amount numeric NOT NULL,
+  type character varying NOT NULL CHECK (type::text = ANY (ARRAY['credit'::character varying, 'debit'::character varying]::text[])),
+  status character varying DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])),
+  payment_order_id character varying,
+  booking_id uuid,
+  description text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT wallet_transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT wallet_transactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT wallet_transactions_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
+CREATE TABLE public.withdrawals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL,
+  amount numeric NOT NULL CHECK (amount > 0::numeric),
+  status text NOT NULL CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'paid'::text])),
+  notes text,
+  transaction_id text,
+  idempotency_key text UNIQUE,
+  admin_notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  processed_at timestamp with time zone,
+  wallet_id uuid,
+  payout_reference text,
+  payout_status text,
+  payout_error text,
+  CONSTRAINT withdrawals_pkey PRIMARY KEY (id),
+  CONSTRAINT withdrawals_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
+  CONSTRAINT withdrawals_wallet_id_fkey FOREIGN KEY (wallet_id) REFERENCES public.driver_wallets(id)
+);  
