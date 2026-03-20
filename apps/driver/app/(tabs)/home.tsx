@@ -15,6 +15,7 @@ import {
 } from '@/lib/wallet';
 import WalletBalanceCard from '@/components/WalletBalanceCard';
 import * as Location from 'expo-location';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 
 // Countdown timer hook for ride requests - MUST be called at top level
 const useCountdown = (expiresAt: string | null) => {
@@ -532,6 +533,7 @@ const DriverHome = () => {
             if (success) {
                 // Remove from requests list
                 setRideRequests(prev => prev.filter(r => r.id !== bookingId));
+                void refreshLocationTrackingNotification();
                 if (assignmentMode === 'queued') {
                     Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current ride to activate it.');
                     const { data: activeRides } = await getDriverActiveBookings(driverProfile.id);

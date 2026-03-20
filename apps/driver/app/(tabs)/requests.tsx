@@ -9,6 +9,7 @@ import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget }
 import * as Location from 'expo-location';
 import { checkLocationServices } from '@/lib/location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 
 // Countdown timer hook for expiration
 // NO grace period for display - show actual expiration time
@@ -506,6 +507,7 @@ const DriverRequests = () => {
             
             if (success) {
                 console.log('[HANDLE ACCEPT] Booking accepted successfully');
+                void refreshLocationTrackingNotification();
                 if (assignmentMode === 'queued') {
                     Alert.alert("Ride queued", "Next ride queued successfully. Finish your current ride to activate it.");
                     fetchAllRides();

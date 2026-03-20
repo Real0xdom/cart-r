@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, getDriverQueuedBooking, Booking } from '@/lib/bookings';
-import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
+import { cancelRideRequestNotification, displayFullScreenRideRequest } from '@/lib/notifications';
 import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, useRootNavigationState } from 'expo-router';
@@ -11,6 +11,7 @@ import { Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 
 // Configure notifications to show in foreground
 Notifications.setNotificationHandler({
@@ -108,7 +109,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         }
         
         // Also cancel it from Notifee explicitly if it was on screen
-        notifee.cancelNotification(removedBookingId).catch(() => {});
+        void cancelRideRequestNotification(removedBookingId).catch(() => {});
       }
     );
 
@@ -188,8 +189,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         }
         
         // Remove the notification after taking action
-        if (notification?.id) {
-          await notifee.cancelNotification(notification.id);
+        if (bookingId && typeof bookingId === 'string') {
+          await cancelRideRequestNotification(bookingId);
         }
       }
     });
@@ -256,8 +257,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
             }
           }
           
-          if (notification?.id) {
-            await notifee.cancelNotification(notification.id);
+          if (bookingId && typeof bookingId === 'string') {
+            await cancelRideRequestNotification(bookingId);
           }
         }
       }
@@ -312,6 +313,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       if (success) {
         console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
         hideNotification();
+        void refreshLocationTrackingNotification();
 
         if (assignmentMode === 'queued') {
           Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current trip to start it.');

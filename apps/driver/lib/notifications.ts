@@ -19,15 +19,18 @@ import * as SecureStore from 'expo-secure-store';
 import type { Booking } from './bookings';
 
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
-const RIDE_REQUESTS_FULLSCREEN_CHANNEL = 'ride_requests_fullscreen';
-const TRIP_ACCEPTED_CHANNEL = 'trip_accepted';
-const TRIP_CANCELLED_CHANNEL = 'trip_cancelled';
+const RIDE_REQUESTS_FULLSCREEN_CHANNEL = 'driver_ride_request_urgent';
+const TRIP_STATUS_CHANNEL = 'driver_trip_status';
+const DRIVER_MARKETING_CHANNEL = 'driver_marketing';
 
-export const RIDE_REQUESTS_CHANNEL = 'ride-requests';
+export const RIDE_REQUESTS_CHANNEL = RIDE_REQUESTS_FULLSCREEN_CHANNEL;
 export const RIDE_REQUEST_COUNTDOWN_SECONDS = 10;
 export const RIDE_REQUEST_TIMEOUT_MS = 30_000;
+export const RIDE_REQUEST_CLIENT_CANCEL_MS = 28_000;
 
 const rideRequestUpdateTimers = new Map<string, ReturnType<typeof setInterval>>();
+const rideRequestClientCancelTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const rideRequestServerTimeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 type RideRequestNotificationInput = Partial<
   Pick<
@@ -47,6 +50,7 @@ type RideRequestNotificationInput = Partial<
   type?: string;
   available_at?: number | string;
   expires_at_ms?: number | string;
+  local_cancel_at_ms?: number | string;
 };
 
 function toNumber(value: unknown): number | null {
@@ -99,12 +103,34 @@ function clearRideRequestUpdateTimer(notificationId: string) {
   }
 }
 
+function clearRideRequestClientCancelTimer(notificationId: string) {
+  const timer = rideRequestClientCancelTimers.get(notificationId);
+  if (timer) {
+    clearTimeout(timer);
+    rideRequestClientCancelTimers.delete(notificationId);
+  }
+}
+
+function clearRideRequestServerTimeoutTimer(notificationId: string) {
+  const timer = rideRequestServerTimeoutTimers.get(notificationId);
+  if (timer) {
+    clearTimeout(timer);
+    rideRequestServerTimeoutTimers.delete(notificationId);
+  }
+}
+
 function resolveRideRequestTiming(data: RideRequestNotificationInput) {
   const now = Date.now();
+  const rpcTimeoutAt = toNumber(data.expires_at_ms) ?? now + RIDE_REQUEST_TIMEOUT_MS;
+  const localCancelAt = Math.min(
+    toNumber(data.local_cancel_at_ms) ?? now + RIDE_REQUEST_CLIENT_CANCEL_MS,
+    rpcTimeoutAt
+  );
 
   return {
     availableAt: toNumber(data.available_at) ?? now + RIDE_REQUEST_COUNTDOWN_SECONDS * 1000,
-    expiresAt: toNumber(data.expires_at_ms) ?? now + RIDE_REQUEST_TIMEOUT_MS,
+    localCancelAt,
+    rpcTimeoutAt,
   };
 }
 
@@ -121,10 +147,11 @@ function buildRideRequestNotification(
   data: RideRequestNotificationInput,
   options: {
     channelId: string;
-    remainingSeconds: number;
-    availableAt: number;
-    expiresAt: number;
-    fullScreen?: boolean;
+      remainingSeconds: number;
+      availableAt: number;
+      localCancelAt: number;
+      rpcTimeoutAt: number;
+      fullScreen?: boolean;
   }
 ): Notification {
   const bookingId = getRideRequestBookingId(data);
@@ -157,7 +184,8 @@ function buildRideRequestNotification(
       bookingId,
       type: String(data.type || 'new_booking'),
       available_at: String(options.availableAt),
-      expires_at_ms: String(options.expiresAt),
+      expires_at_ms: String(options.rpcTimeoutAt),
+      local_cancel_at_ms: String(options.localCancelAt),
       origin_address: pickup,
       destination_address: dropoff,
     },
@@ -186,7 +214,7 @@ function buildRideRequestNotification(
             showChronometer: !isUnlocked,
             chronometerDirection: 'down',
             timestamp: options.availableAt,
-            timeoutAfter: Math.max(0, options.expiresAt - Date.now()),
+            timeoutAfter: Math.max(0, options.localCancelAt - Date.now()),
             progress: {
               max: RIDE_REQUEST_COUNTDOWN_SECONDS,
               current: isUnlocked
@@ -219,41 +247,57 @@ async function ensureRideRequestChannel(): Promise<string> {
     return RIDE_REQUESTS_CHANNEL;
   }
 
+  const existingChannel = await notifee.getChannel(RIDE_REQUESTS_FULLSCREEN_CHANNEL);
+  if (existingChannel) {
+    return existingChannel.id;
+  }
+
   return notifee.createChannel({
     id: RIDE_REQUESTS_FULLSCREEN_CHANNEL,
-    name: 'Ride Requests (Full Screen)',
+    name: 'Ride Requests',
     importance: AndroidImportance.HIGH,
+    sound: 'default',
     vibration: true,
     vibrationPattern: [300, 500, 300, 500],
     bypassDnd: true,
   });
 }
 
-async function ensureTripAcceptedChannel(): Promise<string> {
+async function ensureTripStatusChannel(): Promise<string> {
   if (Platform.OS !== 'android') {
     return 'default';
   }
 
+  const existingChannel = await notifee.getChannel(TRIP_STATUS_CHANNEL);
+  if (existingChannel) {
+    return existingChannel.id;
+  }
+
   return notifee.createChannel({
-    id: TRIP_ACCEPTED_CHANNEL,
-    name: 'Trip Accepted',
+    id: TRIP_STATUS_CHANNEL,
+    name: 'Trip Status',
     importance: AndroidImportance.HIGH,
+    sound: 'default',
     vibration: true,
     vibrationPattern: [150, 120, 150, 120],
   });
 }
 
-async function ensureTripCancelledChannel(): Promise<string> {
+async function ensureMarketingChannel(): Promise<string> {
   if (Platform.OS !== 'android') {
     return 'default';
   }
 
+  const existingChannel = await notifee.getChannel(DRIVER_MARKETING_CHANNEL);
+  if (existingChannel) {
+    return existingChannel.id;
+  }
+
   return notifee.createChannel({
-    id: TRIP_CANCELLED_CHANNEL,
-    name: 'Trip Cancelled',
-    importance: AndroidImportance.HIGH,
-    vibration: true,
-    vibrationPattern: [250, 200, 250, 200],
+    id: DRIVER_MARKETING_CHANNEL,
+    name: 'Marketing',
+    importance: AndroidImportance.DEFAULT,
+    sound: 'default',
   });
 }
 
@@ -261,7 +305,8 @@ async function scheduleRideRequestUnlockNotification(
   data: RideRequestNotificationInput,
   channelId: string,
   availableAt: number,
-  expiresAt: number
+  localCancelAt: number,
+  rpcTimeoutAt: number
 ) {
   if (Platform.OS !== 'android' || isRideRequestResponseUnlocked({ ...data, available_at: availableAt })) {
     return;
@@ -274,12 +319,13 @@ async function scheduleRideRequestUnlockNotification(
 
   await notifee.createTriggerNotification(
     buildRideRequestNotification(
-      { ...data, available_at: availableAt, expires_at_ms: expiresAt },
+      { ...data, available_at: availableAt, expires_at_ms: rpcTimeoutAt, local_cancel_at_ms: localCancelAt },
       {
         channelId,
         remainingSeconds: 0,
         availableAt,
-        expiresAt,
+        localCancelAt,
+        rpcTimeoutAt,
       }
     ),
     trigger
@@ -290,7 +336,8 @@ async function startRideRequestProgressUpdates(
   data: RideRequestNotificationInput,
   channelId: string,
   availableAt: number,
-  expiresAt: number
+  localCancelAt: number,
+  rpcTimeoutAt: number
 ) {
   if (Platform.OS !== 'android') {
     return;
@@ -304,12 +351,13 @@ async function startRideRequestProgressUpdates(
 
     await notifee.displayNotification(
       buildRideRequestNotification(
-        { ...data, available_at: availableAt, expires_at_ms: expiresAt },
+        { ...data, available_at: availableAt, expires_at_ms: rpcTimeoutAt, local_cancel_at_ms: localCancelAt },
         {
           channelId,
           remainingSeconds,
           availableAt,
-          expiresAt,
+          localCancelAt,
+          rpcTimeoutAt,
         }
       )
     );
@@ -332,6 +380,74 @@ async function startRideRequestProgressUpdates(
   rideRequestUpdateTimers.set(notificationId, timer);
 }
 
+async function markRideRequestTimedOut(bookingId: string) {
+  try {
+    const { supabase } = require('./supabase');
+    const { error } = await supabase.rpc('decline_booking' as any, {
+      p_booking_id: bookingId,
+    });
+
+    if (error) {
+      console.error('[TIMEOUT] Failed to mark ride request as timed out:', error);
+    }
+  } catch (timeoutError) {
+    console.error('[TIMEOUT] Unexpected timeout handler error:', timeoutError);
+  }
+}
+
+function scheduleRideRequestTimeouts(
+  data: RideRequestNotificationInput,
+  localCancelAt: number,
+  rpcTimeoutAt: number
+) {
+  const bookingId = getRideRequestBookingId(data);
+  const notificationId = getRideRequestNotificationId(bookingId);
+  const localCancelDelay = Math.max(0, localCancelAt - Date.now());
+  const rpcTimeoutDelay = Math.max(0, rpcTimeoutAt - Date.now());
+
+  clearRideRequestClientCancelTimer(notificationId);
+  clearRideRequestServerTimeoutTimer(notificationId);
+
+  rideRequestClientCancelTimers.set(
+    notificationId,
+    setTimeout(() => {
+      void cancelRideRequestNotification(bookingId, { clearServerTimeout: false });
+    }, localCancelDelay)
+  );
+
+  rideRequestServerTimeoutTimers.set(
+    notificationId,
+    setTimeout(() => {
+      void markRideRequestTimedOut(bookingId);
+      clearRideRequestServerTimeoutTimer(notificationId);
+    }, rpcTimeoutDelay)
+  );
+}
+
+async function isCurrentDriverOnline(): Promise<boolean> {
+  try {
+    const { supabase } = require('./supabase');
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return false;
+    }
+
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('is_online')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    return !!driver?.is_online;
+  } catch (error) {
+    console.error('Failed to check current driver online state:', error);
+    return false;
+  }
+}
+
 TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => {
   if (error) {
     console.error('Background task error:', error);
@@ -349,6 +465,11 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
   if (payload?.is_data_only || payload?.type === 'new_booking') {
     try {
       const parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      const isOnline = await isCurrentDriverOnline();
+      if (!isOnline) {
+        console.log('Skipping background ride request because driver is offline');
+        return;
+      }
       await displayFullScreenRideRequest(parsedPayload);
     } catch (taskError) {
       console.error('Failed to display full screen notification:', taskError);
@@ -428,6 +549,13 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
       });
     }
 
+    try {
+      const { refreshLocationTrackingNotification } = require('./location');
+      await refreshLocationTrackingNotification();
+    } catch (refreshError) {
+      console.error('[BACKGROUND] Failed to refresh foreground service notification:', refreshError);
+    }
+
     await cancelRideRequestNotification(bookingId);
   } catch (backgroundError) {
     console.error('[BACKGROUND] Failed handling ride request action:', backgroundError);
@@ -450,27 +578,45 @@ Notifications.setNotificationHandler({
  */
 export async function setupNotificationChannels() {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync(RIDE_REQUESTS_CHANNEL, {
-      name: 'Ride Requests',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
-      sound: 'default',
-      bypassDnd: true,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      enableVibrate: true,
-      enableLights: true,
-      showBadge: true,
-    });
+    const existingRideRequestsChannel = await Notifications.getNotificationChannelAsync(RIDE_REQUESTS_CHANNEL);
+    if (!existingRideRequestsChannel) {
+      await Notifications.setNotificationChannelAsync(RIDE_REQUESTS_CHANNEL, {
+        name: 'Ride Requests',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+        sound: 'default',
+        bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+      });
+    }
 
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'General Notifications',
-      importance: Notifications.AndroidImportance.DEFAULT,
-      sound: 'default',
-    });
+    const existingTripStatusChannel = await Notifications.getNotificationChannelAsync(TRIP_STATUS_CHANNEL);
+    if (!existingTripStatusChannel) {
+      await Notifications.setNotificationChannelAsync(TRIP_STATUS_CHANNEL, {
+        name: 'Trip Status',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        sound: 'default',
+        enableVibrate: true,
+        showBadge: true,
+      });
+    }
+
+    const existingMarketingChannel = await Notifications.getNotificationChannelAsync(DRIVER_MARKETING_CHANNEL);
+    if (!existingMarketingChannel) {
+      await Notifications.setNotificationChannelAsync(DRIVER_MARKETING_CHANNEL, {
+        name: 'Marketing',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        sound: 'default',
+      });
+    }
 
     try {
-      await Promise.all([ensureRideRequestChannel(), ensureTripAcceptedChannel()]);
+      await Promise.all([ensureRideRequestChannel(), ensureTripStatusChannel(), ensureMarketingChannel()]);
     } catch (channelError) {
       console.error('Failed to create Notifee channels:', channelError);
     }
@@ -497,29 +643,46 @@ export async function displayFullScreenRideRequest(data: RideRequestNotification
   }
 
   const channelId = await ensureRideRequestChannel();
-  const { availableAt, expiresAt } = resolveRideRequestTiming(data);
+  const { availableAt, localCancelAt, rpcTimeoutAt } = resolveRideRequestTiming(data);
   const remainingSeconds = Math.max(0, Math.ceil((availableAt - Date.now()) / 1000));
 
   await notifee.displayNotification(
     buildRideRequestNotification(
-      { ...data, id: bookingId, available_at: availableAt, expires_at_ms: expiresAt },
+      {
+        ...data,
+        id: bookingId,
+        available_at: availableAt,
+        expires_at_ms: rpcTimeoutAt,
+        local_cancel_at_ms: localCancelAt,
+      },
       {
         channelId,
         remainingSeconds,
         availableAt,
-        expiresAt,
+        localCancelAt,
+        rpcTimeoutAt,
         fullScreen: Platform.OS === 'android',
       }
     )
   );
 
-  await scheduleRideRequestUnlockNotification(data, channelId, availableAt, expiresAt);
-  await startRideRequestProgressUpdates(data, channelId, availableAt, expiresAt);
+  scheduleRideRequestTimeouts(data, localCancelAt, rpcTimeoutAt);
+  await scheduleRideRequestUnlockNotification(data, channelId, availableAt, localCancelAt, rpcTimeoutAt);
+  await startRideRequestProgressUpdates(data, channelId, availableAt, localCancelAt, rpcTimeoutAt);
 }
 
-export async function cancelRideRequestNotification(bookingId: string) {
+export async function cancelRideRequestNotification(
+  bookingId: string,
+  options: {
+    clearServerTimeout?: boolean;
+  } = {}
+) {
   const notificationId = getRideRequestNotificationId(bookingId);
   clearRideRequestUpdateTimer(notificationId);
+  clearRideRequestClientCancelTimer(notificationId);
+  if (options.clearServerTimeout ?? true) {
+    clearRideRequestServerTimeoutTimer(notificationId);
+  }
   await notifee.cancelNotification(notificationId);
 }
 
@@ -531,7 +694,7 @@ export async function showTripAcceptedNotification(
     return;
   }
 
-  const channelId = await ensureTripAcceptedChannel();
+  const channelId = await ensureTripStatusChannel();
   const pickup = trimAddress(data.origin_address);
   const dropoff = trimAddress(data.destination_address);
 
@@ -570,7 +733,7 @@ export async function showTripCancelledNotification(
     return;
   }
 
-  const channelId = await ensureTripCancelledChannel();
+  const channelId = await ensureTripStatusChannel();
   const pickup = trimAddress(data.origin_address);
   const dropoff = trimAddress(data.destination_address);
   const reason = data.cancellation_reason?.trim() || 'Cancelled by customer';
@@ -598,6 +761,67 @@ export async function showTripCancelledNotification(
             autoCancel: true,
             onlyAlertOnce: true,
             timeoutAfter: 10000,
+          }
+        : undefined,
+  });
+}
+
+export async function showTripCompletedNotification(
+  data: Pick<Booking, 'id' | 'origin_address' | 'destination_address'>
+) {
+  const bookingId = data.id;
+  if (!bookingId) {
+    return;
+  }
+
+  const channelId = await ensureTripStatusChannel();
+  const pickup = trimAddress(data.origin_address);
+  const dropoff = trimAddress(data.destination_address);
+
+  await notifee.displayNotification({
+    id: `trip_completed_${bookingId}`,
+    title: 'Trip Completed',
+    body: `Completed successfully\nPickup: ${pickup}${dropoff ? `\nDrop: ${dropoff}` : ''}`,
+    data: {
+      id: bookingId,
+      bookingId,
+      type: 'trip_completed',
+    },
+    android:
+      Platform.OS === 'android'
+        ? {
+            channelId,
+            importance: AndroidImportance.HIGH,
+            visibility: AndroidVisibility.PUBLIC,
+            color: '#10B981',
+            pressAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            autoCancel: true,
+            timeoutAfter: 10000,
+          }
+        : undefined,
+  });
+}
+
+export async function showMarketingNotification(title: string, body: string, data: Record<string, string> = {}) {
+  const channelId = await ensureMarketingChannel();
+
+  await notifee.displayNotification({
+    title,
+    body,
+    data,
+    android:
+      Platform.OS === 'android'
+        ? {
+            channelId,
+            importance: AndroidImportance.DEFAULT,
+            pressAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            autoCancel: true,
           }
         : undefined,
   });

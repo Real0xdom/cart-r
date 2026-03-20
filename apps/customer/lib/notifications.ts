@@ -1,10 +1,14 @@
 // Customer App - Notification Setup
-// Handles push notification registration and listeners
+// Handles push notification registration, listeners, and local customer ride updates.
 
 import { Platform, Alert, Linking } from 'react-native';
 import { supabase } from './supabase';
 
-// Helper to safely load the module
+export const CUSTOMER_DRIVER_UPDATES_CHANNEL = 'customer_driver_updates';
+export const CUSTOMER_TRIP_UPDATES_CHANNEL = 'customer_trip_updates';
+export const CUSTOMER_PAYMENT_UPDATES_CHANNEL = 'customer_payment_updates';
+export const CUSTOMER_MARKETING_CHANNEL = 'customer_marketing';
+
 const getNotifications = () => {
   try {
     return require('expo-notifications');
@@ -14,15 +18,11 @@ const getNotifications = () => {
   }
 };
 
-/**
- * Initialize all notification configuration
- */
 export async function initializeNotifications() {
   const Notifications = getNotifications();
   if (!Notifications) return;
 
   try {
-    // 1. Set handler
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -33,25 +33,53 @@ export async function initializeNotifications() {
       }),
     });
 
-    // 2. Setup channels (Android)
     if (Platform.OS === 'android') {
       try {
-        await Notifications.setNotificationChannelAsync('ride-requests', {
-          name: 'Ride Requests',
-          importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 250, 250, 250],
-          sound: 'default',
-          enableVibrate: true,
-          showBadge: true,
-        });
+        const driverUpdatesChannel = await Notifications.getNotificationChannelAsync(CUSTOMER_DRIVER_UPDATES_CHANNEL);
+        if (!driverUpdatesChannel) {
+          await Notifications.setNotificationChannelAsync(CUSTOMER_DRIVER_UPDATES_CHANNEL, {
+            name: 'Driver Updates',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+          });
+        }
 
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'General',
-          importance: Notifications.AndroidImportance.DEFAULT,
-          sound: 'default',
-        });
+        const tripUpdatesChannel = await Notifications.getNotificationChannelAsync(CUSTOMER_TRIP_UPDATES_CHANNEL);
+        if (!tripUpdatesChannel) {
+          await Notifications.setNotificationChannelAsync(CUSTOMER_TRIP_UPDATES_CHANNEL, {
+            name: 'Trip Updates',
+            importance: Notifications.AndroidImportance.DEFAULT,
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+          });
+        }
 
-        console.log('✅ Customer notification channels configured');
+        const paymentUpdatesChannel = await Notifications.getNotificationChannelAsync(CUSTOMER_PAYMENT_UPDATES_CHANNEL);
+        if (!paymentUpdatesChannel) {
+          await Notifications.setNotificationChannelAsync(CUSTOMER_PAYMENT_UPDATES_CHANNEL, {
+            name: 'Payment Updates',
+            importance: Notifications.AndroidImportance.DEFAULT,
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+          });
+        }
+
+        const marketingChannel = await Notifications.getNotificationChannelAsync(CUSTOMER_MARKETING_CHANNEL);
+        if (!marketingChannel) {
+          await Notifications.setNotificationChannelAsync(CUSTOMER_MARKETING_CHANNEL, {
+            name: 'Marketing',
+            importance: Notifications.AndroidImportance.DEFAULT,
+            sound: 'default',
+            showBadge: true,
+          });
+        }
+
+        console.log('Customer notification channels configured');
       } catch (error) {
         console.warn('Failed to setup notification channels:', error);
       }
@@ -65,16 +93,114 @@ export async function initializeNotifications() {
   }
 }
 
-/**
- * Request notification permissions
- */
+async function showLocalNotification(options: {
+  title: string;
+  body: string;
+  channelId: string;
+  data: Record<string, unknown>;
+}) {
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: options.title,
+      body: options.body,
+      sound: 'default',
+      ...(Platform.OS === 'android' ? { channelId: options.channelId } : {}),
+      data: options.data,
+    },
+    trigger: null,
+  });
+}
+
+export async function showDriverAssignedNotification(bookingId: string) {
+  await showLocalNotification({
+    title: 'Driver Assigned',
+    body: 'Your driver is on the way to pick up your goods.',
+    channelId: CUSTOMER_DRIVER_UPDATES_CHANNEL,
+    data: {
+      type: 'driver_assigned',
+      booking_id: bookingId,
+      status: 'accepted',
+      channel_id: CUSTOMER_DRIVER_UPDATES_CHANNEL,
+    },
+  });
+}
+
+export async function showDriverArrivedNotification(bookingId: string) {
+  await showLocalNotification({
+    title: 'Driver Arrived',
+    body: 'Your driver has arrived at the pickup location.',
+    channelId: CUSTOMER_DRIVER_UPDATES_CHANNEL,
+    data: {
+      type: 'driver_arrived',
+      booking_id: bookingId,
+      status: 'driver_arrived',
+      channel_id: CUSTOMER_DRIVER_UPDATES_CHANNEL,
+    },
+  });
+}
+
+export async function showTripStartedNotification(bookingId: string) {
+  await showLocalNotification({
+    title: 'Trip Started',
+    body: 'Your goods are now on the way.',
+    channelId: CUSTOMER_TRIP_UPDATES_CHANNEL,
+    data: {
+      type: 'trip_started',
+      booking_id: bookingId,
+      status: 'in_progress',
+      channel_id: CUSTOMER_TRIP_UPDATES_CHANNEL,
+    },
+  });
+}
+
+export async function showTripCompletedCustomerNotification(bookingId: string) {
+  await showLocalNotification({
+    title: 'Trip Completed',
+    body: 'Your delivery has been completed successfully.',
+    channelId: CUSTOMER_TRIP_UPDATES_CHANNEL,
+    data: {
+      type: 'trip_completed_customer',
+      booking_id: bookingId,
+      status: 'completed',
+      channel_id: CUSTOMER_TRIP_UPDATES_CHANNEL,
+    },
+  });
+}
+
+export async function showPaymentSuccessNotification(bookingId: string) {
+  await showLocalNotification({
+    title: 'Payment Successful',
+    body: 'Your payment has been captured successfully.',
+    channelId: CUSTOMER_PAYMENT_UPDATES_CHANNEL,
+    data: {
+      type: 'payment_success',
+      booking_id: bookingId,
+      channel_id: CUSTOMER_PAYMENT_UPDATES_CHANNEL,
+    },
+  });
+}
+
+export async function showMarketingNotification(title: string, body: string) {
+  await showLocalNotification({
+    title,
+    body,
+    channelId: CUSTOMER_MARKETING_CHANNEL,
+    data: {
+      type: 'marketing',
+      channel_id: CUSTOMER_MARKETING_CHANNEL,
+    },
+  });
+}
+
 export async function requestNotificationPermissions(): Promise<boolean> {
   const Notifications = getNotifications();
   if (!Notifications) return false;
 
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
@@ -83,7 +209,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     }
 
     if (finalStatus !== 'granted') {
-      console.warn('⚠️ Notification permissions not granted');
+      console.warn('Notification permissions not granted');
       return false;
     }
 
@@ -98,10 +224,6 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
-/**
- * [G2] Show alert when notification permission is denied
- * Warns user they may miss ride updates and offers settings link
- */
 export function showNotificationDeniedAlert() {
   Alert.alert(
     'Notifications Disabled',
@@ -116,48 +238,43 @@ export function showNotificationDeniedAlert() {
           } else {
             Linking.openSettings();
           }
-        }
-      }
+        },
+      },
     ]
   );
 }
 
-/**
- * Get the Expo Push Token
- */
 export async function getExpoPushToken(): Promise<string | null> {
   const Notifications = getNotifications();
   if (!Notifications) {
-    console.warn('❌ Notifications module not available');
+    console.warn('Notifications module not available');
     return null;
   }
 
   try {
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) {
-      console.warn('❌ No notification permissions');
+      console.warn('No notification permissions');
       return null;
     }
 
-    console.log('🔄 Getting Expo push token...');
+    console.log('Getting Expo push token...');
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId: undefined,
     });
 
     if (!tokenData?.data) {
-      console.warn('❌ No push token received');
+      console.warn('No push token received');
       return null;
     }
 
-    console.log('✅ Push token obtained');
+    console.log('Push token obtained');
     return tokenData.data;
   } catch (error: any) {
     if (error?.message?.includes('Cannot find native module')) {
       console.warn('Expo Notifications native module missing. Please rebuild your development client.');
     } else if (error?.message?.includes('FirebaseApp is not initialized')) {
-      // Expected in dev (Expo Go) - no google-services.json
-      // Keep this quiet to avoid log spam on every app reload
-      console.warn('⚠️ Firebase not configured — push notifications disabled (expected in dev).');
+      console.warn('Firebase not configured - push notifications disabled (expected in dev).');
       throw new Error('FIREBASE_NOT_CONFIGURED');
     } else {
       console.error('Error getting push token:', error);
@@ -166,10 +283,6 @@ export async function getExpoPushToken(): Promise<string | null> {
   }
 }
 
-/**
- * Register push token with Supabase user record
- * [G5] Now also upserts into push_tokens table for multi-device support
- */
 export async function registerPushToken(userId: string): Promise<boolean> {
   try {
     const token = await getExpoPushToken();
@@ -177,27 +290,24 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       return false;
     }
 
-    console.log('🔑 [registerPushToken] Got token:', token.substring(0, 30) + '...');
+    console.log('[registerPushToken] Got token:', token.substring(0, 30) + '...');
 
-    // Backward compatibility: update users table
     const { error } = await supabase
       .from('users')
       .update({ expo_push_token: token })
       .eq('id', userId);
 
     if (error) {
-      console.error('❌ [registerPushToken] Supabase update error:', error);
+      console.error('[registerPushToken] Supabase update error:', error);
       return false;
     }
 
-    // [G5] Also upsert into push_tokens table for multi-device support
     try {
       let deviceId = 'unknown';
       try {
         const Constants = require('expo-constants').default;
         deviceId = Constants.installationId || Constants.sessionId || `customer-device-${userId.substring(0, 8)}`;
       } catch {
-        // expo-constants not available
         deviceId = `customer-device-${userId.substring(0, 8)}`;
       }
 
@@ -214,30 +324,23 @@ export async function registerPushToken(userId: string): Promise<boolean> {
           { onConflict: 'user_id,device_id' }
         );
 
-      console.log('✅ [registerPushToken] Token saved to push_tokens table');
+      console.log('[registerPushToken] Token saved to push_tokens table');
     } catch (pushTokenError) {
-      // Non-critical — legacy path still works
-      console.warn('⚠️ [registerPushToken] push_tokens upsert failed (non-critical):', pushTokenError);
+      console.warn('[registerPushToken] push_tokens upsert failed (non-critical):', pushTokenError);
     }
 
-    console.log('✅ [registerPushToken] Token saved to database successfully');
+    console.log('[registerPushToken] Token saved to database successfully');
     return true;
   } catch (error: any) {
-    // Re-throw Firebase config errors so retry loop can bail
     if (error?.message === 'FIREBASE_NOT_CONFIGURED') {
       throw error;
     }
-    console.error('❌ [registerPushToken] Exception occurred:', error);
+    console.error('[registerPushToken] Exception occurred:', error);
     return false;
   }
 }
 
-/**
- * Add listener for incoming notifications
- */
-export function addNotificationReceivedListener(
-  callback: (notification: any) => void
-) {
+export function addNotificationReceivedListener(callback: (notification: any) => void) {
   const Notifications = getNotifications();
   if (!Notifications) return { remove: () => {} };
 
@@ -249,12 +352,7 @@ export function addNotificationReceivedListener(
   }
 }
 
-/**
- * Add listener for notification taps (when user taps on notification)
- */
-export function addNotificationResponseListener(
-  callback: (response: any) => void
-) {
+export function addNotificationResponseListener(callback: (response: any) => void) {
   const Notifications = getNotifications();
   if (!Notifications) return { remove: () => {} };
 
@@ -266,9 +364,6 @@ export function addNotificationResponseListener(
   }
 }
 
-/**
- * Parse notification data to handle navigation
- */
 export function parseNotificationData(notification: any): {
   type: string;
   bookingId?: string;

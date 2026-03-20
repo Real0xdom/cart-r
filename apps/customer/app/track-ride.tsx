@@ -20,6 +20,12 @@ import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
+import {
+  showDriverArrivedNotification,
+  showPaymentSuccessNotification,
+  showTripCompletedCustomerNotification,
+  showTripStartedNotification,
+} from "@/lib/notifications";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
@@ -59,6 +65,8 @@ const TrackRidePage = () => {
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const previousBookingStatusRef = useRef<Booking["status"] | null>(currentBooking?.status ?? null);
+  const previousPaymentStatusRef = useRef<string | null>(currentBooking?.payment_status ?? null);
 
   const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
 
@@ -157,6 +165,8 @@ const TrackRidePage = () => {
 
         setBooking(data);
         setCurrentBooking(data);
+        previousBookingStatusRef.current = data.status;
+        previousPaymentStatusRef.current = data.payment_status || null;
         
         // Set initial driver location if available
         // Set initial driver location if available
@@ -179,8 +189,28 @@ const TrackRidePage = () => {
 
     // Subscribe to booking status updates
     const unsubscribeBooking = subscribeToBooking(bookingId, (updatedBooking) => {
+      const previousStatus = previousBookingStatusRef.current;
+      const previousPaymentStatus = previousPaymentStatusRef.current;
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
+      previousBookingStatusRef.current = updatedBooking.status;
+      previousPaymentStatusRef.current = updatedBooking.payment_status || null;
+
+      if (updatedBooking.status === 'driver_arrived' && previousStatus !== 'driver_arrived') {
+        void showDriverArrivedNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.status === 'in_progress' && previousStatus !== 'in_progress') {
+        void showTripStartedNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.status === 'completed' && previousStatus !== 'completed') {
+        void showTripCompletedCustomerNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.payment_status === 'paid' && previousPaymentStatus !== 'paid') {
+        void showPaymentSuccessNotification(updatedBooking.id);
+      }
 
       // If completed, show payment confirmation modal first
       if (updatedBooking.status === 'completed') {

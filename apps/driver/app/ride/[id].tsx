@@ -11,6 +11,7 @@ import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, getDriverQueuedBooking, subscribeToDriverQueuedBooking, Booking } from '@/lib/bookings';
 import { getCurrentLocation, checkLocationServices } from '@/lib/location';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { showTripCancelledNotification } from '@/lib/notifications';
@@ -270,6 +271,14 @@ const ActiveRide = () => {
 
         return () => unsubscribe();
     }, [booking?.driver_id, booking?.id]);
+
+    useEffect(() => {
+        if (!booking?.id) {
+            return;
+        }
+
+        void refreshLocationTrackingNotification();
+    }, [booking?.id, booking?.status, queuedBooking?.id]);
 
     const openNavigation = () => {
         if (!booking) return;

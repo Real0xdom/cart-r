@@ -1,5 +1,5 @@
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import "react-native-reanimated";
@@ -10,19 +10,17 @@ import { LocationProvider } from "@/contexts/LocationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import NetworkBanner from "@/components/NetworkBanner";
 
-import { 
-  initializeNotifications, 
+import {
+  initializeNotifications,
   requestNotificationPermissions,
   showNotificationDeniedAlert,
   addNotificationReceivedListener,
-  addNotificationResponseListener 
+  addNotificationResponseListener,
+  parseNotificationData,
 } from "@/lib/notifications";
 import { checkBatterySaverAndWarn } from "@/lib/batterySaver";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
-
-// Ignore specific warnings
 LogBox.ignoreLogs(["Supabase:", "Warning:"]);
 
 export default function RootLayout() {
@@ -36,39 +34,57 @@ export default function RootLayout() {
     "Jakarta-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
   });
 
-
   useEffect(() => {
-    if (loaded) {
-      // Hide splash screen immediately when fonts are loaded
-      SplashScreen.hideAsync();
-      // Setup notifications
-      let notificationReceivedSubscription: any;
-      let notificationResponseSubscription: any;
-      try {
-        initializeNotifications();
-        // [G2] Check notification permission result and warn if denied
-        requestNotificationPermissions().then((granted) => {
-          if (!granted) {
-            showNotificationDeniedAlert();
-          }
-        });
-        // Setup notification listeners
-        notificationReceivedSubscription = addNotificationReceivedListener((notification) => {
-          console.log('Ã°Å¸â€œÂ¬ [RootLayout] Notification received:', notification.request.content.title);
-        });
-        notificationResponseSubscription = addNotificationResponseListener((response) => {
-          console.log('Ã°Å¸â€˜â€  [RootLayout] Notification tapped:', response.notification.request.content.title);
-        });
-      } catch (e) {
-        console.warn('Error initializing notifications:', e);
-      }
-      // [G6] Check battery saver status and warn if active
-      checkBatterySaverAndWarn();
-      return () => {
-        notificationReceivedSubscription?.remove?.();
-        notificationResponseSubscription?.remove?.();
-      };
+    if (!loaded) {
+      return;
     }
+
+    SplashScreen.hideAsync();
+    let notificationReceivedSubscription: any;
+    let notificationResponseSubscription: any;
+
+    try {
+      void initializeNotifications();
+      requestNotificationPermissions().then((granted) => {
+        if (!granted) {
+          showNotificationDeniedAlert();
+        }
+      });
+
+      notificationReceivedSubscription = addNotificationReceivedListener((notification) => {
+        console.log('[RootLayout] Notification received:', notification.request.content.title);
+      });
+
+      notificationResponseSubscription = addNotificationResponseListener((response) => {
+        console.log('[RootLayout] Notification tapped:', response.notification.request.content.title);
+        const data = parseNotificationData(response.notification);
+        if (!data?.bookingId) {
+          return;
+        }
+
+        if (data.status === 'completed') {
+          router.push({
+            pathname: '/ride-details/[id]',
+            params: { id: data.bookingId },
+          });
+          return;
+        }
+
+        router.push({
+          pathname: '/track-ride',
+          params: { bookingId: data.bookingId },
+        });
+      });
+    } catch (e) {
+      console.warn('Error initializing notifications:', e);
+    }
+
+    checkBatterySaverAndWarn();
+
+    return () => {
+      notificationReceivedSubscription?.remove?.();
+      notificationResponseSubscription?.remove?.();
+    };
   }, [loaded]);
 
   if (!loaded) {

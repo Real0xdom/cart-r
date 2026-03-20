@@ -16,6 +16,8 @@ import {
 } from '@/lib/bookings';
 import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
+import { refreshLocationTrackingNotification } from '@/lib/location';
+import { showTripCompletedNotification } from '@/lib/notifications';
 
 
 // Helper to calculate total with fees (simplified for now)
@@ -372,6 +374,12 @@ const CollectPayment = () => {
 
             setBooking(finalizedBooking);
             setCommissionInfo(finalizedCommission);
+            void showTripCompletedNotification({
+                id: finalizedBooking.id,
+                origin_address: finalizedBooking.origin_address,
+                destination_address: finalizedBooking.destination_address,
+            });
+            void refreshLocationTrackingNotification();
 
             if (finalizedBooking.driver_id) {
                 const { data: activeBookings } = await getDriverActiveBookings(finalizedBooking.driver_id);
