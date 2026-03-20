@@ -114,7 +114,7 @@ export async function createBookingWithPayment(
     error: null,
     newWalletBalance: walletResult.new_wallet_balance,
     paymentWarning: walletResult.fully_paid
-      ? null
-      : "Wallet amount was reserved, and the balance will need to be settled later.",
+      ? "Your wallet amount has been placed on hold in escrow for this trip."
+      : "Your wallet amount has been placed on hold in escrow, and the remaining balance will need to be settled later.",
   };
 }

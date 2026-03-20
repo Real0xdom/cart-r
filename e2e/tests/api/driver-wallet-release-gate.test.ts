@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 import { callCreatePaymentOrder } from '../../helpers/api-client';
 import * as db from '../../helpers/supabase-admin';
@@ -18,13 +18,13 @@ function toNumber(value: unknown): number {
   return Number.NaN;
 }
 
-describe('Driver Wallet Release Gate - staging integration', () => {
+test.describe('Driver Wallet Release Gate - staging integration', () => {
   let customerId: string;
   let driverId: string;
   let driverUserId: string;
   let originalCommissionSetting: any;
 
-  beforeAll(async () => {
+  test.beforeAll(async () => {
     await db.seedFareConfig();
     originalCommissionSetting = await db.getPlatformSetting('commission');
 
@@ -63,7 +63,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     });
   });
 
-  afterAll(async () => {
+  test.afterAll(async () => {
     if (originalCommissionSetting) {
       await db.setPlatformSetting(
         'commission',
@@ -75,7 +75,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     await db.cleanupTestData(TEST_RUN_ID);
   });
 
-  it('creates a driver wallet top-up order and persists the pending transaction', async () => {
+  test('creates a driver wallet top-up order and persists the pending transaction', async () => {
     const response = await callCreatePaymentOrder({
       customer_id: driverUserId,
       customer_name: 'Wallet Gate Driver',
@@ -102,7 +102,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     expect(toNumber(transaction?.amount)).toBe(300);
   });
 
-  it('credits a driver wallet top-up atomically exactly once and reduces commission debt', async () => {
+  test('credits a driver wallet top-up atomically exactly once and reduces commission debt', async () => {
     const client = db.getSupabaseAdmin();
     const orderId = `DRIVERWALLET_MANUAL_${Date.now()}`;
 
@@ -144,7 +144,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     expect(ledgerEntries[0].metadata?.source).toBe('driver_wallet_topup');
   });
 
-  it('allows drivers at -99.99 and -100.00, but blocks them at -100.01', async () => {
+  test('allows drivers at -99.99 and -100.00, but blocks them at -100.01', async () => {
     const client = db.getSupabaseAdmin();
 
     await db.setDriverWalletState(driverId, {
@@ -219,7 +219,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     await db.deleteBooking(blockedBooking.bookingId);
   });
 
-  it('deducts cash commission into negative balance and tracks commission debt in the wallet ledger', async () => {
+  test('deducts cash commission into negative balance and tracks commission debt in the wallet ledger', async () => {
     const client = db.getSupabaseAdmin();
 
     await db.setPlatformSetting('commission', {
@@ -278,7 +278,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     expect(walletInfo.recent_transactions.some((txn: any) => txn.booking_id === booking.bookingId)).toBe(true);
   });
 
-  it('uses vehicle-specific commission overrides in backend wallet settlement', async () => {
+  test('uses vehicle-specific commission overrides in backend wallet settlement', async () => {
     const client = db.getSupabaseAdmin();
 
     await db.setPlatformSetting('commission', {
@@ -329,7 +329,7 @@ describe('Driver Wallet Release Gate - staging integration', () => {
     expect(toNumber(updatedBooking.driver_payout)).toBe(450);
   });
 
-  it('documents the current release blocker: commission is recalculated from live settings at completion time', async () => {
+  test('documents the current release blocker: commission is recalculated from live settings at completion time', async () => {
     const client = db.getSupabaseAdmin();
 
     await db.setPlatformSetting('commission', {

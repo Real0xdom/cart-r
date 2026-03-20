@@ -67,6 +67,8 @@ export async function getEffectiveCommission(
   totalFare: number,
   vehicleType: string
 ): Promise<CommissionResult> {
+  const startTime = Date.now();
+
   try {
     const settings = await getCommissionSettings();
     const defaultRate =
@@ -78,6 +80,25 @@ export async function getEffectiveCommission(
     const effectiveRate = vehicleRate ?? defaultRate;
     const platformFee = roundCurrency(totalFare * (effectiveRate / 100));
     const driverShare = roundCurrency(totalFare - platformFee);
+    const duration = Date.now() - startTime;
+
+    if (duration > 2000) {
+      console.warn('[COMMISSION] Slow commission fetch', {
+        duration,
+        totalFare,
+        vehicleType,
+      });
+    }
+
+    console.log('[COMMISSION] Commission calculated', {
+      totalFare,
+      vehicleType,
+      rate: effectiveRate,
+      platformFee,
+      driverShare,
+      source: vehicleRate !== null ? 'vehicle_specific' : 'default',
+      duration,
+    });
 
     return {
       rate: effectiveRate,
@@ -92,6 +113,17 @@ export async function getEffectiveCommission(
       totalFare * (BACKEND_DEFAULT_COMMISSION_RATE / 100)
     );
     const driverShare = roundCurrency(totalFare - platformFee);
+
+    console.error('[COMMISSION] Commission fetch failed; using fallback', {
+      error,
+      totalFare,
+      vehicleType,
+      rate: BACKEND_DEFAULT_COMMISSION_RATE,
+      platformFee,
+      driverShare,
+      fallbackUsed: true,
+      duration: Date.now() - startTime,
+    });
 
     return {
       rate: BACKEND_DEFAULT_COMMISSION_RATE,

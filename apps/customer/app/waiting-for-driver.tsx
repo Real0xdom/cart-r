@@ -31,6 +31,11 @@ const ASSIGNED_BOOKING_STATUSES: Booking["status"][] = ["accepted", "driver_arri
 const hasAssignedDriver = (booking: Booking | null | undefined) =>
   !!booking?.driver_id && ASSIGNED_BOOKING_STATUSES.includes(booking.status);
 
+const usesWalletFunds = (booking: Booking | null | undefined) =>
+  booking?.payment_method === "wallet" ||
+  booking?.payment_method === "partial_wallet" ||
+  booking?.payment_method === "wallet_plus_online";
+
 const WaitingForDriverPage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const { profile } = useAuth();
@@ -236,7 +241,9 @@ const WaitingForDriverPage = () => {
               clearSelectedVehicle();
               Alert.alert(
                 "Ride Cancelled",
-                "Your ride has been successfully cancelled.",
+                usesWalletFunds(booking)
+                  ? "Your ride has been successfully cancelled. Any wallet hold is being returned to your wallet now, and any online refund will follow the refund timeline shown in the app."
+                  : "Your ride has been successfully cancelled.",
                 [{ text: "OK", onPress: () => router.replace("/(tabs)/home") }]
               );
             } else {

@@ -204,6 +204,13 @@ serve(async (req) => {
           } else {
             console.log('Driver wallet already credited via webhook:', orderId)
           }
+
+          console.log('Driver wallet webhook credit result', {
+            orderId,
+            amount: payload.data.payment.payment_amount,
+            wasCredited,
+            transactionStatus: txn.status,
+          })
         } else {
           console.error('Wallet transaction not found for driver top-up:', orderId)
         }
@@ -305,6 +312,12 @@ serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('payment_order_id', orderId)
+
+        console.log('Driver wallet top-up marked failed from webhook', {
+          orderId,
+          paymentStatus: payload.data?.payment?.payment_status,
+          paymentMessage: payload.data?.payment?.payment_message,
+        })
 
         return new Response(
           JSON.stringify({ success: true, type: 'wallet_topup_failed' }),

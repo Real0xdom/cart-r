@@ -95,6 +95,12 @@ export interface AcceptBookingResult {
   requiredRecharge?: number;
 }
 
+const TRANSITION_GUARDS: Partial<Record<Booking['status'], Booking['status'][]>> = {
+  driver_arrived: ['accepted'],
+  in_progress: ['driver_arrived'],
+  completed: ['in_progress'],
+};
+
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
 const FARE_CONFIG_FALLBACK: Record<string, { baseFare: number; perKmRate: number; perMinRate: number; minimumFare: number; cancellationFee: number; driverSearchRadiusKm: number }> = {
@@ -346,6 +352,7 @@ export async function updateBookingStatus(
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+    const expectedCurrentStatuses = TRANSITION_GUARDS[status];
     
     // Add timestamps based on status
     if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
@@ -358,13 +365,28 @@ export async function updateBookingStatus(
       Object.assign(updateData, additionalData);
     }
     
-    const { error } = await supabase
+    let query = supabase
       .from('bookings')
       .update(updateData)
       .eq('id', bookingId);
+
+    if (expectedCurrentStatuses?.length) {
+      query = query.in('status', expectedCurrentStatuses as any);
+    }
+
+    const { data, error } = await query
+      .select('id, status, cancellation_reason')
+      .maybeSingle();
     
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (!data) {
+      return {
+        success: false,
+        error: 'Ride was already cancelled or moved to another state.',
+      };
     }
     
     return { success: true, error: null };
@@ -391,8 +413,10 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      (payload) => {
-        onUpdate(payload.new as Booking);
+      async (payload) => {
+        const fallbackBooking = payload.new as Booking;
+        const { data } = await getBookingById(bookingId);
+        onUpdate(data ?? fallbackBooking);
       }
     )
     .subscribe();

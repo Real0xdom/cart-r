@@ -88,6 +88,47 @@ const getStatusStyle = (kind: string) => {
     }
 };
 
+const normalizeWalletTransactionsForHistory = (transactions: WalletTransaction[]) => {
+    const releaseByBookingId = new Map<string, WalletTransaction>();
+    const pendingEarningBookingIds = new Set<string>();
+
+    transactions.forEach((transaction) => {
+        if (transaction.type === 'release' && transaction.booking_id && !releaseByBookingId.has(transaction.booking_id)) {
+            releaseByBookingId.set(transaction.booking_id, transaction);
+        }
+
+        if (transaction.type === 'earning' && transaction.balance_type === 'pending' && transaction.booking_id) {
+            pendingEarningBookingIds.add(transaction.booking_id);
+        }
+    });
+
+    return transactions.flatMap((transaction) => {
+        if (transaction.type === 'release' && transaction.booking_id && pendingEarningBookingIds.has(transaction.booking_id)) {
+            return [];
+        }
+
+        if (transaction.type === 'earning' && transaction.balance_type === 'pending' && transaction.booking_id) {
+            const releasedEntry = releaseByBookingId.get(transaction.booking_id);
+
+            if (releasedEntry) {
+                return [{
+                    ...transaction,
+                    balance_type: 'available' as const,
+                    created_at: releasedEntry.created_at || transaction.created_at,
+                    description: releasedEntry.description || 'Trip earning credited to your wallet.',
+                    metadata: {
+                        ...(transaction.metadata || {}),
+                        released_at: releasedEntry.created_at,
+                        released_from_pending: true,
+                    },
+                }];
+            }
+        }
+
+        return [transaction];
+    });
+};
+
 const mapWalletLedgerEntry = (transaction: WalletTransaction): TransactionHistoryEntry | null => {
     if (transaction.type === 'withdrawal' || transaction.type === 'reversal') {
         return null;
@@ -815,8 +856,10 @@ const DriverEarnings = () => {
     // FIX: Declare recentTrips (most recent 10 filtered trips)
     const recentTrips = filteredTrips.slice(0, 10);
 
+    const normalizedWalletTransactions = normalizeWalletTransactionsForHistory(walletTransactions);
+
     const transactionHistory = [
-        ...walletTransactions
+        ...normalizedWalletTransactions
             .map(mapWalletLedgerEntry)
             .filter((entry): entry is TransactionHistoryEntry => !!entry),
         ...withdrawals.map(mapWithdrawalEntry),

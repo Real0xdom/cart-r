@@ -21,6 +21,7 @@ import type { Booking } from './bookings';
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
 const RIDE_REQUESTS_FULLSCREEN_CHANNEL = 'ride_requests_fullscreen';
 const TRIP_ACCEPTED_CHANNEL = 'trip_accepted';
+const TRIP_CANCELLED_CHANNEL = 'trip_cancelled';
 
 export const RIDE_REQUESTS_CHANNEL = 'ride-requests';
 export const RIDE_REQUEST_COUNTDOWN_SECONDS = 10;
@@ -239,6 +240,20 @@ async function ensureTripAcceptedChannel(): Promise<string> {
     importance: AndroidImportance.HIGH,
     vibration: true,
     vibrationPattern: [150, 120, 150, 120],
+  });
+}
+
+async function ensureTripCancelledChannel(): Promise<string> {
+  if (Platform.OS !== 'android') {
+    return 'default';
+  }
+
+  return notifee.createChannel({
+    id: TRIP_CANCELLED_CHANNEL,
+    name: 'Trip Cancelled',
+    importance: AndroidImportance.HIGH,
+    vibration: true,
+    vibrationPattern: [250, 200, 250, 200],
   });
 }
 
@@ -538,6 +553,47 @@ export async function showTripAcceptedNotification(
             },
             autoCancel: true,
             timeoutAfter: 5000,
+          }
+        : undefined,
+  });
+}
+
+export async function showTripCancelledNotification(
+  data: Pick<Booking, 'id' | 'origin_address' | 'destination_address' | 'cancellation_reason'>
+) {
+  const bookingId = data.id;
+  if (!bookingId) {
+    return;
+  }
+
+  const channelId = await ensureTripCancelledChannel();
+  const pickup = trimAddress(data.origin_address);
+  const dropoff = trimAddress(data.destination_address);
+  const reason = data.cancellation_reason?.trim() || 'Cancelled by customer';
+
+  await notifee.displayNotification({
+    id: `trip_cancelled_${bookingId}`,
+    title: 'Trip Cancelled',
+    body: `${reason}\nPickup: ${pickup}${dropoff ? `\nDrop: ${dropoff}` : ''}`,
+    data: {
+      id: bookingId,
+      bookingId,
+      type: 'trip_cancelled',
+    },
+    android:
+      Platform.OS === 'android'
+        ? {
+            channelId,
+            importance: AndroidImportance.HIGH,
+            visibility: AndroidVisibility.PUBLIC,
+            color: '#EF4444',
+            pressAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            autoCancel: true,
+            onlyAlertOnce: true,
+            timeoutAfter: 10000,
           }
         : undefined,
   });

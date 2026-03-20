@@ -6,8 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
-import { supabase } from '@/lib/supabase';
-import { getBookingById, updateBookingStatus, subscribeToBooking } from '@/lib/bookings';
+import { getBookingById, subscribeToBooking, verifyPickupOTPAndStartTrip } from '@/lib/bookings';
 import type { Booking } from '@/lib/bookings';
 
 const VerifyOTP = () => {
@@ -17,6 +16,7 @@ const VerifyOTP = () => {
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const cancellationHandledRef = useRef(false);
     
     // Refs for OTP inputs
     const inputRefs = [
@@ -33,9 +33,29 @@ const VerifyOTP = () => {
             return;
         }
 
+        const exitForCancellation = (cancelledBooking: Booking) => {
+            if (cancellationHandledRef.current) return;
+            cancellationHandledRef.current = true;
+            setBooking(cancelledBooking);
+            setIsVerifying(false);
+            Alert.alert(
+                'Ride Cancelled',
+                `The customer has cancelled this ride.\nReason: ${cancelledBooking.cancellation_reason || 'No reason provided'}`,
+                [{
+                    text: 'OK',
+                    onPress: () => router.replace('/(tabs)/home')
+                }]
+            );
+        };
+
         const fetchBooking = async () => {
             const { data, error } = await getBookingById(bookingId);
             if (data) {
+                if (data.status === 'cancelled') {
+                    setIsLoading(false);
+                    exitForCancellation(data);
+                    return;
+                }
                 setBooking(data);
             } else {
                 Alert.alert('Error', 'Failed to load booking details');
@@ -48,16 +68,8 @@ const VerifyOTP = () => {
         
         // Subscribe to booking updates (for cancellation)
         const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
-            // Customer cancelled the ride
             if (updatedBooking.status === 'cancelled') {
-                Alert.alert(
-                    'Ride Cancelled',
-                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
-                    [{
-                        text: 'OK',
-                        onPress: () => router.replace('/(tabs)/home')
-                    }]
-                );
+                exitForCancellation(updatedBooking);
                 return;
             }
             setBooking(updatedBooking);
@@ -103,6 +115,11 @@ const VerifyOTP = () => {
             return;
         }
 
+        if (booking.status === 'cancelled') {
+            setError('This ride was already cancelled by the customer.');
+            return;
+        }
+
         setIsVerifying(true);
         setError(null);
 
@@ -116,17 +133,11 @@ const VerifyOTP = () => {
                 return;
             }
 
-            // OTP is correct - start the trip
-            const { error: updateError } = await supabase
-                .from('bookings')
-                .update({
-                    status: 'in_progress',
-                    started_at: new Date().toISOString(),
-                })
-                .eq('id', bookingId);
+            // OTP is correct - start the trip only if the ride is still valid
+            const { success, error: transitionError } = await verifyPickupOTPAndStartTrip(bookingId, enteredOtp);
 
-            if (updateError) {
-                throw updateError;
+            if (!success) {
+                throw new Error(transitionError || 'Unable to start trip');
             }
 
             // Navigate to active ride screen
@@ -137,7 +148,13 @@ const VerifyOTP = () => {
 
         } catch (err: any) {
             console.error('OTP verification failed:', err);
-            setError(err.message || 'Verification failed. Please try again.');
+            const message = err.message || 'Verification failed. Please try again.';
+            setError(message);
+            if (message.includes('cancelled') || message.includes('another state')) {
+                Alert.alert('Ride Cancelled', message, [
+                    { text: 'OK', onPress: () => router.replace('/(tabs)/home') }
+                ]);
+            }
             setIsVerifying(false);
         }
     };

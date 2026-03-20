@@ -3,7 +3,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
 import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings, getDriverSearchRadius } from '@/lib/bookings';
@@ -50,6 +50,9 @@ const useCountdown = (expiresAt: string | null) => {
 
     return { timeLeft, isExpired };
 };
+
+// Keep auto-recovery from looping when the user manually goes back from the active ride screen.
+let lastAutoNavigatedBookingId: string | null = null;
 
 const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
     const { t } = useLanguage();
@@ -156,8 +159,6 @@ const DriverHome = () => {
     const [walletInfo, setWalletInfo] = useState<DriverWalletInfoResponse | null>(null);
     const [isLoadingWallet, setIsLoadingWallet] = useState(true);
     const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
-    const hasAutoNavigated = useRef(false);
-
     useEffect(() => {
         setIsOnline(driverProfile?.is_online || false);
     }, [driverProfile]);
@@ -272,9 +273,13 @@ const DriverHome = () => {
             if (activeRides) {
                 setActiveBookings(activeRides);
 
+                if (activeRides.length !== 1) {
+                    lastAutoNavigatedBookingId = null;
+                }
+
                 // Auto-navigate to active ride on app launch/crash recovery
-                if (!hasAutoNavigated.current && activeRides.length === 1) {
-                    hasAutoNavigated.current = true;
+                if (activeRides.length === 1 && lastAutoNavigatedBookingId !== activeRides[0].id) {
+                    lastAutoNavigatedBookingId = activeRides[0].id;
                     console.log('[HOME] Auto-navigating to active ride:', activeRides[0].id);
                     router.push(`/ride/${activeRides[0].id}` as any);
                 }

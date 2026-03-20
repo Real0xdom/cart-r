@@ -2,9 +2,9 @@
 // Driver acts as Point-Of-Sale: Selects Payer (Sender/Receiver) and Method (Cash/Online)
 // Now supports Dynamic UPI QR code generation via Cashfree
 
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import {
@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 
 // Helper to calculate total with fees (simplified for now)
 const calculateTotal = (booking: Booking) => booking.total_fare;
+const formatCurrency = (amount: number) => `₹${amount.toFixed(2)}`;
 
 const CollectPayment = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -44,6 +45,12 @@ const CollectPayment = () => {
     const [isRetryingSms, setIsRetryingSms] = useState(false);
     const [commissionInfo, setCommissionInfo] = useState<CommissionResult | null>(null);
     const [isLoadingCommission, setIsLoadingCommission] = useState(true);
+    const [completionSummary, setCompletionSummary] = useState<{
+        payout: number;
+        grossFare: number;
+        platformFee: number;
+        commissionRate: number;
+    } | null>(null);
 
     // Fetch booking data & subscribe to updates
     useEffect(() => {
@@ -315,6 +322,11 @@ const CollectPayment = () => {
         return true;
     };
 
+    const handleCloseCompletionModal = () => {
+        setCompletionSummary(null);
+        router.replace('/(tabs)/home');
+    };
+
 
 
 
@@ -340,8 +352,29 @@ const CollectPayment = () => {
                 throw new Error(result.error || 'Failed to complete trip');
             }
 
-            // STOP SPINNER BEFORE ALERT - important for UX and state consistency
+            const { data: completedBooking } = await getBookingById(bookingId as string);
+            const finalizedBooking = completedBooking || latestBooking;
+            const finalizedCommission = await getEffectiveCommission(
+                finalizedBooking.total_fare,
+                finalizedBooking.vehicle_type
+            );
+            const payout = Number(finalizedBooking.driver_payout ?? finalizedCommission.driverShare ?? 0);
+
+            setBooking(finalizedBooking);
+            setCommissionInfo(finalizedCommission);
+
+            // Stop the spinner before presenting the completion UI.
             setIsProcessing(false);
+            const shouldShowCompletionModal = completionSummary === null;
+
+            if (shouldShowCompletionModal) {
+                setCompletionSummary({
+                    payout,
+                    grossFare: Number(finalizedBooking.total_fare || 0),
+                    platformFee: finalizedCommission.platformFee,
+                    commissionRate: finalizedCommission.rate,
+                });
+            } else {
 
             Alert.alert(
                 'Trip Completed! 🎉',
@@ -355,6 +388,7 @@ const CollectPayment = () => {
                     },
                 ]
             );
+            }
 
         } catch (err: any) {
             console.error('[PAYMENT CONFIRM] Update failed:', err);
@@ -432,6 +466,75 @@ const CollectPayment = () => {
 
     return (
         <SafeAreaView className="flex-1 bg-white">
+            <Modal
+                visible={!!completionSummary}
+                transparent
+                animationType="fade"
+                onRequestClose={handleCloseCompletionModal}
+            >
+                <View className="flex-1 justify-center bg-black/55 px-6">
+                    <View className="overflow-hidden rounded-[28px] bg-white">
+                        <View className="bg-green-600 px-6 pb-10 pt-8">
+                            <View className="mx-auto mb-4 h-16 w-16 items-center justify-center rounded-full bg-white/20">
+                                <Feather name="check" size={32} color="#ffffff" />
+                            </View>
+                            <Text className="text-center text-3xl font-JakartaBold text-white">
+                                Trip Completed
+                            </Text>
+                            <Text className="mt-2 text-center text-sm font-JakartaMedium text-green-50">
+                                Payment confirmed. Your net earnings are ready.
+                            </Text>
+                        </View>
+
+                        <View className="-mt-6 rounded-t-[28px] bg-white px-6 pb-6 pt-5">
+                            <View className="mb-5 rounded-3xl bg-green-50 px-5 py-5">
+                                <Text className="text-center text-sm font-JakartaMedium text-green-700">
+                                    You'll Earn
+                                </Text>
+                                <Text className="mt-2 text-center text-4xl font-JakartaBold text-green-700">
+                                    {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                </Text>
+                                <Text className="mt-2 text-center text-xs font-JakartaMedium text-green-800/70">
+                                    After platform commission deduction
+                                </Text>
+                            </View>
+
+                            <View className="mb-6 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">Trip Fare</Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-gray-900">
+                                        {completionSummary ? formatCurrency(completionSummary.grossFare) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">
+                                        Commission ({completionSummary?.commissionRate.toFixed(1)}%)
+                                    </Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-red-500">
+                                        -{completionSummary ? formatCurrency(completionSummary.platformFee) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row items-center justify-between border-t border-gray-200 pt-3">
+                                    <Text className="text-sm font-JakartaBold text-gray-900">Driver Payout</Text>
+                                    <Text className="text-base font-JakartaBold text-green-700">
+                                        {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={handleCloseCompletionModal}
+                                className="rounded-2xl bg-green-600 px-5 py-4"
+                            >
+                                <Text className="text-center text-base font-JakartaBold text-white">
+                                    Back to Home
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Header */}
                 <View className="flex-row items-center justify-between py-4 border-b border-gray-100 mb-4">

@@ -174,6 +174,20 @@ serve(async (req) => {
           if (!walletCredited) {
             creditErrorMessage = 'Driver wallet payment was captured but wallet credit did not complete.'
           }
+
+          console.log('Driver wallet verify-payment idempotency result', {
+            orderId: order_id,
+            wasCredited,
+            transactionStatus: txn?.status ?? null,
+            walletCredited,
+            creditErrorMessage,
+          })
+        } else {
+          console.log('Driver wallet verify-payment credited successfully', {
+            orderId: order_id,
+            wasCredited,
+            paymentAmount,
+          })
         }
       } else if (type === 'booking' && bid && bid !== 'none') {
         // Update booking

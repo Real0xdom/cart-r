@@ -363,9 +363,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
+      const { data: activeBooking } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('driver_id', driverProfile.id)
+        .eq('status', 'in_progress')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       // Also log to driver_locations table for history
       await supabase.from('driver_locations').insert({
         driver_id: driverProfile.id,
+        booking_id: activeBooking?.id ?? null,
         latitude,
         longitude,
       });
@@ -408,6 +418,5 @@ export function useAuth() {
 }
 
 export default AuthContext;
-
 
 

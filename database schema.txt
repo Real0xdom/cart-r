@@ -129,6 +129,16 @@ CREATE TABLE public.bookings (
   cashfree_order_id character varying,
   payment_initiated_at timestamp with time zone,
   refund_preference character varying DEFAULT 'bank'::character varying,
+  refund_status text CHECK (refund_status IS NULL OR (refund_status = ANY (ARRAY['pending'::text, 'processing'::text, 'succeeded'::text, 'failed'::text, 'not_applicable'::text]))),
+  refund_amount numeric,
+  refund_reason text,
+  refund_error text,
+  refund_id text,
+  refund_source text,
+  refund_initiated_at timestamp with time zone,
+  refund_completed_at timestamp with time zone,
+  quoted_total_fare numeric,
+  cancellation_penalty_amount numeric DEFAULT 0,
   CONSTRAINT bookings_pkey PRIMARY KEY (id),
   CONSTRAINT bookings_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.users(id),
   CONSTRAINT bookings_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
@@ -628,4 +638,4 @@ CREATE TABLE public.withdrawals (
   CONSTRAINT withdrawals_pkey PRIMARY KEY (id),
   CONSTRAINT withdrawals_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
   CONSTRAINT withdrawals_wallet_id_fkey FOREIGN KEY (wallet_id) REFERENCES public.driver_wallets(id)
-);  
+);
