@@ -320,20 +320,19 @@ export async function cancelBooking(
   reason?: string
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'cancelled',
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: userId,
-        cancellation_reason: reason || 'Cancelled by customer',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .in('status', ['pending', 'accepted']); // Can only cancel if pending or accepted
+    const { data, error } = await supabase.rpc('cancel_booking_by_customer_v2' as any, {
+      p_booking_id: bookingId,
+      p_customer_user_id: userId,
+      p_reason: reason || 'Cancelled by customer',
+    });
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Failed to cancel booking' };
     }
 
     return { success: true, error: null };

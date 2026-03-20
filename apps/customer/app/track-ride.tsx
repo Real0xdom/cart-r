@@ -146,8 +146,8 @@ const TrackRidePage = () => {
     // Fetch latest booking data
     getBookingById(bookingId).then(({ data }) => {
       if (data) {
-        // If booking is still pending (finding driver), redirect back to waiting screen
-        if (data.status === 'pending' || !data.driver_id) {
+        // If booking is still pending/queued, redirect back to waiting screen
+        if (data.status === 'pending' || data.status === 'queued' || !data.driver_id) {
             router.replace({
               pathname: "/waiting-for-driver",
               params: { bookingId }
@@ -186,7 +186,7 @@ const TrackRidePage = () => {
       if (updatedBooking.status === 'completed') {
         setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
         setShowPaymentConfirmation(true);
-      } else if (updatedBooking.status === 'pending') {
+      } else if (updatedBooking.status === 'pending' || updatedBooking.status === 'queued') {
         // Driver cancelled - redirect back to waiting screen to find new driver
         router.replace({
           pathname: "/waiting-for-driver",

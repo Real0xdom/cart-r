@@ -198,7 +198,8 @@ declare interface Booking {
   wallet_amount_used?: number;
   payment_session_id?: string | null;
   online_payment_order_id?: string | null;
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  queued_at?: string | null;
   pickup_otp: string | null;
   delivery_otp: string | null;
   receiver_name: string | null;

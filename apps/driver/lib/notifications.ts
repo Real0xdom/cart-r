@@ -418,12 +418,16 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
       return;
     }
 
-    await SecureStore.setItemAsync('pending_route_booking_id', bookingId);
-    await showTripAcceptedNotification({
-      id: bookingId,
-      origin_address: String(notification.data.origin_address || ''),
-      destination_address: String(notification.data.destination_address || ''),
-    });
+    const assignmentMode = (acceptResult as any)?.assignment_mode;
+    if (assignmentMode !== 'queued') {
+      await SecureStore.setItemAsync('pending_route_booking_id', bookingId);
+      await showTripAcceptedNotification({
+        id: bookingId,
+        origin_address: String(notification.data.origin_address || ''),
+        destination_address: String(notification.data.destination_address || ''),
+      });
+    }
+
     await cancelRideRequestNotification(bookingId);
   } catch (backgroundError) {
     console.error('[BACKGROUND] Failed handling ride request action:', backgroundError);

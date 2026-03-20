@@ -9,7 +9,7 @@ import { Feather } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import * as Location from 'expo-location';
-import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
+import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, getDriverQueuedBooking, subscribeToDriverQueuedBooking, Booking } from '@/lib/bookings';
 import { getCurrentLocation, checkLocationServices } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -31,6 +31,8 @@ const ActiveRide = () => {
     const [useDirectionsFallback, setUseDirectionsFallback] = useState(false);
     const [locationError, setLocationError] = useState<string | null>(null);
     const [cancellationNotice, setCancellationNotice] = useState<Booking | null>(null);
+    const [queuedBooking, setQueuedBooking] = useState<Booking | null>(null);
+    const [queuedCardMinimized, setQueuedCardMinimized] = useState(false);
     const cancellationHandledRef = useRef(false);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
@@ -249,6 +251,25 @@ const ActiveRide = () => {
         // Force directions to recalculate when the ride phase switches from pickup to drop-off.
         setUseDirectionsFallback(false);
     }, [booking?.status, booking?.origin_latitude, booking?.origin_longitude, booking?.destination_latitude, booking?.destination_longitude]);
+
+    useEffect(() => {
+        if (!booking?.driver_id) {
+            setQueuedBooking(null);
+            return;
+        }
+
+        const loadQueuedBooking = async () => {
+            const { data } = await getDriverQueuedBooking(booking.driver_id as string);
+            setQueuedBooking(data && data.id !== booking.id ? data : null);
+        };
+
+        loadQueuedBooking();
+        const unsubscribe = subscribeToDriverQueuedBooking(booking.driver_id, (nextBooking) => {
+            setQueuedBooking(nextBooking && nextBooking.id !== booking.id ? nextBooking : null);
+        });
+
+        return () => unsubscribe();
+    }, [booking?.driver_id, booking?.id]);
 
     const openNavigation = () => {
         if (!booking) return;
@@ -645,6 +666,36 @@ const ActiveRide = () => {
                             </View>
                         </View>
                     </View>
+
+                    {queuedBooking && (
+                        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200">
+                            <View className="flex-row items-center justify-between mb-2">
+                                <View className="bg-amber-500 px-3 py-1 rounded-full">
+                                    <Text className="text-white text-xs font-JakartaBold">Next Ride Queued</Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setQueuedCardMinimized((value) => !value)}
+                                    className="w-8 h-8 rounded-full bg-amber-100 items-center justify-center"
+                                >
+                                    <Feather name={queuedCardMinimized ? 'chevron-down' : 'chevron-up'} size={16} color="#b45309" />
+                                </TouchableOpacity>
+                            </View>
+
+                            {!queuedCardMinimized && (
+                                <>
+                                    <Text className="text-gray-900 font-JakartaBold text-base">
+                                        {queuedBooking.customer?.name || 'Customer'}
+                                    </Text>
+                                    <Text className="text-gray-600 font-JakartaMedium text-sm mt-1">
+                                        {queuedBooking.destination_address}
+                                    </Text>
+                                    <Text className="text-amber-700 font-JakartaMedium text-sm mt-3">
+                                        This trip will activate automatically after you complete the current ride.
+                                    </Text>
+                                </>
+                            )}
+                        </View>
+                    )}
 
                     {/* Action Buttons */}
                     {isCancelled ? (

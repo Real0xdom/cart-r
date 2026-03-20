@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 
 export type BookingStatus = 
   | 'pending'        // Waiting for driver assignment
+  | 'queued'         // Driver accepted while finishing another trip
   | 'accepted'       // Driver accepted, en route to pickup
   | 'driver_arrived' // Driver at pickup location
   | 'otp_verified'   // Customer OTP verified, ready to start
@@ -26,6 +27,7 @@ export interface Booking {
   payment_status: 'pending' | 'paid' | 'failed';
   otp_code: string;
   created_at: string;
+  queued_at: string | null;
   accepted_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -170,16 +172,11 @@ export async function cancelBooking(
       return { success: false, error: 'User not authenticated' };
     }
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'cancelled',
-        cancelled_by: user.id,
-        cancellation_reason: reason,
-        cancelled_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .in('status', ['pending', 'accepted', 'driver_arrived', 'in_progress']); // Cancellation supported until trip is settled
+    const { error } = await supabase.rpc('cancel_booking_by_customer_v2' as any, {
+      p_booking_id: bookingId,
+      p_customer_user_id: user.id,
+      p_reason: reason || 'Cancelled by customer',
+    });
 
     if (error) {
       return { success: false, error: error.message };
@@ -252,7 +249,7 @@ export async function getActiveBooking(): Promise<{ data: Booking | null; error:
         )
       `)
       .eq('customer_id', user.id)
-      .in('status', ['pending', 'accepted', 'driver_arrived', 'otp_verified', 'in_progress'])
+      .in('status', ['pending', 'queued', 'accepted', 'driver_arrived', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(1)
       .single();

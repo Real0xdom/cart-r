@@ -25,6 +25,8 @@ const getStatusConfig = (status: Booking['status'], t: (k: string) => string, is
   switch (status) {
     case 'pending':
       return { label: t('findingDriverStatus'), color: 'bg-yellow-500', textColor: 'text-yellow-500' };
+    case 'queued':
+      return { label: 'Driver queued', color: 'bg-blue-500', textColor: 'text-blue-500' };
     case 'accepted':
       return { label: t('driverOnTheWay'), color: 'bg-blue-500', textColor: 'text-blue-500' };
     case 'driver_arrived':
@@ -56,7 +58,7 @@ const BookingCard = ({
 }) => {
   const expired = isPendingExpired(booking);
   const statusConfig = getStatusConfig(booking.status, t, expired);
-  const isActive = !expired && ['pending', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status);
+  const isActive = !expired && ['pending', 'queued', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status);
   const isCompleted = booking.status === 'completed';
 
   return (
@@ -188,8 +190,8 @@ const Rides = () => {
 
   const handleBookingPress = (booking: Booking) => {
     // Navigate to appropriate screen based on status
-    if (['pending', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status)) {
-      if (booking.status === 'pending') {
+    if (['pending', 'queued', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status)) {
+      if (booking.status === 'pending' || booking.status === 'queued') {
         router.push({
           pathname: '/waiting-for-driver',
           params: { bookingId: booking.id },

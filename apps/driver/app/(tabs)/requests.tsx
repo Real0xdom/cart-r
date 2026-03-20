@@ -207,6 +207,37 @@ const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     );
 };
 
+const QueuedRideCard = ({ booking }: { booking: Booking }) => {
+    return (
+        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200 shadow-sm">
+            <View className="mb-3">
+                <View className="self-start px-3 py-1 rounded-full bg-amber-500">
+                    <Text className="text-xs font-JakartaBold text-white">
+                        Next Ride Queued
+                    </Text>
+                </View>
+            </View>
+            <View className="flex-row justify-between items-start mb-2">
+                <View className="flex-1 pr-4">
+                    <Text className="text-gray-500 text-xs mb-1">NEXT DROP-OFF</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
+                        {booking.destination_address}
+                    </Text>
+                    <Text className="text-amber-700 font-JakartaMedium text-sm mt-2">
+                        {booking.customer?.name || 'Customer'} is waiting for you next
+                    </Text>
+                </View>
+                <View className="bg-amber-100 px-3 py-1 rounded-full items-center justify-center">
+                    <Text className="text-amber-700 font-JakartaBold">₹{booking.total_fare}</Text>
+                </View>
+            </View>
+            <Text className="text-amber-700 font-JakartaMedium text-sm mt-2 text-center">
+                Finish your current ride to activate this trip
+            </Text>
+        </View>
+    );
+};
+
 /**
  * History ride card for completed trips
  */
@@ -469,17 +500,21 @@ const DriverRequests = () => {
             }
 
             console.log('[HANDLE ACCEPT] Calling acceptBooking...');
-            const { success, error, errorCode, currentBalance, requiredRecharge } = await acceptBooking(id, driverProfile.id);
+            const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(id, driverProfile.id);
             
             console.log('[HANDLE ACCEPT] Accept result:', { success, error, errorCode, currentBalance, requiredRecharge });
             
             if (success) {
                 console.log('[HANDLE ACCEPT] Booking accepted successfully');
-                console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
-                Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
-                // Navigate to active ride screen
-                router.push(`/ride/${id}`);
-                console.log('[HANDLE ACCEPT] Navigation triggered');
+                if (assignmentMode === 'queued') {
+                    Alert.alert("Ride queued", "Next ride queued successfully. Finish your current ride to activate it.");
+                    fetchAllRides();
+                } else {
+                    console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
+                    Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
+                    router.push(`/ride/${id}`);
+                    console.log('[HANDLE ACCEPT] Navigation triggered');
+                }
             } else if (errorCode === 'wallet_recharge_required') {
                 Alert.alert(
                     'Wallet Recharge Required',
@@ -583,6 +618,7 @@ const DriverRequests = () => {
                         {allRides.map((ride, index) => {
                             // Check if it's an available request (pending) or active/completed ride
                             const isPending = ride.status === 'pending';
+                            const isQueued = ride.status === 'queued';
                             const isOngoing = ['accepted', 'driver_arrived', 'in_progress'].includes(ride.status);
                             const isCompleted = ride.status === 'completed';
                             
@@ -594,6 +630,13 @@ const DriverRequests = () => {
                                         index={index}
                                         onAccept={handleAccept}
                                         onReject={handleDecline}
+                                    />
+                                );
+                            } else if (isQueued) {
+                                return (
+                                    <QueuedRideCard
+                                        key={ride.id}
+                                        booking={ride}
                                     />
                                 );
                             } else if (isOngoing) {

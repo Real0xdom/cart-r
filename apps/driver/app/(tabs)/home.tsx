@@ -527,14 +527,21 @@ const DriverHome = () => {
             }
 
             const { acceptBooking } = await import('@/lib/bookings');
-            const { success, error, errorCode, currentBalance, requiredRecharge } = await acceptBooking(bookingId, driverProfile.id);
+            const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(bookingId, driverProfile.id);
             
             if (success) {
-                Alert.alert('Success', 'Booking accepted! Navigate to pickup location.');
                 // Remove from requests list
                 setRideRequests(prev => prev.filter(r => r.id !== bookingId));
-                // Navigate to ride screen
-                router.push(`/ride/${bookingId}` as any);
+                if (assignmentMode === 'queued') {
+                    Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current ride to activate it.');
+                    const { data: activeRides } = await getDriverActiveBookings(driverProfile.id);
+                    if (activeRides) {
+                        setActiveBookings(activeRides);
+                    }
+                } else {
+                    Alert.alert('Success', 'Booking accepted! Navigate to pickup location.');
+                    router.push(`/ride/${bookingId}` as any);
+                }
             } else if (errorCode === 'wallet_recharge_required') {
                 Alert.alert(
                     'Wallet Recharge Required',

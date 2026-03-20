@@ -49,9 +49,10 @@ export interface Booking {
   payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid';
   wallet_amount_used?: number;
   payment_method: 'cash' | 'online';
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
   // Timestamps
   created_at: string;
+  queued_at?: string | null;
   accepted_at?: string;
   started_at?: string;
   completed_at?: string;
@@ -93,6 +94,7 @@ export interface AcceptBookingResult {
   errorCode?: string | null;
   currentBalance?: number;
   requiredRecharge?: number;
+  assignmentMode?: 'accepted' | 'queued' | null;
 }
 
 const TRANSITION_GUARDS: Partial<Record<Booking['status'], Booking['status'][]>> = {
@@ -593,10 +595,15 @@ export async function acceptBooking(
         success: false,
         error: result.message || 'Failed to accept booking',
         errorCode: typeof result.error === 'string' ? result.error : null,
+        assignmentMode: typeof result.assignment_mode === 'string' ? result.assignment_mode : null,
       };
     }
 
-    return { success: true, error: null };
+    return {
+      success: true,
+      error: null,
+      assignmentMode: result.assignment_mode === 'queued' ? 'queued' : 'accepted',
+    };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -846,6 +853,60 @@ export async function cancelBookingByDriver(
   }
 }
 
+export async function getDriverQueuedBooking(
+  driverId: string
+): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      return { data: null, error: error.message };
+    }
+
+    return { data: data as Booking | null, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message };
+  }
+}
+
+export function subscribeToDriverQueuedBooking(
+  driverId: string,
+  onUpdate: (booking: Booking | null) => void
+) {
+  const channelName = `driver-queued-booking-${driverId}-${Date.now()}`;
+  const subscription = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'bookings',
+        filter: `driver_id=eq.${driverId}`,
+      },
+      async () => {
+        const { data } = await getDriverQueuedBooking(driverId);
+        onUpdate(data);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}
+
 /**
  * Get driver's active booking (if any)
  */
@@ -953,8 +1014,23 @@ export async function getDriverAllBookings(
 
     if (ongoingError) throw ongoingError;
 
-    // 2. Fetch completed rides (history)
-    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0));
+    // 2. Fetch queued rides so they stay visible in the driver's ride list.
+    const { data: queued, error: queuedError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (queuedError) throw queuedError;
+
+    // 3. Fetch completed rides (history)
+    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0) - (queued?.length || 0));
     const { data: completed, error: completedError } = await supabase
       .from('bookings')
       .select(`
@@ -968,13 +1044,14 @@ export async function getDriverAllBookings(
 
     if (completedError) throw completedError;
 
-    // 3. Combine: ongoing FIRST, then history
+    // 4. Combine: ongoing FIRST, then queued, then history
     const allBookings = [
       ...(ongoing || []),
+      ...(queued || []),
       ...(completed || [])
     ];
 
-    return { data: allBookings, error: null };
+    return { data: allBookings as unknown as Booking[], error: null };
   } catch (err: any) {
     console.error('[getDriverAllBookings] Error:', err);
     return { data: [], error: err.message };

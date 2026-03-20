@@ -27,6 +27,7 @@ import type { Booking } from "@/types/type";
 // Timeout duration in seconds (3 minutes)
 const SEARCH_TIMEOUT_SECONDS = 180;
 const ASSIGNED_BOOKING_STATUSES: Booking["status"][] = ["accepted", "driver_arrived", "in_progress"];
+const QUEUED_BOOKING_STATUS: Booking["status"] = "queued";
 
 const hasAssignedDriver = (booking: Booking | null | undefined) =>
   !!booking?.driver_id && ASSIGNED_BOOKING_STATUSES.includes(booking.status);
@@ -47,6 +48,7 @@ const WaitingForDriverPage = () => {
   const [booking, setBooking] = useState<Booking | null>(currentBooking);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showTimeout, setShowTimeout] = useState(false);
+  const [queuedElapsedSeconds, setQueuedElapsedSeconds] = useState(0);
   
   // Tip adjustment state - only shown when no driver found (timeout)
   const TIP_PRESETS = [50, 100, 150, 200];
@@ -96,11 +98,28 @@ const WaitingForDriverPage = () => {
     console.log('[STATE CHANGE] driverAccepted changed to:', driverAccepted);
   }, [driverAccepted]);
 
+  useEffect(() => {
+    if (booking?.status !== QUEUED_BOOKING_STATUS || !booking.queued_at) {
+      setQueuedElapsedSeconds(0);
+      return;
+    }
+
+    const updateElapsed = () => {
+      const startedAt = new Date(booking.queued_at as string).getTime();
+      const diffSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      setQueuedElapsedSeconds(diffSeconds);
+    };
+
+    updateElapsed();
+    const timer = setInterval(updateElapsed, 1000);
+    return () => clearInterval(timer);
+  }, [booking?.status, booking?.queued_at]);
+
   // Countdown timer
   useEffect(() => {
     console.log('[TIMER] Effect triggered - driverAccepted:', driverAccepted, 'showTimeout:', showTimeout);
     
-    if (driverAccepted || showTimeout) {
+    if (driverAccepted || showTimeout || booking?.status === QUEUED_BOOKING_STATUS) {
       console.log('[TIMER] Timer should be stopped (driverAccepted or timeout)');
       return;
     }
@@ -127,7 +146,7 @@ const WaitingForDriverPage = () => {
       console.log('[TIMER] Cleanup - clearing timer');
       clearInterval(timer);
     };
-  }, [driverAccepted, showTimeout]);
+  }, [driverAccepted, showTimeout, booking?.status]);
 
   // Redirect if no booking ID - wrapped in useEffect to avoid setState during render
   useEffect(() => {
@@ -152,7 +171,11 @@ const WaitingForDriverPage = () => {
         });
         setBooking(data);
         setTipAmount(data.tip_amount || 0);
-        if (hasAssignedDriver(data)) {
+        if (data.status === QUEUED_BOOKING_STATUS) {
+          console.log('[WAITING] Booking is queued - showing queued state');
+          setDriverAccepted(false);
+          setShowTimeout(false);
+        } else if (hasAssignedDriver(data)) {
           console.log(`[WAITING] Driver already ${data.status} - stopping timer`);
           setDriverAccepted(true);
         } else if (
@@ -181,7 +204,11 @@ const WaitingForDriverPage = () => {
       setCurrentBooking(updatedBooking);
 
       // Transition to Driver Assigned state if driver is available in the update
-      if (ASSIGNED_BOOKING_STATUSES.includes(updatedBooking.status)) {
+      if (updatedBooking.status === QUEUED_BOOKING_STATUS) {
+        console.log('[WAITING] Booking moved to queued state');
+        setDriverAccepted(false);
+        setShowTimeout(false);
+      } else if (ASSIGNED_BOOKING_STATUSES.includes(updatedBooking.status)) {
         if (updatedBooking.driver) {
           console.log(`[WAITING] Driver found in update (${updatedBooking.status}) - updating state`);
           setDriverAccepted(true);
@@ -312,6 +339,8 @@ const WaitingForDriverPage = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const isQueuedRide = booking?.status === QUEUED_BOOKING_STATUS && !!booking?.driver_id;
+
   const baseFare = booking?.total_fare || 0;
   const effectiveTip = customTipInput.trim() !== "" ? (parseInt(customTipInput, 10) || 0) : tipAmount;
   const newTotal = baseFare + effectiveTip;
@@ -347,6 +376,54 @@ const WaitingForDriverPage = () => {
             <Text className="text-green-600 font-JakartaMedium text-sm mt-1 text-center">
               Opening live tracking with driver details and pickup OTP.
             </Text>
+          </View>
+        ) : isQueuedRide ? (
+          <View>
+            <View className="bg-blue-50 rounded-2xl p-5 border border-blue-200 mb-4">
+              <Text className="text-blue-700 font-JakartaBold text-lg mb-2">
+                Driver is completing a nearby trip. You're next.
+              </Text>
+              <Text className="text-blue-600 font-JakartaMedium text-sm">
+                Elapsed wait: {formatTime(queuedElapsedSeconds)}
+              </Text>
+            </View>
+
+            {booking?.driver && (
+              <View className="bg-white rounded-2xl p-4 mb-4 border border-gray-200">
+                <Text className="text-gray-500 font-JakartaMedium text-xs mb-2">YOUR DRIVER</Text>
+                <Text className="text-gray-900 font-JakartaBold text-lg">
+                  {booking.driver.user.name}
+                </Text>
+                <Text className="text-gray-600 font-JakartaMedium text-sm mt-1">
+                  {booking.driver.vehicle_model} • {booking.driver.vehicle_number}
+                </Text>
+                <Text className="text-gray-600 font-JakartaMedium text-sm mt-1">
+                  Rating {booking.driver.rating?.toFixed?.(1) ?? booking.driver.rating}
+                </Text>
+              </View>
+            )}
+
+            <View className="bg-gray-50 rounded-2xl p-4 mb-4">
+              <Text className="text-gray-500 text-xs font-JakartaMedium mb-1">DESTINATION</Text>
+              <Text className="text-gray-900 font-JakartaSemiBold text-base">
+                {booking?.destination_address}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCancel}
+              disabled={isCancelling}
+              className="bg-gray-100 py-4 rounded-xl flex-row items-center justify-center"
+            >
+              {isCancelling ? (
+                <ActivityIndicator size="small" color="#333" />
+              ) : (
+                <>
+                  <Feather name="x" size={20} color="#333" />
+                  <Text className="ml-2 font-JakartaBold text-gray-700 text-base">Cancel Booking</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         ) : showTimeout ? (
           /* Timeout State - Add driver tip (only when no driver found) */

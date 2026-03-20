@@ -11,6 +11,7 @@ import {
     getBookingById,
     subscribeToBooking,
     completeTripAtomic,
+    getDriverActiveBookings,
     Booking
 } from '@/lib/bookings';
 import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
@@ -51,6 +52,7 @@ const CollectPayment = () => {
         platformFee: number;
         commissionRate: number;
     } | null>(null);
+    const [nextRideId, setNextRideId] = useState<string | null>(null);
 
     // Fetch booking data & subscribe to updates
     useEffect(() => {
@@ -324,6 +326,14 @@ const CollectPayment = () => {
 
     const handleCloseCompletionModal = () => {
         setCompletionSummary(null);
+        if (nextRideId) {
+            router.replace({
+                pathname: '/ride/[id]',
+                params: { id: nextRideId },
+            });
+            return;
+        }
+
         router.replace('/(tabs)/home');
     };
 
@@ -362,6 +372,12 @@ const CollectPayment = () => {
 
             setBooking(finalizedBooking);
             setCommissionInfo(finalizedCommission);
+
+            if (finalizedBooking.driver_id) {
+                const { data: activeBookings } = await getDriverActiveBookings(finalizedBooking.driver_id);
+                const promotedBooking = (activeBookings || []).find((candidate) => candidate.id !== bookingId);
+                setNextRideId(promotedBooking?.id || null);
+            }
 
             // Stop the spinner before presenting the completion UI.
             setIsProcessing(false);
@@ -527,7 +543,7 @@ const CollectPayment = () => {
                                 className="rounded-2xl bg-green-600 px-5 py-4"
                             >
                                 <Text className="text-center text-base font-JakartaBold text-white">
-                                    Back to Home
+                                    {nextRideId ? 'Start Next Ride' : 'Back to Home'}
                                 </Text>
                             </TouchableOpacity>
                         </View>

@@ -155,7 +155,16 @@ export async function findNearbyDrivers(
     }
 
     // Calculate distance for each driver using Haversine formula
+    const { data: queuedBookings } = await supabase
+      .from('bookings')
+      .select('driver_id')
+      .eq('status', 'queued')
+      .not('driver_id', 'is', null);
+
+    const queuedDriverIds = new Set((queuedBookings || []).map((booking: any) => booking.driver_id));
+
     const driversWithDistance = drivers
+      .filter((driver: any) => !queuedDriverIds.has(driver.id))
       .map((driver: any) => ({
         ...driver,
         latitude: parseFloat(driver.current_latitude),
