@@ -4,12 +4,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from 'expo-web-browser';
 import CashfreeCheckoutModal from "@/components/CashfreeCheckoutModal";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 
 const Payment = () => {
   const { user, profile } = useAuth();
+  const { suggestedAmount, returnTo } = useLocalSearchParams<{
+    suggestedAmount?: string;
+    returnTo?: string;
+  }>();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isModalVisible, setModalVisible] = useState(false);
@@ -53,6 +58,13 @@ const Payment = () => {
       fetchTransactions();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (typeof suggestedAmount === 'string' && suggestedAmount.length > 0) {
+      setAmount(suggestedAmount);
+      setModalVisible(true);
+    }
+  }, [suggestedAmount]);
 
   const fetchTransactions = async () => {
     if (!user) return;
@@ -134,9 +146,26 @@ const Payment = () => {
       setStatusType('success');
       setStatusMessage("₹" + finalAmount.toFixed(2) + " added to wallet!");
       setStatusModalVisible(true);
+
+      if (typeof returnTo === 'string' && returnTo.length > 0) {
+        setTimeout(() => {
+          setStatusModalVisible(false);
+          router.replace(returnTo as any);
+        }, 1200);
+      }
     } catch (e) {
       console.error("Error post-payment:", e);
     }
+  };
+
+  const handleStatusDismiss = () => {
+    if (statusType === 'success' && typeof returnTo === 'string' && returnTo.length > 0) {
+      setStatusModalVisible(false);
+      router.replace(returnTo as any);
+      return;
+    }
+
+    setStatusModalVisible(false);
   };
 
   const startPayment = async () => {
@@ -464,16 +493,16 @@ const Payment = () => {
         visible={statusModalVisible} 
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setStatusModalVisible(false)}
+        onRequestClose={handleStatusDismiss}
       >
         <TouchableOpacity 
           style={styles.modalOverlay} 
           activeOpacity={1} 
-          onPress={() => setStatusModalVisible(false)}
+          onPress={handleStatusDismiss}
         >
           <TouchableOpacity activeOpacity={1} style={styles.statusModalContent}>
               <TouchableOpacity 
-                  onPress={() => setStatusModalVisible(false)}
+                  onPress={handleStatusDismiss}
                   className="absolute right-5 top-5 w-9 h-9 rounded-full bg-gray-100 items-center justify-center"
                   style={{ zIndex: 10 }}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -513,14 +542,18 @@ const Payment = () => {
               {statusType === 'success' && <View className="mb-4" />}
 
               <TouchableOpacity
-                  onPress={() => setStatusModalVisible(false)}
+                  onPress={handleStatusDismiss}
                   className={`w-full py-4 rounded-2xl items-center justify-center mb-4 ${
                     statusType === 'success' ? 'bg-yellow-500' : 'bg-red-500'
                   }`}
                   activeOpacity={0.8}
               >
                   <Text className={`font-JakartaBold text-lg ${statusType === 'success' ? 'text-black' : 'text-white'}`}>
-                    {statusType === 'success' ? "Done" : "Try Again"}
+                    {statusType === 'success'
+                      ? typeof returnTo === 'string' && returnTo.length > 0
+                        ? "Back to Booking"
+                        : "Done"
+                      : "Try Again"}
                   </Text>
               </TouchableOpacity>
           </TouchableOpacity>

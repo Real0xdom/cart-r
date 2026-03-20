@@ -44,7 +44,7 @@ async function runDriverCancel() {
         const { data: rpcResult, error: rpcError } = await driverClient.rpc('cancel_booking_by_driver', {
             p_booking_id: booking.id,
             p_driver_id: driverId,
-            p_reason: 'Testing Requeue'
+            p_reason: 'Testing driver cancellation before pickup'
         });
 
         if (rpcError) throw new Error(`RPC Failed: ${rpcError.message}`);
@@ -53,22 +53,11 @@ async function runDriverCancel() {
         // 4. Verify State
         const { data: finalBooking } = await customerClient.from('bookings').select('*').eq('id', booking.id).single();
         
-        console.log(`[DriverCancel] Final Status: ${finalBooking.status} (Expected: pending)`);
-        console.log(`[DriverCancel] Final Driver ID: ${finalBooking.driver_id} (Expected: null)`);
+        console.log(`[DriverCancel] Final Status: ${finalBooking.status} (Expected: cancelled)`);
+        console.log(`[DriverCancel] Refund Status: ${finalBooking.refund_status ?? 'n/a'}`);
 
-        if (finalBooking.status !== 'pending') throw new Error('Booking did not revert to pending');
-        if (finalBooking.driver_id !== null) throw new Error('Driver ID was not cleared');
-
-        // 5. Verify Rejection Record
-        const { data: rejection } = await driverClient
-            .from('driver_rejections')
-            .select('*')
-            .eq('booking_id', booking.id)
-            .eq('driver_id', driverId)
-            .single();
-
-        if (!rejection) throw new Error('Driver rejection record missing');
-        console.log('[DriverCancel] Rejection record verified.');
+        if (finalBooking.status !== 'cancelled') throw new Error('Booking was not cancelled');
+        console.log('[DriverCancel] Cancellation verified.');
 
         console.log('\n--- SUCCESS: SCENARIO 2 COMPLETED ---\n');
 

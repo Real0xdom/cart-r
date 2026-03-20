@@ -1,7 +1,7 @@
 // Active Ride Screen
 // Driver's view during an active shipment - connected to Supabase
 
-import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
@@ -13,6 +13,7 @@ import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingB
 import { getCurrentLocation, checkLocationServices } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { showTripCancelledNotification } from '@/lib/notifications';
 import { icons, images } from '@/constants';
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
@@ -29,6 +30,8 @@ const ActiveRide = () => {
     const [cachedRouteCoords, setCachedRouteCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
     const [useDirectionsFallback, setUseDirectionsFallback] = useState(false);
     const [locationError, setLocationError] = useState<string | null>(null);
+    const [cancellationNotice, setCancellationNotice] = useState<Booking | null>(null);
+    const cancellationHandledRef = useRef(false);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
 
@@ -163,6 +166,22 @@ const ActiveRide = () => {
 
         console.log('[ACTIVE RIDE] Fetching booking details for ID:', id);
 
+        const exitForCancellation = (cancelledBooking: Booking) => {
+            if (cancellationHandledRef.current) return;
+            cancellationHandledRef.current = true;
+            setBooking(cancelledBooking);
+            setCancellationNotice(cancelledBooking);
+            setIsUpdating(false);
+            void showTripCancelledNotification({
+                id: cancelledBooking.id,
+                origin_address: cancelledBooking.origin_address,
+                destination_address: cancelledBooking.destination_address,
+                cancellation_reason: cancelledBooking.cancellation_reason,
+            }).catch((error) => {
+                console.error('[ACTIVE RIDE] Failed to show cancellation notification:', error);
+            });
+        };
+
         const fetchBooking = async () => {
             const { data, error } = await getBookingById(id);
             
@@ -173,6 +192,11 @@ const ActiveRide = () => {
             });
             
             if (data) {
+                if (data.status === 'cancelled') {
+                    setIsLoading(false);
+                    exitForCancellation(data);
+                    return;
+                }
                 console.log('[ACTIVE RIDE] Booking loaded successfully:', JSON.stringify(data, null, 2));
                 setBooking(data);
             } else {
@@ -190,16 +214,8 @@ const ActiveRide = () => {
         const unsubscribe = subscribeToBooking(id, (updatedBooking) => {
             console.log('[ACTIVE RIDE] Received booking update:', updatedBooking.status);
             
-            // Customer cancelled the ride
             if (updatedBooking.status === 'cancelled') {
-                Alert.alert(
-                    'Ride Cancelled',
-                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
-                    [{
-                        text: 'OK',
-                        onPress: () => router.replace('/(tabs)/home')
-                    }]
-                );
+                exitForCancellation(updatedBooking);
                 return;
             }
             
@@ -260,6 +276,13 @@ const ActiveRide = () => {
 
         const currentStatus = booking.status;
 
+        if (currentStatus === 'cancelled') {
+            Alert.alert('Ride Cancelled', 'This ride was already cancelled by the customer.', [
+                { text: 'OK', onPress: () => router.replace('/(tabs)/home') }
+            ]);
+            return;
+        }
+
         // If in_progress and clicking the button, navigate to Arrived at Drop Location verification
         if (currentStatus === 'in_progress') {
             router.push({
@@ -316,6 +339,8 @@ const ActiveRide = () => {
         switch (booking?.status) {
             case 'accepted': 
                 return { text: 'Head to pickup location', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
+            case 'cancelled':
+                return { text: 'Ride cancelled by customer', color: 'bg-red-500/15', textColor: 'text-red-500' };
             case 'driver_arrived': 
                 return { text: '📍 Arrived - Verify OTP', color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
             case 'in_progress': 
@@ -337,12 +362,46 @@ const ActiveRide = () => {
     const status = getStatusBadge();
     const customerName = booking.customer?.name || 'Customer';
     const isInProgress = booking.status === 'in_progress';
+    const isCancelled = booking.status === 'cancelled';
     const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
     const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
     const routeKey = `${booking.status}-${targetLat}-${targetLng}`;
 
     return (
         <SafeAreaView testID="driver.activeRide" accessibilityLabel="driver.activeRide" className="flex-1 bg-white">
+            <Modal
+                visible={!!cancellationNotice}
+                transparent
+                animationType="fade"
+                onRequestClose={() => router.replace('/(tabs)/home')}
+            >
+                <View className="flex-1 bg-black/40 items-center justify-center px-6">
+                    <View className="w-full bg-white rounded-3xl p-6 border border-red-100">
+                        <View className="w-16 h-16 rounded-full bg-red-100 items-center justify-center self-center mb-4">
+                            <Feather name="x-circle" size={34} color="#ef4444" />
+                        </View>
+                        <Text className="text-center text-2xl font-JakartaBold text-gray-900 mb-2">Ride Cancelled</Text>
+                        <Text className="text-center text-gray-600 mb-2">
+                            The customer cancelled this ride while you were on the way.
+                        </Text>
+                        <Text className="text-center text-red-500 font-JakartaMedium mb-6">
+                            Reason: {cancellationNotice?.cancellation_reason || 'No reason provided'}
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => setCancellationNotice(null)}
+                            className="bg-gray-100 rounded-2xl py-4 mb-3"
+                        >
+                            <Text className="text-center text-gray-900 font-JakartaBold">OK</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => router.replace('/(tabs)/home')}
+                            className="bg-red-500 rounded-2xl py-4"
+                        >
+                            <Text className="text-center text-white font-JakartaBold">Exit Home</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
             {/* Map View */}
             <View className="flex-1">
                 {driverLocation ? (
@@ -526,6 +585,17 @@ const ActiveRide = () => {
 
                     {/* Ride Details */}
                     <View className="bg-gray-100 rounded-2xl p-4 mb-4 border border-gray-200">
+                        {isCancelled && (
+                            <View className="bg-red-50 rounded-xl p-4 mb-4 border border-red-200">
+                                <Text className="text-red-600 text-sm font-JakartaMedium mb-1">
+                                    Customer cancellation received
+                                </Text>
+                                <Text className="text-gray-900 font-JakartaBold">
+                                    {booking.cancellation_reason || 'This ride was cancelled by the customer.'}
+                                </Text>
+                            </View>
+                        )}
+
                         <View className="mb-3">
                             <Text className="text-gray-500 text-xs mb-1">
                                 {isInProgress ? 'DROP-OFF' : 'PICKUP'}
@@ -577,31 +647,51 @@ const ActiveRide = () => {
                     </View>
 
                     {/* Action Buttons */}
-                    <View className="flex-row gap-3">
-                        <TouchableOpacity
-                            onPress={openNavigation}
-                            className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
-                        >
-                            <Feather name="navigation" size={18} color="#fff" />
-                            <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={handleStatusUpdate}
-                            disabled={isUpdating}
-                            className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
-                        >
-                            {isUpdating ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                            ) : (
+                    {isCancelled ? (
+                        <View className="gap-3">
+                            <TouchableOpacity
+                                onPress={() => setCancellationNotice(booking)}
+                                className="bg-gray-100 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                <Feather name="alert-circle" size={18} color="#111827" />
+                                <Text className="text-gray-900 ml-2 font-JakartaBold">Show Cancellation Notice</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => router.replace('/(tabs)/home')}
+                                className="bg-red-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
                                 <Text className="text-white text-center font-JakartaBold">
-                                    {getButtonText()}
+                                    Exit Home
                                 </Text>
-                            )}
-                        </TouchableOpacity>
-                    </View>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <View className="flex-row gap-3">
+                            <TouchableOpacity
+                                onPress={openNavigation}
+                                className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                <Feather name="navigation" size={18} color="#fff" />
+                                <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleStatusUpdate}
+                                disabled={isUpdating}
+                                className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                {isUpdating ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text className="text-white text-center font-JakartaBold">
+                                        {getButtonText()}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    )}
 
                     {/* Cancel Option - before trip start */}
-                    {(booking.status === 'accepted' || booking.status === 'driver_arrived') && (
+                    {!isCancelled && (booking.status === 'accepted' || booking.status === 'driver_arrived') && (
                         <TouchableOpacity
                             onPress={() => {
                                 Alert.alert(
@@ -641,4 +731,3 @@ const ActiveRide = () => {
 };
 
 export default ActiveRide;
-

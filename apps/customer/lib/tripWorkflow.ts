@@ -165,48 +165,27 @@ export async function cancelBooking(
   reason?: string
 ): Promise<{ success: boolean; cancellationFee?: number; error: string | null }> {
   try {
-    // Check if driver is already assigned — apply cancellation fee
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('status, driver_id, total_fare, vehicle_type')
-      .eq('id', bookingId)
-      .single();
-
-    let cancellationFee = 0;
-    if (booking?.status === 'accepted' && booking?.driver_id) {
-      // Fetch cancellation fee from admin-configured fare_config
-      let configFee: number | null = null;
-      if (booking.vehicle_type) {
-        const { data: fareConfig } = await supabase
-          .from('fare_config')
-          .select('cancellation_fee')
-          .eq('vehicle_type', booking.vehicle_type)
-          .eq('is_active', true)
-          .single();
-        if (fareConfig?.cancellation_fee != null) {
-          configFee = Number(fareConfig.cancellation_fee);
-        }
-      }
-      // Use admin-configured fee; fall back to max(₹50, 10% of fare) if not set
-      cancellationFee = configFee ?? Math.max(50, Math.round((booking.total_fare || 0) * 0.1));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'User not authenticated' };
     }
 
     const { error } = await supabase
       .from('bookings')
       .update({
         status: 'cancelled',
+        cancelled_by: user.id,
         cancellation_reason: reason,
         cancelled_at: new Date().toISOString(),
-        ...(cancellationFee > 0 && { cancellation_fee: cancellationFee }),
       })
       .eq('id', bookingId)
-      .in('status', ['pending', 'accepted']); // Can only cancel before trip starts
+      .in('status', ['pending', 'accepted', 'driver_arrived', 'in_progress']); // Cancellation supported until trip is settled
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, cancellationFee: cancellationFee > 0 ? cancellationFee : undefined, error: null };
+    return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: err.message };
   }

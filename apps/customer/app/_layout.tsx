@@ -90,6 +90,7 @@ export default function RootLayout() {
             <Stack.Screen name="find-ride" options={{ headerShown: false }} />
             <Stack.Screen name="receiver-details" options={{ headerShown: false }} />
             <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />
+            <Stack.Screen name="review-booking" options={{ headerShown: false }} />
             <Stack.Screen name="confirm-ride" options={{ headerShown: false }} />
             <Stack.Screen name="book-ride" options={{ headerShown: false }} />
             <Stack.Screen name="profile-details" options={{ headerShown: false }} />

@@ -159,6 +159,18 @@ export async function getBookingById(bookingId: string): Promise<{
       return { data: null, error: error.message };
     }
 
+    if (
+      data?.driver_id &&
+      ['accepted', 'driver_arrived', 'in_progress', 'completed'].includes(data.status) &&
+      !data.driver
+    ) {
+      console.warn('[getBookingById] Assigned booking is missing joined driver details. This usually points to RLS/policy issues on drivers/users.', {
+        bookingId,
+        status: data.status,
+        driver_id: data.driver_id,
+      });
+    }
+
     return { data: data as Booking, error: null };
   } catch (err: any) {
     return { data: null, error: err.message };

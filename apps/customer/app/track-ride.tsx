@@ -32,6 +32,11 @@ import { icons, images } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
+const usesWalletFunds = (booking: Booking | null | undefined) =>
+  booking?.payment_method === "wallet" ||
+  booking?.payment_method === "partial_wallet" ||
+  booking?.payment_method === "wallet_plus_online";
+
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const { currentBooking, setCurrentBooking } = useBookingStore();
@@ -191,7 +196,9 @@ const TrackRidePage = () => {
         // Ride was cancelled (by customer or driver) - go back home
         Alert.alert(
           'Ride Cancelled',
-          updatedBooking.cancellation_reason || 'This ride has been cancelled',
+          usesWalletFunds(updatedBooking)
+            ? `${updatedBooking.cancellation_reason || 'This ride has been cancelled'}. Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.`
+            : (updatedBooking.cancellation_reason || 'This ride has been cancelled'),
           [{ text: 'OK', onPress: () => router.replace("/(tabs)/home") }]
         );
       } else if (updatedBooking.status === 'in_progress' && updatedBooking.delivery_otp) {
@@ -263,7 +270,9 @@ const TrackRidePage = () => {
         setShowCancelModal(false);
         Alert.alert(
           'Ride Cancelled',
-          'Your ride has been cancelled successfully.',
+          usesWalletFunds(booking)
+            ? 'Your ride has been cancelled successfully. Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.'
+            : 'Your ride has been cancelled successfully.',
           [
             {
               text: 'OK',
@@ -475,6 +484,40 @@ const TrackRidePage = () => {
                   <Feather name="phone" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
+
+              <View className="mt-4 bg-white rounded-xl p-3">
+                <View className="flex-row justify-between mb-3">
+                  <View className="flex-1 mr-3">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Phone Number</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.user?.phone || 'Not available'}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Model</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_model || 'Not available'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View className="flex-row justify-between">
+                  <View className="flex-1 mr-3">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Number</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_number || 'Not available'}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Details</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_color
+                        ? `${booking.driver.vehicle_color} ${booking.driver.vehicle_model || 'vehicle'}`
+                        : (booking.driver.vehicle_model || 'Not available')}
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
           )}
 
@@ -642,5 +685,3 @@ const TrackRidePage = () => {
 };
 
 export default TrackRidePage;
-
-

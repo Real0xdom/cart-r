@@ -9,6 +9,7 @@ export interface PaymentOrder {
   payment_session_id: string;
   order_status: string;
   cf_order_id?: string;
+  environment?: 'sandbox' | 'production';
 }
 
 export interface PaymentResult {

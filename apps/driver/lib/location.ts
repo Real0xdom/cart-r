@@ -68,9 +68,19 @@ async function updateDriverLocation(
       })
       .eq('id', driver.id);
 
+    const { data: activeBooking } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('driver_id', driver.id)
+      .eq('status', 'in_progress')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     // Insert into location history for tracking during rides
     await supabase.from('driver_locations').insert({
       driver_id: driver.id,
+      booking_id: activeBooking?.id ?? null,
       latitude,
       longitude,
       heading,

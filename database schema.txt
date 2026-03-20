@@ -126,6 +126,19 @@ CREATE TABLE public.bookings (
   cancellation_fee numeric DEFAULT 0,
   waiting_fare numeric DEFAULT 0,
   applied_waiting_rate numeric DEFAULT 0,
+  cashfree_order_id character varying,
+  payment_initiated_at timestamp with time zone,
+  refund_preference character varying DEFAULT 'bank'::character varying,
+  refund_status text CHECK (refund_status IS NULL OR (refund_status = ANY (ARRAY['pending'::text, 'processing'::text, 'succeeded'::text, 'failed'::text, 'not_applicable'::text]))),
+  refund_amount numeric,
+  refund_reason text,
+  refund_error text,
+  refund_id text,
+  refund_source text,
+  refund_initiated_at timestamp with time zone,
+  refund_completed_at timestamp with time zone,
+  quoted_total_fare numeric,
+  cancellation_penalty_amount numeric DEFAULT 0,
   CONSTRAINT bookings_pkey PRIMARY KEY (id),
   CONSTRAINT bookings_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.users(id),
   CONSTRAINT bookings_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id),
@@ -171,7 +184,7 @@ CREATE TABLE public.driver_wallet_transactions (
   driver_id uuid NOT NULL,
   booking_id uuid,
   withdrawal_id uuid,
-  type text NOT NULL CHECK (type = ANY (ARRAY['earning'::text, 'release'::text, 'withdrawal'::text, 'reversal'::text, 'adjustment'::text, 'payout_fee'::text])),
+  type text NOT NULL CHECK (type = ANY (ARRAY['earning'::text, 'release'::text, 'withdrawal'::text, 'reversal'::text, 'adjustment'::text, 'payout_fee'::text, 'platform_fee'::text])),
   amount numeric NOT NULL CHECK (amount > 0::numeric),
   balance_type text NOT NULL CHECK (balance_type = ANY (ARRAY['pending'::text, 'available'::text])),
   direction text NOT NULL CHECK (direction = ANY (ARRAY['credit'::text, 'debit'::text])),
@@ -189,11 +202,12 @@ CREATE TABLE public.driver_wallets (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   driver_id uuid NOT NULL UNIQUE,
   pending_balance numeric NOT NULL DEFAULT 0 CHECK (pending_balance >= 0::numeric),
-  available_balance numeric NOT NULL DEFAULT 0 CHECK (available_balance >= 0::numeric),
+  available_balance numeric NOT NULL DEFAULT 0,
   total_earned numeric NOT NULL DEFAULT 0,
   total_withdrawn numeric NOT NULL DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  total_commission_owed numeric DEFAULT 0 CHECK (total_commission_owed >= 0::numeric),
   CONSTRAINT driver_wallets_pkey PRIMARY KEY (id),
   CONSTRAINT driver_wallets_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES public.drivers(id)
 );
@@ -311,6 +325,24 @@ CREATE TABLE public.fare_discrepancies (
   CONSTRAINT fare_discrepancies_pkey PRIMARY KEY (id),
   CONSTRAINT fare_discrepancies_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
 );
+CREATE TABLE public.fast2sms_otp_requests (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  phone_number text NOT NULL,
+  otp_code character varying NOT NULL,
+  purpose text NOT NULL,
+  status text DEFAULT 'pending'::text,
+  attempts integer DEFAULT 0,
+  max_attempts integer DEFAULT 3,
+  expires_at timestamp with time zone NOT NULL,
+  verified_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  user_id uuid,
+  booking_id uuid,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT fast2sms_otp_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT fast2sms_otp_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT fast2sms_otp_requests_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id)
+);
 CREATE TABLE public.legal_documents (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   type character varying NOT NULL,
@@ -336,6 +368,13 @@ CREATE TABLE public.notifications (
   notification_type text DEFAULT 'general'::text,
   CONSTRAINT notifications_pkey PRIMARY KEY (id),
   CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.phone_otps (
+  phone text NOT NULL,
+  otp text NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT phone_otps_pkey PRIMARY KEY (phone)
 );
 CREATE TABLE public.platform_settings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -459,6 +498,7 @@ CREATE TABLE public.sms_queue (
   sent_at timestamp with time zone,
   error_message text,
   created_at timestamp with time zone DEFAULT now(),
+  purpose text DEFAULT 'general'::text,
   CONSTRAINT sms_queue_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.spatial_ref_sys (
@@ -551,6 +591,7 @@ CREATE TABLE public.vehicle_specifications (
   suitable_for ARRAY,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  icon_url text,
   CONSTRAINT vehicle_specifications_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.waiting_charges_config (

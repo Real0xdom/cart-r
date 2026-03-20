@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { parseDriverWalletRestriction } from './wallet';
 
 // =====================================================
 // BOOKING API HELPERS
@@ -85,6 +86,20 @@ export interface Booking {
     addon_services: { name: string; code: string; price: number } | null;
   }>;
 }
+
+export interface AcceptBookingResult {
+  success: boolean;
+  error: string | null;
+  errorCode?: string | null;
+  currentBalance?: number;
+  requiredRecharge?: number;
+}
+
+const TRANSITION_GUARDS: Partial<Record<Booking['status'], Booking['status'][]>> = {
+  driver_arrived: ['accepted'],
+  in_progress: ['driver_arrived'],
+  completed: ['in_progress'],
+};
 
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
@@ -337,6 +352,7 @@ export async function updateBookingStatus(
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+    const expectedCurrentStatuses = TRANSITION_GUARDS[status];
     
     // Add timestamps based on status
     if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
@@ -349,13 +365,28 @@ export async function updateBookingStatus(
       Object.assign(updateData, additionalData);
     }
     
-    const { error } = await supabase
+    let query = supabase
       .from('bookings')
       .update(updateData)
       .eq('id', bookingId);
+
+    if (expectedCurrentStatuses?.length) {
+      query = query.in('status', expectedCurrentStatuses as any);
+    }
+
+    const { data, error } = await query
+      .select('id, status, cancellation_reason')
+      .maybeSingle();
     
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (!data) {
+      return {
+        success: false,
+        error: 'Ride was already cancelled or moved to another state.',
+      };
     }
     
     return { success: true, error: null };
@@ -382,8 +413,10 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      (payload) => {
-        onUpdate(payload.new as Booking);
+      async (payload) => {
+        const fallbackBooking = payload.new as Booking;
+        const { data } = await getBookingById(bookingId);
+        onUpdate(data ?? fallbackBooking);
       }
     )
     .subscribe();
@@ -527,7 +560,7 @@ export async function getAvailableBookings(
 export async function acceptBooking(
   bookingId: string,
   driverId: string
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<AcceptBookingResult> {
   try {
     // Use atomic database function for proper race condition handling
     const { data, error } = await supabase.rpc('accept_booking_atomic' as any, {
@@ -544,7 +577,23 @@ export async function acceptBooking(
     const result = data as any;
     
     if (!result.success) {
-      return { success: false, error: result.message };
+      const walletRestriction = parseDriverWalletRestriction(result);
+
+      if (walletRestriction) {
+        return {
+          success: false,
+          error: walletRestriction.message,
+          errorCode: walletRestriction.errorCode,
+          currentBalance: walletRestriction.currentBalance,
+          requiredRecharge: walletRestriction.requiredRecharge,
+        };
+      }
+
+      return {
+        success: false,
+        error: result.message || 'Failed to accept booking',
+        errorCode: typeof result.error === 'string' ? result.error : null,
+      };
     }
 
     return { success: true, error: null };

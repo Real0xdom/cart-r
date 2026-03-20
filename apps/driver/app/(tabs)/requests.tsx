@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, getDriverActiveBookings, getDriverCompletedTrips, getDriverAllBookings, Booking, getDriverSearchRadius } from '@/lib/bookings';
+import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import * as Location from 'expo-location';
 import { checkLocationServices } from '@/lib/location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -231,7 +232,7 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
             <View className="mb-3">
                 <View className="self-start px-3 py-1 rounded-full bg-green-500">
                     <Text className="text-xs font-JakartaBold text-white">
-                        Completed {formatTimeAgo(booking.completed_at)}
+                        Completed {formatTimeAgo(booking.completed_at || null)}
                     </Text>
                 </View>
             </View>
@@ -444,23 +445,62 @@ const DriverRequests = () => {
             return;
         }
 
-        console.log('[HANDLE ACCEPT] Calling acceptBooking...');
-        const { success, error } = await acceptBooking(id, driverProfile.id);
-        
-        console.log('[HANDLE ACCEPT] Accept result:', { success, error });
-        
-        if (success) {
-            console.log('[HANDLE ACCEPT] Booking accepted successfully');
-            console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
-            Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
-            // Navigate to active ride screen
-            router.push(`/ride/${id}`);
-            console.log('[HANDLE ACCEPT] Navigation triggered');
-        } else {
-            console.error('[HANDLE ACCEPT] Failed to accept:', error);
-            Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
-            // Refresh list
-            fetchAllRides();
+        const openRechargeFlow = () => {
+            router.push(getDriverWalletRechargeNavigationTarget() as any);
+        };
+
+        try {
+            const eligibility = await checkDriverWalletEligibility(driverProfile.id);
+            console.log('[HANDLE ACCEPT] Wallet eligibility:', eligibility);
+
+            if (!eligibility.canAcceptRides) {
+                Alert.alert(
+                    'Cannot Accept Ride',
+                    `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
+                return;
+            }
+
+            console.log('[HANDLE ACCEPT] Calling acceptBooking...');
+            const { success, error, errorCode, currentBalance, requiredRecharge } = await acceptBooking(id, driverProfile.id);
+            
+            console.log('[HANDLE ACCEPT] Accept result:', { success, error, errorCode, currentBalance, requiredRecharge });
+            
+            if (success) {
+                console.log('[HANDLE ACCEPT] Booking accepted successfully');
+                console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
+                Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
+                // Navigate to active ride screen
+                router.push(`/ride/${id}`);
+                console.log('[HANDLE ACCEPT] Navigation triggered');
+            } else if (errorCode === 'wallet_recharge_required') {
+                Alert.alert(
+                    'Wallet Recharge Required',
+                    `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
+            } else {
+                console.error('[HANDLE ACCEPT] Failed to accept:', error);
+                Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
+                // Refresh list
+                fetchAllRides();
+            }
+        } catch (acceptError) {
+            console.error('[HANDLE ACCEPT] Unexpected accept error:', acceptError);
+            Alert.alert('Error', 'Failed to verify wallet status. Please try again.');
         }
     };
 

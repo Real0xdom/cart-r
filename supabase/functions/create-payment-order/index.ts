@@ -18,6 +18,7 @@ interface PaymentOrderRequest {
   customer_phone?: string
   amount: number
   return_url?: string
+  topup_target?: 'customer_wallet' | 'driver_wallet'
 }
 
 import { checkRateLimit, getClientIp, rateLimitedResponse } from '../_shared/rate-limiter.ts'
@@ -77,9 +78,12 @@ serve(async (req) => {
     }
 
     const isWalletTopUp = !booking_id
+    const isDriverWalletTopUp = isWalletTopUp && body.topup_target === 'driver_wallet'
     // Order ID format: strict requirement for alphanumeric
     const orderId = isWalletTopUp 
-      ? `WALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
+      ? (isDriverWalletTopUp
+          ? `DRIVERWALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
+          : `WALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`)
       : `BOOKING_${booking_id!.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
 
     // For booking payments, verify the booking exists
@@ -122,7 +126,7 @@ serve(async (req) => {
         notify_url: `${supabaseUrl}/functions/v1/payment-webhook`,
       },
       order_tags: {
-        type: isWalletTopUp ? 'wallet' : 'booking',
+        type: isWalletTopUp ? (isDriverWalletTopUp ? 'driver_wallet' : 'wallet') : 'booking',
         cid: customer_id,
         bid: booking_id || 'none'
       },
@@ -173,7 +177,7 @@ serve(async (req) => {
             type: 'credit',
             status: 'pending',
             payment_order_id: orderId, // Use order_id
-            description: 'Wallet top-up',
+            description: isDriverWalletTopUp ? 'Driver wallet top-up' : 'Wallet top-up',
           })
       } catch (err) {
         console.log('Could not store wallet transaction:', err)

@@ -124,6 +124,9 @@ serve(async (req) => {
     const cid = orderTags.cid;
     const bid = orderTags.bid;
 
+    let walletCredited = true
+    let creditErrorMessage: string | null = null
+
     // If payment is successful, update the DB
     if (status === 'PAID') {
       if (type === 'wallet' && cid) {
@@ -146,6 +149,45 @@ serve(async (req) => {
             }
         } else {
             console.error('Failed to credit wallet atomically:', creditError)
+            walletCredited = false
+            creditErrorMessage = creditError.message
+        }
+      } else if (type === 'driver_wallet' && cid) {
+        const { data: wasCredited, error: creditError } = await supabase.rpc('atomic_credit_driver_wallet_topup_idempotent', {
+          p_user_id: cid,
+          p_amount: paymentAmount,
+          p_order_id: order_id
+        })
+
+        if (creditError) {
+          console.error('Failed to credit driver wallet atomically:', creditError)
+          walletCredited = false
+          creditErrorMessage = creditError.message
+        } else if (!wasCredited) {
+          const { data: txn } = await supabase
+            .from('wallet_transactions')
+            .select('status')
+            .eq('payment_order_id', order_id)
+            .maybeSingle()
+
+          walletCredited = txn?.status === 'completed'
+          if (!walletCredited) {
+            creditErrorMessage = 'Driver wallet payment was captured but wallet credit did not complete.'
+          }
+
+          console.log('Driver wallet verify-payment idempotency result', {
+            orderId: order_id,
+            wasCredited,
+            transactionStatus: txn?.status ?? null,
+            walletCredited,
+            creditErrorMessage,
+          })
+        } else {
+          console.log('Driver wallet verify-payment credited successfully', {
+            orderId: order_id,
+            wasCredited,
+            paymentAmount,
+          })
         }
       } else if (type === 'booking' && bid && bid !== 'none') {
         // Update booking
@@ -159,7 +201,7 @@ serve(async (req) => {
       }
     } else if (status === 'FAILED') {
        // Also update failed status so user doesn't see "Pending" forever
-       if (type === 'wallet') {
+       if (type === 'wallet' || type === 'driver_wallet') {
           await supabase
             .from('wallet_transactions')
             .update({ 
@@ -184,6 +226,8 @@ serve(async (req) => {
         order_status: orderData.order_status,
         amount: orderData.order_amount,
         order_id: order_id,
+        wallet_credited: walletCredited,
+        credit_error: creditErrorMessage,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

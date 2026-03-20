@@ -168,6 +168,11 @@ declare interface ReceiverDetails {
   saveAs?: string; // 'Home', 'Office', 'Friend', 'Family', 'Other'
 }
 
+declare type ReviewBookingPaymentMethod =
+  | 'cash'
+  | 'wallet'
+  | 'wallet_plus_cash';
+
 // Booking data structure matching database
 declare interface Booking {
   id: string;
@@ -239,9 +244,21 @@ declare interface BookingStore {
   setReceiverDetails: (details: ReceiverDetails) => void;
   clearReceiverDetails: () => void;
 
-  // Goods description (optional)
+  // Goods description
   goodsDescription: string | null;
   setGoodsDescription: (desc: string | null) => void;
+
+  // Goods type selection
+  goodsType: string | null;
+  setGoodsType: (goodsType: string | null) => void;
+
+  // Review booking payment method
+  paymentMethod: ReviewBookingPaymentMethod | null;
+  setPaymentMethod: (paymentMethod: ReviewBookingPaymentMethod | null) => void;
+
+  // Selected add-ons from vehicle selection
+  selectedAddonIds: string[];
+  setSelectedAddonIds: (addonIds: string[]) => void;
 
   // Current active booking
   currentBooking: Booking | null;

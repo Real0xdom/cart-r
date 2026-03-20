@@ -26,6 +26,15 @@ import type { Booking } from "@/types/type";
 
 // Timeout duration in seconds (3 minutes)
 const SEARCH_TIMEOUT_SECONDS = 180;
+const ASSIGNED_BOOKING_STATUSES: Booking["status"][] = ["accepted", "driver_arrived", "in_progress"];
+
+const hasAssignedDriver = (booking: Booking | null | undefined) =>
+  !!booking?.driver_id && ASSIGNED_BOOKING_STATUSES.includes(booking.status);
+
+const usesWalletFunds = (booking: Booking | null | undefined) =>
+  booking?.payment_method === "wallet" ||
+  booking?.payment_method === "partial_wallet" ||
+  booking?.payment_method === "wallet_plus_online";
 
 const WaitingForDriverPage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -143,7 +152,7 @@ const WaitingForDriverPage = () => {
         });
         setBooking(data);
         setTipAmount(data.tip_amount || 0);
-        if ((data.status === 'accepted' || data.status === 'driver_arrived' || data.status === 'in_progress') && data.driver) {
+        if (hasAssignedDriver(data)) {
           console.log(`[WAITING] Driver already ${data.status} - stopping timer`);
           setDriverAccepted(true);
         } else if (
@@ -172,15 +181,20 @@ const WaitingForDriverPage = () => {
       setCurrentBooking(updatedBooking);
 
       // Transition to Driver Assigned state if driver is available in the update
-      if (['accepted', 'driver_arrived', 'in_progress'].includes(updatedBooking.status)) {
+      if (ASSIGNED_BOOKING_STATUSES.includes(updatedBooking.status)) {
         if (updatedBooking.driver) {
           console.log(`[WAITING] Driver found in update (${updatedBooking.status}) - updating state`);
+          setDriverAccepted(true);
+        } else if (updatedBooking.driver_id) {
+          console.warn(
+            `[WAITING] Driver assigned in booking update (${updatedBooking.status}) but joined driver details are missing. Continuing to tracking and waiting for details to hydrate.`
+          );
           setDriverAccepted(true);
         } else {
           console.log(`[WAITING] Status changed to ${updatedBooking.status} but driver data missing, fetching full details`);
           // Fetch full booking with driver details as fallback (e.g. if re-hydration failed/delayed)
           getBookingById(bookingId).then(({ data }) => {
-            if (data && data.driver) {
+            if (hasAssignedDriver(data)) {
               setBooking(data);
               setCurrentBooking(data);
               setDriverAccepted(true);
@@ -200,6 +214,8 @@ const WaitingForDriverPage = () => {
 
     return () => {
       console.log('[WAITING] Unsubscribing from booking updates');
+      // Navigation away from this screen must not cancel the booking.
+      // Cancellation is only allowed from explicit user action.
       unsubscribe();
     };
   }, [bookingId]);
@@ -225,7 +241,9 @@ const WaitingForDriverPage = () => {
               clearSelectedVehicle();
               Alert.alert(
                 "Ride Cancelled",
-                "Your ride has been successfully cancelled.",
+                usesWalletFunds(booking)
+                  ? "Your ride has been successfully cancelled. Any wallet hold is being returned to your wallet now, and any online refund will follow the refund timeline shown in the app."
+                  : "Your ride has been successfully cancelled.",
                 [{ text: "OK", onPress: () => router.replace("/(tabs)/home") }]
               );
             } else {
@@ -238,27 +256,16 @@ const WaitingForDriverPage = () => {
     );
   }, [bookingId, profile?.id, clearAll, clearSelectedVehicle]);
 
-  // Handle proceed to tracking
-  const handleTrackDriver = useCallback(() => {
-    router.replace({
-      pathname: "/track-ride",
-      params: { bookingId },
-    });
-  }, [bookingId]);
-
   // Auto-redirect to track-ride when driver is assigned
   useEffect(() => {
-    if (driverAccepted && booking?.driver && bookingId) {
+    if (driverAccepted && hasAssignedDriver(booking) && bookingId) {
       console.log('[WAITING] Driver assigned! Auto-redirecting to track-ride screen');
-      // Small delay to ensure state is updated
-      setTimeout(() => {
-        router.replace({
-          pathname: "/track-ride",
-          params: { bookingId },
-        });
-      }, 500);
+      router.replace({
+        pathname: "/track-ride",
+        params: { bookingId },
+      });
     }
-  }, [driverAccepted, booking?.driver, bookingId]);
+  }, [driverAccepted, booking?.driver_id, booking?.status, bookingId]);
 
   // Handle retry with increased tip (Book Now) - updates booking so drivers see new amount; admin sees in booking
   const handleRetrySearch = useCallback(async () => {
@@ -318,7 +325,7 @@ const WaitingForDriverPage = () => {
 
   return (
     <RideLayout 
-      title={driverAccepted ? "Driver Found!" : showTimeout ? "No Drivers Found" : "Finding Driver..."}
+      title={driverAccepted ? "Opening Live Tracking..." : showTimeout ? "No Drivers Found" : "Finding Driver..."}
       snapPoints={getSnapPoints()}
       useView={false}
     >
@@ -333,81 +340,13 @@ const WaitingForDriverPage = () => {
         </View>
 
         {/* Driver Accepted State */}
-        {driverAccepted && booking?.driver ? (
-          <View>
-            {/* Success Badge */}
-            <View className="bg-green-100 rounded-xl p-4 mb-4 flex-row items-center">
-              <View className="bg-green-500 rounded-full p-2 mr-3">
-                <Feather name="check" size={20} color="#fff" />
-              </View>
-              <View>
-                <Text className="text-green-700 font-JakartaBold text-base">Driver Assigned!</Text>
-                <Text className="text-green-600 font-JakartaMedium text-sm">Your driver is on the way</Text>
-              </View>
-            </View>
-
-            {/* Driver Card */}
-            <View className="bg-gray-50 rounded-2xl p-4 mb-4">
-              <View className="flex-row items-center mb-4">
-                <View className="w-14 h-14 bg-brand-100 rounded-full items-center justify-center mr-3">
-                  <Feather name="user" size={28} color="#FF9800" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-lg font-JakartaBold text-gray-800">
-                    {booking.driver.user?.name || "Driver"}
-                  </Text>
-                  <View className="flex-row items-center mt-1">
-                    <Feather name="star" size={14} color="#f59e0b" />
-                    <Text className="ml-1 text-gray-600 font-JakartaMedium">
-                      {booking.driver.rating || 4.5}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <View className="flex-row justify-between bg-white rounded-xl p-3">
-                <View className="items-center">
-                  <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle</Text>
-                  <Text className="text-sm font-JakartaBold text-gray-800">{booking.driver.vehicle_model}</Text>
-                </View>
-                <View className="items-center">
-                  <Text className="text-xs text-gray-500 font-JakartaMedium">Number</Text>
-                  <Text className="text-sm font-JakartaBold text-gray-800">{booking.driver.vehicle_number}</Text>
-                </View>
-                <View className="items-center">
-                  <Text className="text-xs text-gray-500 font-JakartaMedium">OTP</Text>
-                  <Text className="text-sm font-JakartaBold text-brand-500">{booking.pickup_otp}</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Actions */}
-            <TouchableOpacity
-              onPress={handleTrackDriver}
-              className="bg-brand-500 py-4 rounded-xl flex-row items-center justify-center mb-3"
-            >
-              <Feather name="navigation" size={20} color="#fff" />
-              <Text className="ml-2 font-JakartaBold text-white text-base">
-                Track Shipment
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => {
-                if (booking?.driver?.user?.phone) {
-                  const Linking = require('react-native').Linking;
-                  Linking.openURL(`tel:${booking.driver.user.phone}`);
-                } else {
-                  Alert.alert('Error', 'Driver phone number not available');
-                }
-              }}
-              className="bg-gray-100 py-4 rounded-xl flex-row items-center justify-center"
-            >
-              <Feather name="phone" size={20} color="#333" />
-              <Text className="ml-2 font-JakartaBold text-gray-700 text-base">
-                Call Driver
-              </Text>
-            </TouchableOpacity>
+        {driverAccepted ? (
+          <View className="bg-green-50 rounded-2xl p-5 border border-green-200 items-center">
+            <ActivityIndicator size="large" color="#16a34a" />
+            <Text className="text-green-700 font-JakartaBold text-lg mt-4">Driver assigned</Text>
+            <Text className="text-green-600 font-JakartaMedium text-sm mt-1 text-center">
+              Opening live tracking with driver details and pickup OTP.
+            </Text>
           </View>
         ) : showTimeout ? (
           /* Timeout State - Add driver tip (only when no driver found) */
@@ -589,4 +528,3 @@ const WaitingForDriverPage = () => {
 };
 
 export default WaitingForDriverPage;
-

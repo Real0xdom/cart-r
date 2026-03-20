@@ -3,10 +3,17 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
 import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings, getDriverSearchRadius } from '@/lib/bookings';
+import {
+    checkDriverWalletEligibility,
+    getDriverWalletInfo,
+    getDriverWalletRechargeNavigationTarget,
+    DriverWalletInfoResponse,
+} from '@/lib/wallet';
+import WalletBalanceCard from '@/components/WalletBalanceCard';
 import * as Location from 'expo-location';
 
 // Countdown timer hook for ride requests - MUST be called at top level
@@ -43,6 +50,9 @@ const useCountdown = (expiresAt: string | null) => {
 
     return { timeLeft, isExpired };
 };
+
+// Keep auto-recovery from looping when the user manually goes back from the active ride screen.
+let lastAutoNavigatedBookingId: string | null = null;
 
 const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
     const { t } = useLanguage();
@@ -146,9 +156,9 @@ const DriverHome = () => {
     const [isRidesExpanded, setIsRidesExpanded] = useState(true);
     const [todayStats, setTodayStats] = useState({ earnings: 0, trips: 0 });
     const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const [walletInfo, setWalletInfo] = useState<DriverWalletInfoResponse | null>(null);
+    const [isLoadingWallet, setIsLoadingWallet] = useState(true);
     const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
-    const hasAutoNavigated = useRef(false);
-
     useEffect(() => {
         setIsOnline(driverProfile?.is_online || false);
     }, [driverProfile]);
@@ -263,9 +273,13 @@ const DriverHome = () => {
             if (activeRides) {
                 setActiveBookings(activeRides);
 
+                if (activeRides.length !== 1) {
+                    lastAutoNavigatedBookingId = null;
+                }
+
                 // Auto-navigate to active ride on app launch/crash recovery
-                if (!hasAutoNavigated.current && activeRides.length === 1) {
-                    hasAutoNavigated.current = true;
+                if (activeRides.length === 1 && lastAutoNavigatedBookingId !== activeRides[0].id) {
+                    lastAutoNavigatedBookingId = activeRides[0].id;
                     console.log('[HOME] Auto-navigating to active ride:', activeRides[0].id);
                     router.push(`/ride/${activeRides[0].id}` as any);
                 }
@@ -295,6 +309,31 @@ const DriverHome = () => {
         return () => clearInterval(interval);
     }, [driverProfile?.id]);
 
+    useEffect(() => {
+        if (!driverProfile?.id) return;
+
+        const loadWallet = async () => {
+            try {
+                setIsLoadingWallet(true);
+                const { data } = await getDriverWalletInfo(driverProfile.id);
+                setWalletInfo(data);
+            } catch (error) {
+                console.error('Failed to load wallet:', error);
+            } finally {
+                setIsLoadingWallet(false);
+            }
+        };
+
+        loadWallet();
+
+        const interval = setInterval(loadWallet, 30000);
+        return () => clearInterval(interval);
+    }, [driverProfile?.id]);
+
+    const openRechargeFlow = () => {
+        router.push(getDriverWalletRechargeNavigationTarget() as any);
+    };
+
     const handleToggleOnline = async (value: boolean) => {
         // [G5] Block suspended / unverified drivers from going online
         if (value && driverProfile?.verification_status !== 'approved') {
@@ -314,10 +353,37 @@ const DriverHome = () => {
             return;
         }
 
+        if (value && !driverProfile?.id) {
+            Alert.alert(
+                t('error'),
+                t('driverProfileNotFound') || 'Driver profile not found.'
+            );
+            return;
+        }
+
+        const driverId = driverProfile?.id;
+
         setIsTogglingStatus(true);
 
         try {
             if (value) {
+                const eligibility = await checkDriverWalletEligibility(driverId as string);
+                console.log('[HOME] Go-online wallet eligibility:', eligibility);
+
+                if (!eligibility.canAcceptRides) {
+                    Alert.alert(
+                        'Wallet Recharge Required',
+                        `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to clear commission debt and resume accepting new rides.`,
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                                text: 'Recharge Now',
+                                onPress: openRechargeFlow,
+                            },
+                        ]
+                    );
+                    return;
+                }
                 // Going online — request permissions and start tracking
                 
                 // Check if services are enabled first
@@ -442,8 +508,26 @@ const DriverHome = () => {
         }
 
         try {
+            const eligibility = await checkDriverWalletEligibility(driverProfile.id);
+            console.log('[HOME] Accept wallet eligibility:', { bookingId, ...eligibility });
+
+            if (!eligibility.canAcceptRides) {
+                Alert.alert(
+                    'Cannot Accept Ride',
+                    `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
+                return;
+            }
+
             const { acceptBooking } = await import('@/lib/bookings');
-            const { success, error } = await acceptBooking(bookingId, driverProfile.id);
+            const { success, error, errorCode, currentBalance, requiredRecharge } = await acceptBooking(bookingId, driverProfile.id);
             
             if (success) {
                 Alert.alert('Success', 'Booking accepted! Navigate to pickup location.');
@@ -451,6 +535,18 @@ const DriverHome = () => {
                 setRideRequests(prev => prev.filter(r => r.id !== bookingId));
                 // Navigate to ride screen
                 router.push(`/ride/${bookingId}` as any);
+            } else if (errorCode === 'wallet_recharge_required') {
+                Alert.alert(
+                    'Wallet Recharge Required',
+                    `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
             } else {
                 Alert.alert('Error', error || 'Failed to accept booking');
             }
@@ -578,6 +674,31 @@ const DriverHome = () => {
                     </Text>
                 </View>
 
+                <WalletBalanceCard
+                    walletInfo={walletInfo}
+                    isLoading={isLoadingWallet}
+                />
+
+                {!!walletInfo?.wallet?.requires_recharge && (
+                    <View className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+                        <View className="flex-row items-start">
+                            <Ionicons name="alert-circle-outline" size={22} color="#d97706" />
+                            <View className="flex-1 ml-3">
+                                <Text className="text-amber-900 font-JakartaBold text-base">Wallet recharge required</Text>
+                                <Text className="text-amber-800 text-sm mt-1">
+                                    Balance: {'\u20b9'}{Number(walletInfo.wallet.available_balance || 0).toFixed(2)}. Recharge your wallet before going online or accepting a new ride.
+                                </Text>
+                                <TouchableOpacity
+                                    onPress={openRechargeFlow}
+                                    className="mt-3 self-start bg-amber-500 px-4 py-2 rounded-xl"
+                                >
+                                    <Text className="text-white font-JakartaBold">Recharge Now</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                )}
+
                 {/* Today's Stats */}
                 <Text className="text-gray-900 text-xl font-JakartaBold mb-4">{t('todaysSummary')}</Text>
                 <View className="flex-row gap-3 mb-6">
@@ -660,7 +781,3 @@ const DriverHome = () => {
 };
 
 export default DriverHome;
-
-
-
-

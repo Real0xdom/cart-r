@@ -241,6 +241,98 @@ export async function createDriverWallet(driverId: string, initialBalance: numbe
   return { error: error?.message || null };
 }
 
+export async function setDriverWalletState(
+  driverId: string,
+  params: {
+    availableBalance: number;
+    pendingBalance?: number;
+    totalEarned?: number;
+    totalWithdrawn?: number;
+    totalCommissionOwed?: number;
+  }
+): Promise<void> {
+  const client = getClient();
+  const payload = {
+    driver_id: driverId,
+    pending_balance: params.pendingBalance ?? 0,
+    available_balance: params.availableBalance,
+    total_earned: params.totalEarned ?? 0,
+    total_withdrawn: params.totalWithdrawn ?? 0,
+    total_commission_owed: params.totalCommissionOwed ?? 0,
+    updated_at: new Date().toISOString(),
+  } as any;
+
+  const { error } = await client.from('driver_wallets').upsert(payload);
+  if (error) {
+    throw new Error(`setDriverWalletState failed: ${error.message}`);
+  }
+}
+
+export async function getDriverWalletRecord(driverId: string): Promise<any> {
+  const client = getClient();
+  const { data, error } = await client.from('driver_wallets').select('*').eq('driver_id', driverId).single();
+  if (error) throw new Error(`getDriverWalletRecord failed: ${error.message}`);
+  return data;
+}
+
+export async function getDriverWalletInfoRpc(driverId: string): Promise<any> {
+  const client = getClient();
+  const { data, error } = await client.rpc('get_driver_wallet_info', { p_driver_id: driverId });
+  if (error) throw new Error(`getDriverWalletInfoRpc failed: ${error.message}`);
+  return data;
+}
+
+export async function getDriverWalletTransactions(
+  driverId: string,
+  filters: {
+    bookingId?: string;
+    referenceId?: string;
+    type?: string;
+  } = {}
+): Promise<any[]> {
+  const client = getClient();
+  let query = client
+    .from('driver_wallet_transactions')
+    .select('*')
+    .eq('driver_id', driverId)
+    .order('created_at', { ascending: false });
+
+  if (filters.bookingId) {
+    query = query.eq('booking_id', filters.bookingId);
+  }
+  if (filters.referenceId) {
+    query = query.eq('reference_id', filters.referenceId);
+  }
+  if (filters.type) {
+    query = query.eq('type', filters.type);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`getDriverWalletTransactions failed: ${error.message}`);
+  return data || [];
+}
+
+export async function createPendingWalletTopupTransaction(
+  userId: string,
+  amount: number,
+  orderId: string,
+  description: string = 'Driver wallet top-up'
+): Promise<void> {
+  const client = getClient();
+  const { error } = await client.from('wallet_transactions').insert({
+    user_id: userId,
+    amount,
+    type: 'credit',
+    status: 'pending',
+    payment_order_id: orderId,
+    description,
+  });
+
+  if (error) {
+    throw new Error(`createPendingWalletTopupTransaction failed: ${error.message}`);
+  }
+}
+
 export async function createWithdrawalRequest(driverId: string, amount: number): Promise<{ withdrawalId: string; error: string | null }> {
   const client = getClient();
   const { data, error } = await client.from('withdrawals').insert({
@@ -310,6 +402,31 @@ export async function getDriverWalletBalance(driverId: string): Promise<{ pendin
   const { data, error } = await client.from('driver_wallets').select('*').eq('driver_id', driverId).single();
   if (error) throw new Error(`getDriverWalletBalance failed: ${error.message}`);
   return { pending: data.pending_balance, available: data.available_balance };
+}
+
+export async function getPlatformSetting(key: string): Promise<any | null> {
+  const client = getClient();
+  const { data, error } = await client.from('platform_settings').select('*').eq('key', key).maybeSingle();
+  if (error) throw new Error(`getPlatformSetting failed: ${error.message}`);
+  return data;
+}
+
+export async function setPlatformSetting(
+  key: string,
+  value: unknown,
+  description?: string | null
+): Promise<void> {
+  const client = getClient();
+  const payload = {
+    key,
+    value: value as any,
+    description: description ?? null,
+    is_public: false,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await client.from('platform_settings').upsert(payload, { onConflict: 'key' });
+  if (error) throw new Error(`setPlatformSetting failed: ${error.message}`);
 }
 
 export async function getDriverStatus(driverId: string) {
