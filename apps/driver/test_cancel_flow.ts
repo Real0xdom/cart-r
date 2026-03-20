@@ -92,25 +92,12 @@ async function runTest() {
     console.log('Final Booking Status:', finalBooking.status);
     console.log('Final Driver ID:', finalBooking.driver_id);
 
-    if (finalBooking.status === 'pending' && finalBooking.driver_id === null) {
-        console.log('SUCCESS: Booking reverted to pending.');
+    if (finalBooking.status === 'cancelled') {
+        console.log('SUCCESS: Booking cancelled and eligible for refund flow.');
     } else {
-        console.error('FAILURE: Booking status mismatch. Expected pending, got', finalBooking.status);
+        console.error('FAILURE: Booking status mismatch. Expected cancelled, got', finalBooking.status);
     }
 
-    // 6. Verify rejection
-    const { data: rejection } = await supabase.from('driver_rejections')
-        .select('*')
-        .eq('booking_id', booking.id)
-        .eq('driver_id', driver.id)
-        .single();
-
-    if (rejection) {
-        console.log('SUCCESS: Driver rejection recorded.');
-    } else {
-        console.error('FAILURE: Driver rejection not found.');
-    }
-    
   } catch (err) {
       console.error('Unexpected error:', err);
   }

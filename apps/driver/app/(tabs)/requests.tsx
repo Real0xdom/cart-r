@@ -5,9 +5,11 @@ import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, getDriverActiveBookings, getDriverCompletedTrips, getDriverAllBookings, Booking, getDriverSearchRadius } from '@/lib/bookings';
+import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import * as Location from 'expo-location';
 import { checkLocationServices } from '@/lib/location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 
 // Countdown timer hook for expiration
 // NO grace period for display - show actual expiration time
@@ -206,6 +208,37 @@ const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     );
 };
 
+const QueuedRideCard = ({ booking }: { booking: Booking }) => {
+    return (
+        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200 shadow-sm">
+            <View className="mb-3">
+                <View className="self-start px-3 py-1 rounded-full bg-amber-500">
+                    <Text className="text-xs font-JakartaBold text-white">
+                        Next Ride Queued
+                    </Text>
+                </View>
+            </View>
+            <View className="flex-row justify-between items-start mb-2">
+                <View className="flex-1 pr-4">
+                    <Text className="text-gray-500 text-xs mb-1">NEXT DROP-OFF</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
+                        {booking.destination_address}
+                    </Text>
+                    <Text className="text-amber-700 font-JakartaMedium text-sm mt-2">
+                        {booking.customer?.name || 'Customer'} is waiting for you next
+                    </Text>
+                </View>
+                <View className="bg-amber-100 px-3 py-1 rounded-full items-center justify-center">
+                    <Text className="text-amber-700 font-JakartaBold">₹{booking.total_fare}</Text>
+                </View>
+            </View>
+            <Text className="text-amber-700 font-JakartaMedium text-sm mt-2 text-center">
+                Finish your current ride to activate this trip
+            </Text>
+        </View>
+    );
+};
+
 /**
  * History ride card for completed trips
  */
@@ -231,7 +264,7 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
             <View className="mb-3">
                 <View className="self-start px-3 py-1 rounded-full bg-green-500">
                     <Text className="text-xs font-JakartaBold text-white">
-                        Completed {formatTimeAgo(booking.completed_at)}
+                        Completed {formatTimeAgo(booking.completed_at || null)}
                     </Text>
                 </View>
             </View>
@@ -444,23 +477,67 @@ const DriverRequests = () => {
             return;
         }
 
-        console.log('[HANDLE ACCEPT] Calling acceptBooking...');
-        const { success, error } = await acceptBooking(id, driverProfile.id);
-        
-        console.log('[HANDLE ACCEPT] Accept result:', { success, error });
-        
-        if (success) {
-            console.log('[HANDLE ACCEPT] Booking accepted successfully');
-            console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
-            Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
-            // Navigate to active ride screen
-            router.push(`/ride/${id}`);
-            console.log('[HANDLE ACCEPT] Navigation triggered');
-        } else {
-            console.error('[HANDLE ACCEPT] Failed to accept:', error);
-            Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
-            // Refresh list
-            fetchAllRides();
+        const openRechargeFlow = () => {
+            router.push(getDriverWalletRechargeNavigationTarget() as any);
+        };
+
+        try {
+            const eligibility = await checkDriverWalletEligibility(driverProfile.id);
+            console.log('[HANDLE ACCEPT] Wallet eligibility:', eligibility);
+
+            if (!eligibility.canAcceptRides) {
+                Alert.alert(
+                    'Cannot Accept Ride',
+                    `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
+                return;
+            }
+
+            console.log('[HANDLE ACCEPT] Calling acceptBooking...');
+            const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(id, driverProfile.id);
+            
+            console.log('[HANDLE ACCEPT] Accept result:', { success, error, errorCode, currentBalance, requiredRecharge });
+            
+            if (success) {
+                console.log('[HANDLE ACCEPT] Booking accepted successfully');
+                void refreshLocationTrackingNotification();
+                if (assignmentMode === 'queued') {
+                    Alert.alert("Ride queued", "Next ride queued successfully. Finish your current ride to activate it.");
+                    fetchAllRides();
+                } else {
+                    console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
+                    Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
+                    router.push(`/ride/${id}`);
+                    console.log('[HANDLE ACCEPT] Navigation triggered');
+                }
+            } else if (errorCode === 'wallet_recharge_required') {
+                Alert.alert(
+                    'Wallet Recharge Required',
+                    `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
+                    [
+                        { text: 'Later', style: 'cancel' },
+                        {
+                            text: 'Recharge Now',
+                            onPress: openRechargeFlow,
+                        },
+                    ]
+                );
+            } else {
+                console.error('[HANDLE ACCEPT] Failed to accept:', error);
+                Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
+                // Refresh list
+                fetchAllRides();
+            }
+        } catch (acceptError) {
+            console.error('[HANDLE ACCEPT] Unexpected accept error:', acceptError);
+            Alert.alert('Error', 'Failed to verify wallet status. Please try again.');
         }
     };
 
@@ -543,6 +620,7 @@ const DriverRequests = () => {
                         {allRides.map((ride, index) => {
                             // Check if it's an available request (pending) or active/completed ride
                             const isPending = ride.status === 'pending';
+                            const isQueued = ride.status === 'queued';
                             const isOngoing = ['accepted', 'driver_arrived', 'in_progress'].includes(ride.status);
                             const isCompleted = ride.status === 'completed';
                             
@@ -554,6 +632,13 @@ const DriverRequests = () => {
                                         index={index}
                                         onAccept={handleAccept}
                                         onReject={handleDecline}
+                                    />
+                                );
+                            } else if (isQueued) {
+                                return (
+                                    <QueuedRideCard
+                                        key={ride.id}
+                                        booking={ride}
                                     />
                                 );
                             } else if (isOngoing) {

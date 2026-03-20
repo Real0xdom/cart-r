@@ -168,6 +168,11 @@ declare interface ReceiverDetails {
   saveAs?: string; // 'Home', 'Office', 'Friend', 'Family', 'Other'
 }
 
+declare type ReviewBookingPaymentMethod =
+  | 'cash'
+  | 'wallet'
+  | 'wallet_plus_cash';
+
 // Booking data structure matching database
 declare interface Booking {
   id: string;
@@ -193,7 +198,8 @@ declare interface Booking {
   wallet_amount_used?: number;
   payment_session_id?: string | null;
   online_payment_order_id?: string | null;
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  queued_at?: string | null;
   pickup_otp: string | null;
   delivery_otp: string | null;
   receiver_name: string | null;
@@ -239,9 +245,21 @@ declare interface BookingStore {
   setReceiverDetails: (details: ReceiverDetails) => void;
   clearReceiverDetails: () => void;
 
-  // Goods description (optional)
+  // Goods description
   goodsDescription: string | null;
   setGoodsDescription: (desc: string | null) => void;
+
+  // Goods type selection
+  goodsType: string | null;
+  setGoodsType: (goodsType: string | null) => void;
+
+  // Review booking payment method
+  paymentMethod: ReviewBookingPaymentMethod | null;
+  setPaymentMethod: (paymentMethod: ReviewBookingPaymentMethod | null) => void;
+
+  // Selected add-ons from vehicle selection
+  selectedAddonIds: string[];
+  setSelectedAddonIds: (addonIds: string[]) => void;
 
   // Current active booking
   currentBooking: Booking | null;

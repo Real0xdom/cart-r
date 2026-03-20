@@ -4,6 +4,74 @@ import * as TaskManager from 'expo-task-manager';
 import { supabase } from './supabase';
 import { getLocationWithFallback, isLocationUnavailableError } from './locationFallback';
 
+async function getForegroundServiceBody(): Promise<string> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return 'Tracking your location while you are online';
+    }
+
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!driver?.id) {
+      return 'Tracking your location while you are online';
+    }
+
+    const { data: activeRide } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('driver_id', driver.id)
+      .in('status', ['accepted', 'driver_arrived', 'in_progress'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeRide) {
+      return 'Trip in progress - Tap to open Cartr';
+    }
+
+    const { data: queuedRide } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('driver_id', driver.id)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (queuedRide) {
+      return 'You are online with a queued next ride';
+    }
+
+    return 'You are online and ready for new ride requests';
+  } catch (error) {
+    console.error('Failed to build foreground service body:', error);
+    return 'Tracking your location while you are online';
+  }
+}
+
+async function getLocationTaskOptions() {
+  return {
+    accuracy: Location.Accuracy.Highest,
+    timeInterval: LOCATION_UPDATE_INTERVAL,
+    distanceInterval: 10,
+    foregroundService: {
+      notificationTitle: 'CARTR Driver',
+      notificationBody: await getForegroundServiceBody(),
+      notificationColor: '#22c55e',
+    },
+    showsBackgroundLocationIndicator: true,
+    pausesUpdatesAutomatically: false,
+  };
+}
+
 const LOCATION_TASK_NAME = 'cartr-driver-location';
 const LOCATION_UPDATE_INTERVAL = 10000; // 10 seconds
 const MIN_ACCURACY_THRESHOLD = 50; // meters — skip positions less accurate than this
@@ -68,9 +136,19 @@ async function updateDriverLocation(
       })
       .eq('id', driver.id);
 
+    const { data: activeBooking } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('driver_id', driver.id)
+      .eq('status', 'in_progress')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     // Insert into location history for tracking during rides
     await supabase.from('driver_locations').insert({
       driver_id: driver.id,
+      booking_id: activeBooking?.id ?? null,
       latitude,
       longitude,
       heading,
@@ -124,19 +202,7 @@ export async function startLocationTracking(): Promise<boolean> {
     }
 
     // Start background location updates
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.Highest,
-      timeInterval: LOCATION_UPDATE_INTERVAL,
-      distanceInterval: 10, // Update if moved 10 meters (was 50)
-      foregroundService: {
-        notificationTitle: 'CARTR Driver',
-        notificationBody: 'Tracking your location for ride requests',
-        notificationColor: '#22c55e',
-      },
-      // Android specific
-      showsBackgroundLocationIndicator: true,
-      pausesUpdatesAutomatically: false,
-    });
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, await getLocationTaskOptions());
 
     console.log('✅ Location tracking started');
     return true;
@@ -156,6 +222,21 @@ export async function stopLocationTracking(): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to stop location tracking:', error);
+  }
+}
+
+export async function refreshLocationTrackingNotification(): Promise<void> {
+  try {
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+    if (!isRegistered) {
+      return;
+    }
+
+    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, await getLocationTaskOptions());
+    console.log('Foreground service notification refreshed');
+  } catch (error) {
+    console.error('Failed to refresh foreground service notification:', error);
   }
 }
 

@@ -70,4 +70,54 @@ describe('verify-payment Edge Function Logic', () => {
     
     expect(status).toBe('FAILED');
   });
+
+  it('treats a previously completed driver wallet top-up as already credited', () => {
+    const resolveDriverWalletCredit = (
+      wasCredited: boolean,
+      walletTransactionStatus: 'pending' | 'completed' | 'failed' | null
+    ) => {
+      if (wasCredited) {
+        return { walletCredited: true, creditError: null };
+      }
+
+      if (walletTransactionStatus === 'completed') {
+        return { walletCredited: true, creditError: null };
+      }
+
+      return {
+        walletCredited: false,
+        creditError: 'Driver wallet payment was captured but wallet credit did not complete.',
+      };
+    };
+
+    expect(resolveDriverWalletCredit(false, 'completed')).toEqual({
+      walletCredited: true,
+      creditError: null,
+    });
+  });
+
+  it('surfaces an explicit error when the driver wallet top-up is still not credited', () => {
+    const resolveDriverWalletCredit = (
+      wasCredited: boolean,
+      walletTransactionStatus: 'pending' | 'completed' | 'failed' | null
+    ) => {
+      if (wasCredited) {
+        return { walletCredited: true, creditError: null };
+      }
+
+      if (walletTransactionStatus === 'completed') {
+        return { walletCredited: true, creditError: null };
+      }
+
+      return {
+        walletCredited: false,
+        creditError: 'Driver wallet payment was captured but wallet credit did not complete.',
+      };
+    };
+
+    expect(resolveDriverWalletCredit(false, 'pending')).toEqual({
+      walletCredited: false,
+      creditError: 'Driver wallet payment was captured but wallet credit did not complete.',
+    });
+  });
 });

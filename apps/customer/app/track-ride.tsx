@@ -20,6 +20,12 @@ import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
+import {
+  showDriverArrivedNotification,
+  showPaymentSuccessNotification,
+  showTripCompletedCustomerNotification,
+  showTripStartedNotification,
+} from "@/lib/notifications";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
@@ -31,6 +37,11 @@ import { useAnimatedLocation } from "@/lib/mapAnimation";
 import { icons, images } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
+
+const usesWalletFunds = (booking: Booking | null | undefined) =>
+  booking?.payment_method === "wallet" ||
+  booking?.payment_method === "partial_wallet" ||
+  booking?.payment_method === "wallet_plus_online";
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -54,6 +65,8 @@ const TrackRidePage = () => {
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const previousBookingStatusRef = useRef<Booking["status"] | null>(currentBooking?.status ?? null);
+  const previousPaymentStatusRef = useRef<string | null>(currentBooking?.payment_status ?? null);
 
   const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
 
@@ -141,8 +154,8 @@ const TrackRidePage = () => {
     // Fetch latest booking data
     getBookingById(bookingId).then(({ data }) => {
       if (data) {
-        // If booking is still pending (finding driver), redirect back to waiting screen
-        if (data.status === 'pending' || !data.driver_id) {
+        // If booking is still pending/queued, redirect back to waiting screen
+        if (data.status === 'pending' || data.status === 'queued' || !data.driver_id) {
             router.replace({
               pathname: "/waiting-for-driver",
               params: { bookingId }
@@ -152,6 +165,8 @@ const TrackRidePage = () => {
 
         setBooking(data);
         setCurrentBooking(data);
+        previousBookingStatusRef.current = data.status;
+        previousPaymentStatusRef.current = data.payment_status || null;
         
         // Set initial driver location if available
         // Set initial driver location if available
@@ -174,14 +189,34 @@ const TrackRidePage = () => {
 
     // Subscribe to booking status updates
     const unsubscribeBooking = subscribeToBooking(bookingId, (updatedBooking) => {
+      const previousStatus = previousBookingStatusRef.current;
+      const previousPaymentStatus = previousPaymentStatusRef.current;
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
+      previousBookingStatusRef.current = updatedBooking.status;
+      previousPaymentStatusRef.current = updatedBooking.payment_status || null;
+
+      if (updatedBooking.status === 'driver_arrived' && previousStatus !== 'driver_arrived') {
+        void showDriverArrivedNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.status === 'in_progress' && previousStatus !== 'in_progress') {
+        void showTripStartedNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.status === 'completed' && previousStatus !== 'completed') {
+        void showTripCompletedCustomerNotification(updatedBooking.id);
+      }
+
+      if (updatedBooking.payment_status === 'paid' && previousPaymentStatus !== 'paid') {
+        void showPaymentSuccessNotification(updatedBooking.id);
+      }
 
       // If completed, show payment confirmation modal first
       if (updatedBooking.status === 'completed') {
         setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
         setShowPaymentConfirmation(true);
-      } else if (updatedBooking.status === 'pending') {
+      } else if (updatedBooking.status === 'pending' || updatedBooking.status === 'queued') {
         // Driver cancelled - redirect back to waiting screen to find new driver
         router.replace({
           pathname: "/waiting-for-driver",
@@ -191,7 +226,9 @@ const TrackRidePage = () => {
         // Ride was cancelled (by customer or driver) - go back home
         Alert.alert(
           'Ride Cancelled',
-          updatedBooking.cancellation_reason || 'This ride has been cancelled',
+          usesWalletFunds(updatedBooking)
+            ? `${updatedBooking.cancellation_reason || 'This ride has been cancelled'}. Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.`
+            : (updatedBooking.cancellation_reason || 'This ride has been cancelled'),
           [{ text: 'OK', onPress: () => router.replace("/(tabs)/home") }]
         );
       } else if (updatedBooking.status === 'in_progress' && updatedBooking.delivery_otp) {
@@ -263,7 +300,9 @@ const TrackRidePage = () => {
         setShowCancelModal(false);
         Alert.alert(
           'Ride Cancelled',
-          'Your ride has been cancelled successfully.',
+          usesWalletFunds(booking)
+            ? 'Your ride has been cancelled successfully. Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.'
+            : 'Your ride has been cancelled successfully.',
           [
             {
               text: 'OK',
@@ -475,6 +514,40 @@ const TrackRidePage = () => {
                   <Feather name="phone" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
+
+              <View className="mt-4 bg-white rounded-xl p-3">
+                <View className="flex-row justify-between mb-3">
+                  <View className="flex-1 mr-3">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Phone Number</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.user?.phone || 'Not available'}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Model</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_model || 'Not available'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View className="flex-row justify-between">
+                  <View className="flex-1 mr-3">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Number</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_number || 'Not available'}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-500 font-JakartaMedium">Vehicle Details</Text>
+                    <Text className="text-sm font-JakartaBold text-gray-800">
+                      {booking.driver.vehicle_color
+                        ? `${booking.driver.vehicle_color} ${booking.driver.vehicle_model || 'vehicle'}`
+                        : (booking.driver.vehicle_model || 'Not available')}
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
           )}
 
@@ -642,5 +715,3 @@ const TrackRidePage = () => {
 };
 
 export default TrackRidePage;
-
-

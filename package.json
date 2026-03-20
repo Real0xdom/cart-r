@@ -7,6 +7,8 @@
   "scripts": {
     "customer": "cd apps/customer && npx expo start",
     "driver": "cd apps/driver && npm run start",
+    "test:wallet:unit": "vitest run tests/unit/driver-wallet-commission.test.ts tests/unit/driver-wallet-restrictions.test.ts tests/unit/payment-split.test.ts tests/unit/payment-webhook.test.ts tests/unit/wallet-credit.test.ts tests/api/payment-order.test.ts tests/api/verify-payment.test.ts tests/integration/booking-lifecycle.test.ts",
+    "test:wallet:api": "playwright test -c e2e/playwright.wallet.config.ts e2e/tests/api/payment.test.ts e2e/tests/api/driver-wallet-release-gate.test.ts e2e/tests/multi-user/race-condition.test.ts e2e/tests/driver/edge-cases.test.ts",
     "test:mobile": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results mocha --config mobile-tests/.mocharc.cjs",
     "test:web": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results playwright test -c web-tests/playwright.config.ts",
     "test:all": "npm run test:web && npm run test:mobile",
@@ -46,6 +48,7 @@
     "mocha": "^11.7.0",
     "rimraf": "^5.0.1",
     "tsx": "^4.20.0",
+    "vitest": "^3.2.4",
     "webdriverio": "^9.20.0",
     "zod": "^4.3.6",
     "@types/node": "^22.18.0",

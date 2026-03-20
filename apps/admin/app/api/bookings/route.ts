@@ -42,12 +42,34 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { id, status, cancellation_reason } = body;
 
-    const updateData: any = { status };
     if (status === 'cancelled') {
-      updateData.cancelled_at = new Date().toISOString();
-      updateData.cancellation_reason = cancellation_reason;
+      const { data, error } = await supabaseAdmin.rpc('admin_cancel_booking', {
+        p_booking_id: id,
+        p_reason: cancellation_reason || 'Cancelled by admin',
+      });
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      if (!(data as any)?.success) {
+        return NextResponse.json({ error: (data as any)?.error || 'Failed to cancel booking' }, { status: 400 });
+      }
+
+      const { data: refreshed, error: refreshedError } = await supabaseAdmin
+        .from('bookings')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (refreshedError) {
+        return NextResponse.json({ error: refreshedError.message }, { status: 500 });
+      }
+
+      return NextResponse.json(refreshed);
     }
 
+    const updateData: any = { status };
     const { data, error } = await supabaseAdmin
       .from('bookings')
       .update(updateData)

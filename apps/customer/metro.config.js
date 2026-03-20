@@ -59,7 +59,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   ) {
     return {
       filePath: path.resolve(
-        __dirname,
+        workspaceRoot,
         'node_modules/react-native-cashfree-pg-sdk/package.json'
       ),
       type: 'sourceFile',

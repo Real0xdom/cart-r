@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { parseDriverWalletRestriction } from './wallet';
 
 // =====================================================
 // BOOKING API HELPERS
@@ -48,9 +49,10 @@ export interface Booking {
   payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid';
   wallet_amount_used?: number;
   payment_method: 'cash' | 'online';
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
   // Timestamps
   created_at: string;
+  queued_at?: string | null;
   accepted_at?: string;
   started_at?: string;
   completed_at?: string;
@@ -85,6 +87,21 @@ export interface Booking {
     addon_services: { name: string; code: string; price: number } | null;
   }>;
 }
+
+export interface AcceptBookingResult {
+  success: boolean;
+  error: string | null;
+  errorCode?: string | null;
+  currentBalance?: number;
+  requiredRecharge?: number;
+  assignmentMode?: 'accepted' | 'queued' | null;
+}
+
+const TRANSITION_GUARDS: Partial<Record<Booking['status'], Booking['status'][]>> = {
+  driver_arrived: ['accepted'],
+  in_progress: ['driver_arrived'],
+  completed: ['in_progress'],
+};
 
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
@@ -337,6 +354,7 @@ export async function updateBookingStatus(
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+    const expectedCurrentStatuses = TRANSITION_GUARDS[status];
     
     // Add timestamps based on status
     if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
@@ -349,13 +367,28 @@ export async function updateBookingStatus(
       Object.assign(updateData, additionalData);
     }
     
-    const { error } = await supabase
+    let query = supabase
       .from('bookings')
       .update(updateData)
       .eq('id', bookingId);
+
+    if (expectedCurrentStatuses?.length) {
+      query = query.in('status', expectedCurrentStatuses as any);
+    }
+
+    const { data, error } = await query
+      .select('id, status, cancellation_reason')
+      .maybeSingle();
     
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (!data) {
+      return {
+        success: false,
+        error: 'Ride was already cancelled or moved to another state.',
+      };
     }
     
     return { success: true, error: null };
@@ -382,8 +415,10 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      (payload) => {
-        onUpdate(payload.new as Booking);
+      async (payload) => {
+        const fallbackBooking = payload.new as Booking;
+        const { data } = await getBookingById(bookingId);
+        onUpdate(data ?? fallbackBooking);
       }
     )
     .subscribe();
@@ -527,7 +562,7 @@ export async function getAvailableBookings(
 export async function acceptBooking(
   bookingId: string,
   driverId: string
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<AcceptBookingResult> {
   try {
     // Use atomic database function for proper race condition handling
     const { data, error } = await supabase.rpc('accept_booking_atomic' as any, {
@@ -544,10 +579,31 @@ export async function acceptBooking(
     const result = data as any;
     
     if (!result.success) {
-      return { success: false, error: result.message };
+      const walletRestriction = parseDriverWalletRestriction(result);
+
+      if (walletRestriction) {
+        return {
+          success: false,
+          error: walletRestriction.message,
+          errorCode: walletRestriction.errorCode,
+          currentBalance: walletRestriction.currentBalance,
+          requiredRecharge: walletRestriction.requiredRecharge,
+        };
+      }
+
+      return {
+        success: false,
+        error: result.message || 'Failed to accept booking',
+        errorCode: typeof result.error === 'string' ? result.error : null,
+        assignmentMode: typeof result.assignment_mode === 'string' ? result.assignment_mode : null,
+      };
     }
 
-    return { success: true, error: null };
+    return {
+      success: true,
+      error: null,
+      assignmentMode: result.assignment_mode === 'queued' ? 'queued' : 'accepted',
+    };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -797,6 +853,60 @@ export async function cancelBookingByDriver(
   }
 }
 
+export async function getDriverQueuedBooking(
+  driverId: string
+): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      return { data: null, error: error.message };
+    }
+
+    return { data: data as Booking | null, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message };
+  }
+}
+
+export function subscribeToDriverQueuedBooking(
+  driverId: string,
+  onUpdate: (booking: Booking | null) => void
+) {
+  const channelName = `driver-queued-booking-${driverId}-${Date.now()}`;
+  const subscription = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'bookings',
+        filter: `driver_id=eq.${driverId}`,
+      },
+      async () => {
+        const { data } = await getDriverQueuedBooking(driverId);
+        onUpdate(data);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}
+
 /**
  * Get driver's active booking (if any)
  */
@@ -904,8 +1014,23 @@ export async function getDriverAllBookings(
 
     if (ongoingError) throw ongoingError;
 
-    // 2. Fetch completed rides (history)
-    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0));
+    // 2. Fetch queued rides so they stay visible in the driver's ride list.
+    const { data: queued, error: queuedError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (queuedError) throw queuedError;
+
+    // 3. Fetch completed rides (history)
+    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0) - (queued?.length || 0));
     const { data: completed, error: completedError } = await supabase
       .from('bookings')
       .select(`
@@ -919,13 +1044,14 @@ export async function getDriverAllBookings(
 
     if (completedError) throw completedError;
 
-    // 3. Combine: ongoing FIRST, then history
+    // 4. Combine: ongoing FIRST, then queued, then history
     const allBookings = [
       ...(ongoing || []),
+      ...(queued || []),
       ...(completed || [])
     ];
 
-    return { data: allBookings, error: null };
+    return { data: allBookings as unknown as Booking[], error: null };
   } catch (err: any) {
     console.error('[getDriverAllBookings] Error:', err);
     return { data: [], error: err.message };

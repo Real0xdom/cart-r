@@ -1,0 +1,178 @@
+﻿Diagnose log at 2026-03-19T13:44:58Z
+
+AppPath: C:\Program Files\Git\mingw64\bin\git-credential-manager.exe
+InstallDir: C:\Program Files\Git\mingw64\bin\
+Version: 2.6.1+786ab03440ddc82e807a97c0e540f5247e44cec6
+
+------------
+Diagnostic: Environment
+Skipped: False
+Success: True
+Exception: None
+Log:
+OSType: Windows
+OSVersion: 10.0 (build 19045)
+Reading environment variables... OK
+ Variables:
+HOMEPATH=\Users\pranav
+DriverData=C:\Windows\System32\Drivers\DriverData
+COMPUTERNAME=KUGLEBLITZ
+GIT_TRACE2_PARENT_SID=84fe7cd6-f44b-48c2-a747-dc1c97499eb8
+CommonProgramFiles(x86)=C:\Program Files (x86)\Common Files
+OneDrive=C:\Users\pranav\OneDrive
+ChocolateyLastPathUpdate=133935097735088843
+TMP=C:\Users\pranav\AppData\Local\Temp
+HOME=C:\Users\pranav
+PROCESSOR_REVISION=2a07
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
+LOCALAPPDATA=C:\Users\pranav\AppData\Local
+GIT_EXEC_PATH=C:/Program Files/Git/mingw64/libexec/git-core
+TEMP=C:\Users\pranav\AppData\Local\Temp
+supabase=I:\supabase.exe
+MSYSTEM=MINGW64
+TERM=xterm-256color
+POWERSHELL_TELEMETRY_OPTOUT=1
+COLORTERM=truecolor
+USERDOMAIN=KUGLEBLITZ
+ProgramFiles(x86)=C:\Program Files (x86)
+Path=C:/Program Files/Git/mingw64/libexec/git-core;C:\Program Files\Git\mingw64\bin;C:\Program Files\Git\usr\bin;C:\Users\pranav\bin;C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\nodejs\;C:\ProgramData\chocolatey\bin;C:\Program Files\Git\cmd;C:\Program Files\PostgreSQL\18\bin;C:\Users\pranav\AppData\Local\pnpm;C:\\Users\\pranav\\AppData\\Local\\Goose\\bin;C:\Users\pranav\scoop\shims;C:\Users\pranav\AppData\Local\Microsoft\WindowsApps;C:\Users\pranav\AppData\Roaming\npm;C:\Users\pranav\AppData\Local\Programs\Qoder\bin;C:\Users\pranav\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\pranav\AppData\Local\Programs\Kiro\bin;C:\Users\pranav\AppData\Local\Programs\Ollama;C:\Users\pranav\AppData\Local\Microsoft\WinGet\Links;C:\Users\pranav\AppData\Local\Programs\cursor\resources\app\bin;C:\Users\pranav\AppData\Local\Programs\Antigravity\bin;C:\Users\pranav\AppData\Local\Programs\Windsurf\bin
+PROCESSOR_LEVEL=6
+PROCESSOR_IDENTIFIER=Intel64 Family 6 Model 42 Stepping 7, GenuineIntel
+TMPDIR=C:\Users\pranav\AppData\Local\Temp
+PSModulePath=C:\Users\pranav\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules
+PUBLIC=C:\Users\Public
+NUMBER_OF_PROCESSORS=4
+CommonProgramFiles=C:\Program Files (x86)\Common Files
+ProgramFiles=C:\Program Files (x86)
+ProgramData=C:\ProgramData
+ProgramW6432=C:\Program Files
+ChocolateyInstall=C:\ProgramData\chocolatey
+PLINK_PROTOCOL=ssh
+MEM0_API_KEY=m0-Y1ugrRc0CHTOF6pGrfxdFVj0O7tSc2UPzPSd4sxd
+SystemRoot=C:\Windows
+PNPM_HOME=C:\Users\pranav\AppData\Local\pnpm
+SESSIONNAME=Console
+LC_CTYPE=C.UTF-8
+CommonProgramW6432=C:\Program Files\Common Files
+LOGONSERVER=\\KUGLEBLITZ
+USERPROFILE=C:\Users\pranav
+USERDOMAIN_ROAMINGPROFILE=KUGLEBLITZ
+APPDATA=C:\Users\pranav\AppData\Roaming
+HOMEDRIVE=C:
+USERNAME=pranav
+PROCESSOR_ARCHITEW6432=AMD64
+PROCESSOR_ARCHITECTURE=x86
+OS=Windows_NT
+ComSpec=C:\Windows\system32\cmd.exe
+SystemDrive=C:
+windir=C:\Windows
+ALLUSERSPROFILE=C:\ProgramData
+
+
+------------
+Diagnostic: File system
+Skipped: False
+Success: True
+Exception: None
+Log:
+Temporary directory is 'C:\Users\pranav\AppData\Local\Temp\'...
+Checking basic file I/O...
+Writing to temporary file 'C:\Users\pranav\AppData\Local\Temp\ae0148e68283e9dbd8163ed6'... OK
+Reading from temporary file 'C:\Users\pranav\AppData\Local\Temp\ae0148e68283e9dbd8163ed6'... OK
+Deleting temporary file 'C:\Users\pranav\AppData\Local\Temp\ae0148e68283e9dbd8163ed6'... OK
+Testing IFileSystem instance...
+UserHomePath: C:\Users\pranav
+UserDataDirectoryPath: C:\Users\pranav\.gcm
+GetCurrentDirectory(): C:\cart-r-main
+
+------------
+Diagnostic: Networking
+Skipped: False
+Success: True
+Exception: None
+Log:
+Checking networking and HTTP stack...
+Creating HTTP client... OK
+IsNetworkAvailable: True
+Sending HEAD request to http://example.com...Sending HEAD request to https://example.com... OK
+ OK
+Acquiring free TCP port... OK
+Testing local HTTP loopback connections...
+Creating new HTTP listener for http://localhost:55511/... OK
+Waiting for loopback connection... OK
+Writing response... OK
+Waiting for response data... OK
+Loopback connection data OK
+
+------------
+Diagnostic: Git
+Skipped: False
+Success: True
+Exception: None
+Log:
+Getting Git version... OK
+Git version is '2.50.0.windows.1'
+Locating current repository...Git repository at 'C:/cart-r-main/.git'
+ OK
+Listing all Git configuration... OK
+Git configuration:
+file:C:/Program Files/Git/etc/gitconfig	diff.astextplain.textconv=astextplain
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.clean=git-lfs clean -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.smudge=git-lfs smudge -- %f
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.process=git-lfs filter-process
+file:C:/Program Files/Git/etc/gitconfig	filter.lfs.required=true
+file:C:/Program Files/Git/etc/gitconfig	http.sslbackend=schannel
+file:C:/Program Files/Git/etc/gitconfig	core.autocrlf=true
+file:C:/Program Files/Git/etc/gitconfig	core.fscache=true
+file:C:/Program Files/Git/etc/gitconfig	core.symlinks=true
+file:C:/Program Files/Git/etc/gitconfig	pull.rebase=false
+file:C:/Program Files/Git/etc/gitconfig	credential.helper=manager
+file:C:/Program Files/Git/etc/gitconfig	credential.https://dev.azure.com.usehttppath=true
+file:C:/Program Files/Git/etc/gitconfig	init.defaultbranch=master
+file:C:/Users/pranav/.gitconfig	user.name=Real0xdom
+file:C:/Users/pranav/.gitconfig	user.email=pranavpanchal2000@gmail.com
+file:C:/Users/pranav/.gitconfig	core.longpaths=true
+file:.git/config	core.repositoryformatversion=0
+file:.git/config	core.filemode=false
+file:.git/config	core.bare=false
+file:.git/config	core.logallrefupdates=true
+file:.git/config	core.ignorecase=true
+file:.git/config	remote.origin.url=https://github.com/Real0xdom/cart-r.git
+file:.git/config	remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+
+
+------------
+Diagnostic: Credential storage
+Skipped: False
+Success: True
+Exception: None
+Log:
+ICredentialStore instance is of type: CredentialStore
+Writing test credential... OK
+Reading test credential... OK
+Deleting test credential... OK
+
+------------
+Diagnostic: Microsoft authentication (AAD/MSA)
+Skipped: False
+Success: True
+Exception: None
+Log:
+Broker is not enabled.
+Flow type is: Auto
+Gathering MSAL token cache data... OK
+CacheDirectory: C:\Users\pranav\AppData\Local\.IdentityService
+CacheFileName: msal.cache
+CacheFilePath: C:\Users\pranav\AppData\Local\.IdentityService\msal.cache
+Creating cache helper... OK
+Verifying MSAL token cache persistence... OK
+
+------------
+Diagnostic: GitHub API
+Skipped: False
+Success: True
+Exception: None
+Log:
+Using 'https://github.com/' as API target.
+Querying '/meta' endpoint... OK
+

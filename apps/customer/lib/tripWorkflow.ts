@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 
 export type BookingStatus = 
   | 'pending'        // Waiting for driver assignment
+  | 'queued'         // Driver accepted while finishing another trip
   | 'accepted'       // Driver accepted, en route to pickup
   | 'driver_arrived' // Driver at pickup location
   | 'otp_verified'   // Customer OTP verified, ready to start
@@ -26,6 +27,7 @@ export interface Booking {
   payment_status: 'pending' | 'paid' | 'failed';
   otp_code: string;
   created_at: string;
+  queued_at: string | null;
   accepted_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -165,48 +167,22 @@ export async function cancelBooking(
   reason?: string
 ): Promise<{ success: boolean; cancellationFee?: number; error: string | null }> {
   try {
-    // Check if driver is already assigned — apply cancellation fee
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('status, driver_id, total_fare, vehicle_type')
-      .eq('id', bookingId)
-      .single();
-
-    let cancellationFee = 0;
-    if (booking?.status === 'accepted' && booking?.driver_id) {
-      // Fetch cancellation fee from admin-configured fare_config
-      let configFee: number | null = null;
-      if (booking.vehicle_type) {
-        const { data: fareConfig } = await supabase
-          .from('fare_config')
-          .select('cancellation_fee')
-          .eq('vehicle_type', booking.vehicle_type)
-          .eq('is_active', true)
-          .single();
-        if (fareConfig?.cancellation_fee != null) {
-          configFee = Number(fareConfig.cancellation_fee);
-        }
-      }
-      // Use admin-configured fee; fall back to max(₹50, 10% of fare) if not set
-      cancellationFee = configFee ?? Math.max(50, Math.round((booking.total_fare || 0) * 0.1));
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'User not authenticated' };
     }
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'cancelled',
-        cancellation_reason: reason,
-        cancelled_at: new Date().toISOString(),
-        ...(cancellationFee > 0 && { cancellation_fee: cancellationFee }),
-      })
-      .eq('id', bookingId)
-      .in('status', ['pending', 'accepted']); // Can only cancel before trip starts
+    const { error } = await supabase.rpc('cancel_booking_by_customer_v2' as any, {
+      p_booking_id: bookingId,
+      p_customer_user_id: user.id,
+      p_reason: reason || 'Cancelled by customer',
+    });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, cancellationFee: cancellationFee > 0 ? cancellationFee : undefined, error: null };
+    return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -273,7 +249,7 @@ export async function getActiveBooking(): Promise<{ data: Booking | null; error:
         )
       `)
       .eq('customer_id', user.id)
-      .in('status', ['pending', 'accepted', 'driver_arrived', 'otp_verified', 'in_progress'])
+      .in('status', ['pending', 'queued', 'accepted', 'driver_arrived', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(1)
       .single();

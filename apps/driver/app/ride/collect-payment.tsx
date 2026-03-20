@@ -2,22 +2,27 @@
 // Driver acts as Point-Of-Sale: Selects Payer (Sender/Receiver) and Method (Cash/Online)
 // Now supports Dynamic UPI QR code generation via Cashfree
 
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import {
     getBookingById,
     subscribeToBooking,
     completeTripAtomic,
+    getDriverActiveBookings,
     Booking
 } from '@/lib/bookings';
+import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
+import { refreshLocationTrackingNotification } from '@/lib/location';
+import { showTripCompletedNotification } from '@/lib/notifications';
 
 
 // Helper to calculate total with fees (simplified for now)
 const calculateTotal = (booking: Booking) => booking.total_fare;
+const formatCurrency = (amount: number) => `₹${amount.toFixed(2)}`;
 
 const CollectPayment = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -41,6 +46,15 @@ const CollectPayment = () => {
     // SMS Status
     const [smsStatus, setSmsStatus] = useState<{ status: string; error?: string } | null>(null);
     const [isRetryingSms, setIsRetryingSms] = useState(false);
+    const [commissionInfo, setCommissionInfo] = useState<CommissionResult | null>(null);
+    const [isLoadingCommission, setIsLoadingCommission] = useState(true);
+    const [completionSummary, setCompletionSummary] = useState<{
+        payout: number;
+        grossFare: number;
+        platformFee: number;
+        commissionRate: number;
+    } | null>(null);
+    const [nextRideId, setNextRideId] = useState<string | null>(null);
 
     // Fetch booking data & subscribe to updates
     useEffect(() => {
@@ -192,6 +206,48 @@ const CollectPayment = () => {
         };
     }, [bookingId, booking?.delivery_otp]);
 
+    useEffect(() => {
+        let isActive = true;
+
+        const loadCommission = async () => {
+            if (!booking) {
+                if (isActive) {
+                    setCommissionInfo(null);
+                    setIsLoadingCommission(true);
+                }
+                return;
+            }
+
+            try {
+                setIsLoadingCommission(true);
+                const result = await getEffectiveCommission(
+                    booking.total_fare,
+                    booking.vehicle_type
+                );
+
+                if (isActive) {
+                    setCommissionInfo(result);
+                }
+            } catch (error) {
+                console.error('Failed to load commission:', error);
+
+                if (isActive) {
+                    setCommissionInfo(null);
+                }
+            } finally {
+                if (isActive) {
+                    setIsLoadingCommission(false);
+                }
+            }
+        };
+
+        loadCommission();
+
+        return () => {
+            isActive = false;
+        };
+    }, [booking?.id, booking?.total_fare, booking?.vehicle_type]);
+
     // Retry sending SMS manually
     const handleRetrySms = async () => {
         if (!booking || isRetryingSms) return;
@@ -270,6 +326,19 @@ const CollectPayment = () => {
         return true;
     };
 
+    const handleCloseCompletionModal = () => {
+        setCompletionSummary(null);
+        if (nextRideId) {
+            router.replace({
+                pathname: '/ride/[id]',
+                params: { id: nextRideId },
+            });
+            return;
+        }
+
+        router.replace('/(tabs)/home');
+    };
+
 
 
 
@@ -295,8 +364,41 @@ const CollectPayment = () => {
                 throw new Error(result.error || 'Failed to complete trip');
             }
 
-            // STOP SPINNER BEFORE ALERT - important for UX and state consistency
+            const { data: completedBooking } = await getBookingById(bookingId as string);
+            const finalizedBooking = completedBooking || latestBooking;
+            const finalizedCommission = await getEffectiveCommission(
+                finalizedBooking.total_fare,
+                finalizedBooking.vehicle_type
+            );
+            const payout = Number(finalizedBooking.driver_payout ?? finalizedCommission.driverShare ?? 0);
+
+            setBooking(finalizedBooking);
+            setCommissionInfo(finalizedCommission);
+            void showTripCompletedNotification({
+                id: finalizedBooking.id,
+                origin_address: finalizedBooking.origin_address,
+                destination_address: finalizedBooking.destination_address,
+            });
+            void refreshLocationTrackingNotification();
+
+            if (finalizedBooking.driver_id) {
+                const { data: activeBookings } = await getDriverActiveBookings(finalizedBooking.driver_id);
+                const promotedBooking = (activeBookings || []).find((candidate) => candidate.id !== bookingId);
+                setNextRideId(promotedBooking?.id || null);
+            }
+
+            // Stop the spinner before presenting the completion UI.
             setIsProcessing(false);
+            const shouldShowCompletionModal = completionSummary === null;
+
+            if (shouldShowCompletionModal) {
+                setCompletionSummary({
+                    payout,
+                    grossFare: Number(finalizedBooking.total_fare || 0),
+                    platformFee: finalizedCommission.platformFee,
+                    commissionRate: finalizedCommission.rate,
+                });
+            } else {
 
             Alert.alert(
                 'Trip Completed! 🎉',
@@ -310,6 +412,7 @@ const CollectPayment = () => {
                     },
                 ]
             );
+            }
 
         } catch (err: any) {
             console.error('[PAYMENT CONFIRM] Update failed:', err);
@@ -387,6 +490,75 @@ const CollectPayment = () => {
 
     return (
         <SafeAreaView className="flex-1 bg-white">
+            <Modal
+                visible={!!completionSummary}
+                transparent
+                animationType="fade"
+                onRequestClose={handleCloseCompletionModal}
+            >
+                <View className="flex-1 justify-center bg-black/55 px-6">
+                    <View className="overflow-hidden rounded-[28px] bg-white">
+                        <View className="bg-green-600 px-6 pb-10 pt-8">
+                            <View className="mx-auto mb-4 h-16 w-16 items-center justify-center rounded-full bg-white/20">
+                                <Feather name="check" size={32} color="#ffffff" />
+                            </View>
+                            <Text className="text-center text-3xl font-JakartaBold text-white">
+                                Trip Completed
+                            </Text>
+                            <Text className="mt-2 text-center text-sm font-JakartaMedium text-green-50">
+                                Payment confirmed. Your net earnings are ready.
+                            </Text>
+                        </View>
+
+                        <View className="-mt-6 rounded-t-[28px] bg-white px-6 pb-6 pt-5">
+                            <View className="mb-5 rounded-3xl bg-green-50 px-5 py-5">
+                                <Text className="text-center text-sm font-JakartaMedium text-green-700">
+                                    You'll Earn
+                                </Text>
+                                <Text className="mt-2 text-center text-4xl font-JakartaBold text-green-700">
+                                    {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                </Text>
+                                <Text className="mt-2 text-center text-xs font-JakartaMedium text-green-800/70">
+                                    After platform commission deduction
+                                </Text>
+                            </View>
+
+                            <View className="mb-6 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">Trip Fare</Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-gray-900">
+                                        {completionSummary ? formatCurrency(completionSummary.grossFare) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">
+                                        Commission ({completionSummary?.commissionRate.toFixed(1)}%)
+                                    </Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-red-500">
+                                        -{completionSummary ? formatCurrency(completionSummary.platformFee) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row items-center justify-between border-t border-gray-200 pt-3">
+                                    <Text className="text-sm font-JakartaBold text-gray-900">Driver Payout</Text>
+                                    <Text className="text-base font-JakartaBold text-green-700">
+                                        {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={handleCloseCompletionModal}
+                                className="rounded-2xl bg-green-600 px-5 py-4"
+                            >
+                                <Text className="text-center text-base font-JakartaBold text-white">
+                                    {nextRideId ? 'Start Next Ride' : 'Back to Home'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Header */}
                 <View className="flex-row items-center justify-between py-4 border-b border-gray-100 mb-4">
@@ -408,14 +580,37 @@ const CollectPayment = () => {
                             <Text className="text-green-700/70 font-JakartaMedium text-sm">Total Fare:</Text>
                             <Text className="text-green-800 font-JakartaSemiBold text-sm">₹{fare}</Text>
                         </View>
-                        <View className="flex-row justify-between mb-1">
-                            <Text className="text-red-500/70 font-JakartaMedium text-sm">Platform Commission:</Text>
-                            <Text className="text-red-500 font-JakartaSemiBold text-sm">-₹{Math.round(fare * 0.2)}</Text>
-                        </View>
-                        <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
-                            <Text className="text-green-800 font-JakartaBold text-sm">Est. Net Earnings:</Text>
-                            <Text className="text-green-800 font-JakartaBold text-sm">₹{Math.round(fare * 0.8)}</Text>
-                        </View>
+                        {isLoadingCommission ? (
+                            <View className="py-3 items-center">
+                                <ActivityIndicator size="small" color="#6b7280" />
+                            </View>
+                        ) : commissionInfo ? (
+                            <>
+                                <View className="flex-row justify-between mb-1">
+                                    <Text className="text-red-500/70 font-JakartaMedium text-sm">
+                                        Platform Commission ({commissionInfo.rate.toFixed(1)}%)
+                                    </Text>
+                                    <Text className="text-red-500 font-JakartaSemiBold text-sm">
+                                        -₹{commissionInfo.platformFee.toFixed(2)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
+                                    <Text className="text-green-800 font-JakartaBold text-sm">You'll Earn:</Text>
+                                    <Text className="text-green-800 font-JakartaBold text-sm">
+                                        ₹{commissionInfo.driverShare.toFixed(2)}
+                                    </Text>
+                                </View>
+                                {commissionInfo.source === 'vehicle_specific' && (
+                                    <Text className="mt-1 text-[11px] italic text-gray-500 font-JakartaMedium">
+                                        * Custom rate for {booking.vehicle_type}
+                                    </Text>
+                                )}
+                            </>
+                        ) : (
+                            <Text className="mt-2 text-center text-xs text-gray-500 font-JakartaMedium">
+                                Commission details unavailable right now.
+                            </Text>
+                        )}
                     </View>
 
                     {isPartial && (

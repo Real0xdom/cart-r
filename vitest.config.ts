@@ -7,9 +7,12 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     testTimeout: 10000,
+    clearMocks: true,
+    restoreMocks: true,
   },
   resolve: {
     alias: {
+      '@': path.resolve(__dirname, 'apps/driver'),
       '@customer': path.resolve(__dirname, 'apps/customer'),
       '@driver': path.resolve(__dirname, 'apps/driver'),
       '@admin': path.resolve(__dirname, 'apps/admin'),

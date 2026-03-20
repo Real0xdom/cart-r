@@ -2,14 +2,16 @@
 // Global state for showing ride request notifications on any screen
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, Booking } from '@/lib/bookings';
-import { RIDE_REQUESTS_CHANNEL, displayFullScreenRideRequest } from '@/lib/notifications';
+import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, getDriverQueuedBooking, Booking } from '@/lib/bookings';
+import { cancelRideRequestNotification, displayFullScreenRideRequest } from '@/lib/notifications';
+import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, useRootNavigationState } from 'expo-router';
 import { Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 
 // Configure notifications to show in foreground
 Notifications.setNotificationHandler({
@@ -78,11 +80,11 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       async (newBooking: Booking) => {
         console.log('[NOTIFICATION CONTEXT] New booking received:', newBooking.id);
 
-        // Suppress notifications if driver already has an active ride
+        // Suppress notifications only when the driver already has a queued ride.
         if (driverProfile?.id) {
-          const { data: activeRide } = await getDriverActiveBooking(driverProfile.id);
-          if (activeRide) {
-            console.log('[NOTIFICATION CONTEXT] Driver has active ride, suppressing notification for:', newBooking.id);
+          const { data: queuedRide } = await getDriverQueuedBooking(driverProfile.id);
+          if (queuedRide) {
+            console.log('[NOTIFICATION CONTEXT] Driver already has queued ride, suppressing notification for:', newBooking.id);
             return;
           }
         }
@@ -107,7 +109,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         }
         
         // Also cancel it from Notifee explicitly if it was on screen
-        notifee.cancelNotification(removedBookingId).catch(() => {});
+        void cancelRideRequestNotification(removedBookingId).catch(() => {});
       }
     );
 
@@ -187,8 +189,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         }
         
         // Remove the notification after taking action
-        if (notification?.id) {
-          await notifee.cancelNotification(notification.id);
+        if (bookingId && typeof bookingId === 'string') {
+          await cancelRideRequestNotification(bookingId);
         }
       }
     });
@@ -255,8 +257,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
             }
           }
           
-          if (notification?.id) {
-            await notifee.cancelNotification(notification.id);
+          if (bookingId && typeof bookingId === 'string') {
+            await cancelRideRequestNotification(bookingId);
           }
         }
       }
@@ -280,21 +282,75 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     }
 
     console.log('[NOTIFICATION CONTEXT] Accepting ride:', bookingId);
-    
-    const { success, error } = await acceptBooking(bookingId, driverProfile.id);
-    
-    if (success) {
-      console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
-      hideNotification();
+
+    const openRechargeFlow = () => {
+      const route = getDriverWalletRechargeNavigationTarget();
+      navigateTo(`${route.pathname}?openRecharge=${route.params.openRecharge}`);
+    };
+
+    try {
+      const eligibility = await checkDriverWalletEligibility(driverProfile.id);
+      console.log('[NOTIFICATION CONTEXT] Wallet eligibility:', { bookingId, ...eligibility });
+
+      if (!eligibility.canAcceptRides) {
+        hideNotification();
+        Alert.alert(
+          'Cannot Accept Ride',
+          `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Recharge Now',
+              onPress: openRechargeFlow,
+            },
+          ]
+        );
+        return;
+      }
+
+      const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(bookingId, driverProfile.id);
       
-      // Navigate to ride screen
-      navigateTo(`/ride/${bookingId}`);
-      
-      Alert.alert('Success', 'Ride accepted! Navigate to pickup location.');
-    } else {
-      console.error('[NOTIFICATION CONTEXT] Failed to accept:', error);
+      if (success) {
+        console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
+        hideNotification();
+        void refreshLocationTrackingNotification();
+
+        if (assignmentMode === 'queued') {
+          Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current trip to start it.');
+          return;
+        }
+
+        // Navigate to ride screen
+        navigateTo(`/ride/${bookingId}`);
+
+        Alert.alert('Success', 'Ride accepted! Navigate to pickup location.');
+      } else if (errorCode === 'wallet_recharge_required') {
+        console.error('[NOTIFICATION CONTEXT] Wallet blocked ride acceptance:', {
+          bookingId,
+          currentBalance,
+          requiredRecharge,
+        });
+        hideNotification();
+        Alert.alert(
+          'Wallet Recharge Required',
+          `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Recharge Now',
+              onPress: openRechargeFlow,
+            },
+          ]
+        );
+      } else {
+        console.error('[NOTIFICATION CONTEXT] Failed to accept:', error);
+        hideNotification();
+        Alert.alert('Error', error || 'Failed to accept ride. It may have been taken by another driver.');
+      }
+    } catch (acceptError) {
+      console.error('[NOTIFICATION CONTEXT] Unexpected accept error:', acceptError);
       hideNotification();
-      Alert.alert('Error', error || 'Failed to accept ride. It may have been taken by another driver.');
+      Alert.alert('Error', 'Failed to verify wallet status. Please try again.');
     }
   };
 

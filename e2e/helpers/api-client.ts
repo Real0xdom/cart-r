@@ -121,6 +121,7 @@ export async function callCreatePaymentOrder(params: {
   customer_phone?: string;
   amount: number;
   return_url?: string;
+  topup_target?: 'customer_wallet' | 'driver_wallet';
 }): Promise<ApiResponse<CreatePaymentOrderResponse>> {
   return callEdgeFunction<CreatePaymentOrderResponse>('create-payment-order', params);
 }
@@ -130,6 +131,8 @@ export interface VerifyPaymentResponse {
   order_status: string;
   amount: number;
   order_id: string;
+  wallet_credited?: boolean;
+  credit_error?: string | null;
 }
 
 export async function callVerifyPayment(

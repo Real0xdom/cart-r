@@ -101,6 +101,18 @@ export const useBookingStore = create<BookingStore>((set) => ({
   goodsDescription: null,
   setGoodsDescription: (desc: string | null) => set(() => ({ goodsDescription: desc })),
 
+  // Goods type
+  goodsType: null,
+  setGoodsType: (goodsType: string | null) => set(() => ({ goodsType })),
+
+  // Payment method selected during review
+  paymentMethod: null,
+  setPaymentMethod: (paymentMethod) => set(() => ({ paymentMethod })),
+
+  // Selected add-ons from vehicle selection
+  selectedAddonIds: [],
+  setSelectedAddonIds: (selectedAddonIds: string[]) => set(() => ({ selectedAddonIds })),
+
   // Current active booking
   currentBooking: null,
   setCurrentBooking: (booking: Booking | null) => set(() => ({ currentBooking: booking })),
@@ -109,6 +121,9 @@ export const useBookingStore = create<BookingStore>((set) => ({
   clearAll: () => set(() => ({
     receiverDetails: null,
     goodsDescription: null,
+    goodsType: null,
+    paymentMethod: null,
+    selectedAddonIds: [],
     currentBooking: null,
   })),
 }));

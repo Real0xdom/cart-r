@@ -86,8 +86,14 @@ const PayBooking = () => {
         
         const fetchData = async () => {
             if (user?.id) {
-                const balance = await getWalletBalance(user.id);
-                setWalletBalance(balance);
+                let balance = 0;
+                try {
+                    balance = await getWalletBalance(user.id);
+                    setWalletBalance(balance);
+                } catch (error) {
+                    console.error('[PayBooking] Failed to load wallet balance:', error);
+                    setWalletBalance(0);
+                }
                 
                 // Auto-select wallet if balance > 0
                 if (balance > 0) {
@@ -217,11 +223,11 @@ const PayBooking = () => {
                     );
 
                     if (orderError || !orderData) {
-                        // Critical: Online order creation failed but wallet was deducted.
+                        // Critical: Online order creation failed after the wallet hold was created.
                         // In a production app, we should auto-refund or show a "Retry Online" state.
                         // For now, throwing error will alert user. They can try paying online again 
                         // (logic needs to support paying remaining if status is partial_paid).
-                        throw new Error(orderError || "Failed to create online order. Please contact support if wallet was deducted.");
+                        throw new Error(orderError || "Failed to create online order. Please contact support if your wallet hold was created.");
                     }
 
                     // Track for verification
@@ -282,8 +288,13 @@ const PayBooking = () => {
             const result = await rollbackPartialPayment(booking!.id);
             if (result.success) {
                 // Refresh data
-                const balance = await getWalletBalance(user!.id);
-                setWalletBalance(balance);
+                try {
+                    const balance = await getWalletBalance(user!.id);
+                    setWalletBalance(balance);
+                } catch (error) {
+                    console.error('[PayBooking] Failed to refresh wallet balance after rollback:', error);
+                    setWalletBalance(0);
+                }
                 
                 const { data } = await getBookingById(bookingId);
                 if (data) setBooking(data);

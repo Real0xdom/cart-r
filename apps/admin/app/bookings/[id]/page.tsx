@@ -91,17 +91,20 @@ export default function BookingDetailPage() {
 
     setUpdating(true);
     try {
-      const { error } = await supabase
-        .from('bookings')
-        .update({
+      const response = await fetch('/api/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: booking.id,
           status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
           cancellation_reason: 'Cancelled by Admin',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', booking.id);
+        }),
+      });
 
-      if (error) throw error;
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to cancel booking');
+      }
       
       toast.success('Booking cancelled successfully');
       fetchBooking(booking.id);
@@ -115,6 +118,7 @@ export default function BookingDetailPage() {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      queued: 'bg-sky-100 text-sky-800 border-sky-200',
       accepted: 'bg-blue-100 text-blue-800 border-blue-200',
       driver_arrived: 'bg-purple-100 text-purple-800 border-purple-200',
       in_progress: 'bg-indigo-100 text-indigo-800 border-indigo-200',
@@ -172,7 +176,7 @@ export default function BookingDetailPage() {
             </div>
 
             {/* Admin Actions */}
-            {['pending', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status) && (
+            {['pending', 'queued', 'accepted', 'driver_arrived', 'in_progress'].includes(booking.status) && (
                 <button 
                     onClick={handleCancelBooking}
                     disabled={updating}

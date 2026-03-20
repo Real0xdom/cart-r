@@ -143,7 +143,7 @@ serve(async (req) => {
     if (payload.type === 'PAYMENT_SUCCESS' || payload.data.payment.payment_status === 'SUCCESS') {
       const orderId = payload.data.order.order_id
       
-      // Check if this is a wallet top-up (order starts with WALLET_)
+      // Check if this is a customer wallet top-up
       if (orderId.startsWith('WALLET_')) {
         console.log('Wallet top-up payment confirmed via webhook:', orderId)
         
@@ -176,6 +176,47 @@ serve(async (req) => {
         // Wallet top-ups are handled, acknowledge
         return new Response(
           JSON.stringify({ success: true, type: 'wallet_topup' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      // Check if this is a driver wallet top-up
+      if (orderId.startsWith('DRIVERWALLET_')) {
+        console.log('Driver wallet top-up payment confirmed via webhook:', orderId)
+
+        const { data: txn } = await supabase
+          .from('wallet_transactions')
+          .select('id, user_id, status')
+          .eq('payment_order_id', orderId)
+          .single()
+
+        if (txn) {
+          const { data: wasCredited, error: creditError } = await supabase.rpc('atomic_credit_driver_wallet_topup_idempotent', {
+            p_user_id: txn.user_id,
+            p_amount: payload.data.payment.payment_amount,
+            p_order_id: orderId
+          })
+
+          if (creditError) {
+            console.error('Failed to credit driver wallet from webhook:', creditError)
+          } else if (wasCredited) {
+            console.log('Successfully credited driver wallet via webhook:', orderId)
+          } else {
+            console.log('Driver wallet already credited via webhook:', orderId)
+          }
+
+          console.log('Driver wallet webhook credit result', {
+            orderId,
+            amount: payload.data.payment.payment_amount,
+            wasCredited,
+            transactionStatus: txn.status,
+          })
+        } else {
+          console.error('Wallet transaction not found for driver top-up:', orderId)
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, type: 'driver_wallet_topup' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
@@ -262,6 +303,27 @@ serve(async (req) => {
       }
       
       console.log('Payment failed for order:', orderId, payload.data?.payment?.payment_message)
+
+      if (orderId.startsWith('WALLET_') || orderId.startsWith('DRIVERWALLET_')) {
+        await supabase
+          .from('wallet_transactions')
+          .update({
+            status: 'failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('payment_order_id', orderId)
+
+        console.log('Driver wallet top-up marked failed from webhook', {
+          orderId,
+          paymentStatus: payload.data?.payment?.payment_status,
+          paymentMessage: payload.data?.payment?.payment_message,
+        })
+
+        return new Response(
+          JSON.stringify({ success: true, type: 'wallet_topup_failed' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
       
       // Optionally update booking or create notification
       const { data: booking } = await supabase
