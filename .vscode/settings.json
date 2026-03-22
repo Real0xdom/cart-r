@@ -9,5 +9,6 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "java.configuration.updateBuildConfiguration": "automatic",
-  "kiroAgent.configureMCP": "Disabled"
+  "kiroAgent.configureMCP": "Disabled",
+  "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx8G -Xms100m -Xlog:disable"
 }

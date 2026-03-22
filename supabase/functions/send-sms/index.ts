@@ -1,16 +1,51 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Environment variables (set in Supabase dashboard)
-// Environment variables
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const FAST2SMS_API_KEY = Deno.env.get('FAST2SMS_API_KEY')!;
+const FAST2SMS_ROUTE = Deno.env.get('FAST2SMS_ROUTE') || 'p';
+const USE_FAST2SMS_IN_DEV = Deno.env.get('USE_FAST2SMS_IN_DEV') === 'true'; // Flag to control Fast2SMS usage
+
+async function sendFast2SMS(phone: string, message: string): Promise<{ success: boolean; requestId?: string; error?: string }> {
+  try {
+    const url = 'https://www.fast2sms.com/dev/bulkV2';
+
+    const params = new URLSearchParams({
+      authorization: FAST2SMS_API_KEY,
+      message: message,
+      language: 'english',
+      route: FAST2SMS_ROUTE,
+      numbers: phone.replace('+91', '').replace('+', ''),
+    });
+
+    const response = await fetch(`${url}?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'cache-control': 'no-cache',
+      },
+    });
+
+    const result = await response.json();
+
+    if (result.return === true) {
+      return { success: true, requestId: result.request_id };
+    } else {
+      const errorMsg = Array.isArray(result.message) 
+        ? result.message.join(', ') 
+        : (typeof result.message === 'string' ? result.message : 'Unknown error');
+      return { success: false, error: errorMsg };
+    }
+  } catch (error: any) {
+    console.error('Fast2SMS Error:', error);
+    return { success: false, error: error.message || 'Failed to send SMS' };
+  }
+}
 
 serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get pending items from queue
     const { data: pendingItems, error: fetchError } = await supabase
       .from('sms_queue')
       .select('*')
@@ -33,66 +68,76 @@ serve(async (req) => {
 
     for (const item of pendingItems) {
       const requestId = crypto.randomUUID();
-      console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] Processing Notification for Booking: ${item.booking_id}`);
+      console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] Processing SMS for Booking: ${item.booking_id}, Phone: ${item.phone_number}`);
       
       try {
-        // 1. Get Customer ID from Booking
-        if (!item.booking_id) throw new Error('No booking_id associated with this message');
-        
-        const { data: booking, error: bookingError } = await supabase
-            .from('bookings')
-            .select('customer_id, booking_number')
-            .eq('id', item.booking_id)
-            .single();
-            
-        if (bookingError || !booking) throw new Error('Booking not found: ' + (bookingError?.message || 'Unknown'));
-
-        // 2. Get Push Token from User
-        const { data: user, error: userError } = await supabase
-            .from('users')
-            .select('expo_push_token')
-            .eq('id', booking.customer_id)
-            .single();
-
-        if (userError) throw new Error('User fetch failed: ' + userError.message);
-        const pushToken = user?.expo_push_token;
-
-        if (!pushToken || !pushToken.startsWith('ExponentPushToken')) {
-             throw new Error('Customer does not have a valid Expo Push Token. They might not be logged in or app not installed.');
+        let smsSent = false;
+        if (FAST2SMS_API_KEY && item.phone_number) {
+          const smsResult = await sendFast2SMS(item.phone_number, item.message);
+          if (smsResult.success) {
+            smsSent = true;
+            console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] ✅ Fast2SMS Sent Successfully. Request ID: ${smsResult.requestId}`);
+          } else {
+            console.warn(`[${new Date().toISOString()}] [ReqID:${requestId}] ⚠️ Fast2SMS failed: ${smsResult.error}`);
+          }
         }
 
-        // 3. Send Push Notification via Expo API
-        console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] Sending Push to ${pushToken}...`);
-        
-        const messageBody = {
-            to: pushToken,
-            sound: 'default',
-            title: '📦 Delivery Confirmation Code',
-            body: item.message, // "Your DELIVERY OTP is..."
-            data: { 
-                type: 'delivery_otp', 
-                bookingId: item.booking_id,
-                message: item.message
-            },
-            priority: 'high',
-            channelId: 'booking-updates'
-        };
+        let pushSent = false;
+        if (item.booking_id) {
+          try {
+            const { data: booking, error: bookingError } = await supabase
+                .from('bookings')
+                .select('customer_id, booking_number')
+                .eq('id', item.booking_id)
+                .single();
+                
+            if (!bookingError && booking) {
+              const { data: user, error: userError } = await supabase
+                  .from('users')
+                  .select('expo_push_token')
+                  .eq('id', booking.customer_id)
+                  .single();
 
-        const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Accept-encoding': 'gzip, deflate',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(messageBody),
-        });
+              const pushToken = user?.expo_push_token;
+              if (pushToken && pushToken.startsWith('ExponentPushToken')) {
+                const messageBody = {
+                    to: pushToken,
+                    sound: 'default',
+                    title: '📦 Delivery Confirmation Code',
+                    body: item.message,
+                    data: { 
+                        type: 'delivery_otp', 
+                        bookingId: item.booking_id,
+                        message: item.message
+                    },
+                    priority: 'high',
+                    channelId: 'booking-updates'
+                };
 
-        const expoResult = await expoResponse.json();
-        
-        if (expoResponse.ok && expoResult.data?.status === 'ok') {
-            // Success
-             await supabase
+                const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Accept-encoding': 'gzip, deflate',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(messageBody),
+                });
+
+                const expoResult = await expoResponse.json();
+                if (expoResponse.ok && expoResult.data?.status === 'ok') {
+                    pushSent = true;
+                    console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] ✅ Push Sent Successfully. Ticket: ${expoResult.data.id}`);
+                }
+              }
+            }
+          } catch (pushError) {
+            console.warn(`[${new Date().toISOString()}] [ReqID:${requestId}] ⚠️ Push notification failed:`, pushError);
+          }
+        }
+
+        if (smsSent || pushSent) {
+            await supabase
             .from('sms_queue')
             .update({
               status: 'sent',
@@ -101,29 +146,17 @@ serve(async (req) => {
             .eq('id', item.id);
 
             successCount++;
-            console.log(`[${new Date().toISOString()}] [ReqID:${requestId}] ✅ Push Sent Successfully. Ticket: ${expoResult.data.id}`);
         } else {
-            // Expo API returned error (or partial error)
-            const errDetails = JSON.stringify(expoResult);
-            throw new Error(`Expo API Error: ${errDetails}`);
+            throw new Error('Both SMS and Push notification failed');
         }
 
       } catch (error: any) {
         console.error(`[${new Date().toISOString()}] [ReqID:${requestId}] 💥 Failed:`, error);
         
         const errorMessage = error.message || String(error);
-        const isExpoFcmMisconfigured =
-          errorMessage.includes('Unable to retrieve the FCM server key') ||
-          errorMessage.includes('"InvalidCredentials"');
-        const isPermanentError = errorMessage.includes('User fetch failed') || 
-                                 errorMessage.includes('Customer does not have a valid Expo Push') || 
-                                 errorMessage.includes('Booking not found') ||
-                                 errorMessage.includes('DeviceNotRegistered') ||
-                                 isExpoFcmMisconfigured;
-
-        const userFacingError = isExpoFcmMisconfigured
-          ? 'Push notifications are misconfigured for Android in Expo/FCM. The OTP was created, but customer app delivery is unavailable until FCM credentials are fixed.'
-          : errorMessage;
+        const isPermanentError = errorMessage.includes('Invalid phone') || 
+                                 errorMessage.includes('Invalid API key') ||
+                                 errorMessage.includes('Booking not found');
         
         await supabase
           .from('sms_queue')
@@ -131,7 +164,7 @@ serve(async (req) => {
             status: isPermanentError ? 'failed_permanent' : 'failed',
             attempts: item.attempts + 1,
             last_attempt_at: new Date().toISOString(),
-            error_message: userFacingError.substring(0, 1000), 
+            error_message: errorMessage.substring(0, 1000), 
           })
           .eq('id', item.id);
 
@@ -141,7 +174,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        message: 'Notification processing complete',
+        message: 'SMS processing complete',
         total: pendingItems.length,
         sent: successCount,
         failed: failCount,

@@ -100,8 +100,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://driver.cart-r.com/"
     },
     eas: {
-      "projectId": "11cd06f0-40e0-4bd3-8166-f913e65dd2d6"
+      "projectId": "351ea615-bbd1-4885-9dbf-090190f3fbcc"
     }
   },
-  owner: "amycarter192"
+  owner: "pranav321"
 });

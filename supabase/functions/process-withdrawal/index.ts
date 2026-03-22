@@ -97,9 +97,8 @@ serve(async (req) => {
     // Generate RSA signature for V2 API authentication
     const timestamp = Math.floor(Date.now() / 1000).toString()
     
-    // Read the public key from environment (for signature generation)
-    // Using a fallback only for local testing if env var isn't set
-    const publicKeyPem = Deno.env.get('CASHFREE_PUBLIC_KEY') || `-----BEGIN PUBLIC KEY-----
+    // Read the public key from the PEM file (for signature generation)
+    const publicKeyPem = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzMg9C1Kcf1/RjfKq2O7S
 fgaVvwxE76wq9mlYku7Gp4Z4iyrFRmnaEPqPW/+6MfPJn6Yj8GkTNsnrg1gK1C79
 sOCb4wc3kAcHlTT5QIdgxQ04tCAYPPMBJ242dpBWlFxe/dVY700bZRTmtf1vwTLo

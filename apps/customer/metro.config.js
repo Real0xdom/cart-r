@@ -33,9 +33,9 @@ const ignoredPaths = [
 // Enable package exports resolution
 config.resolver.unstable_enablePackageExports = true;
 
-// Keep Metro scoped to the customer app on Windows.
-// Watching the full monorepo can push Metro's watcher startup past its timeout.
-config.watchFolders = [];
+// Watch monorepo root so Metro can resolve root-level packages (expo-router, etc.)
+// The blockList below ensures slow build folders are excluded for performance.
+config.watchFolders = [workspaceRoot];
 
 // Resolve dependencies from the app first, with the workspace root as a fallback.
 config.resolver.nodeModulesPaths = [
@@ -50,6 +50,19 @@ config.resolver.blockList = ignoredPaths.map(
 
 config.resolver.disableHierarchicalLookup = true;
 
+// ─── Expo Go compatibility ────────────────────────────────────────────────────
+// When started with EXPO_GO=true, redirect packages that require custom native
+// code (not bundled in Expo Go) to local mock implementations.
+if (process.env.EXPO_GO === 'true') {
+  console.log('[metro] Expo Go mode: using mocks for native-only packages');
+  config.resolver.extraNodeModules = {
+    ...config.resolver.extraNodeModules,
+    'react-native-maps': path.resolve(projectRoot, 'mocks/react-native-maps.js'),
+    'react-native-cashfree-pg-sdk': path.resolve(projectRoot, 'mocks/react-native-cashfree-pg-sdk.js'),
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Fix for react-native-cashfree-pg-sdk unable to resolve ../package.json
 const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
@@ -58,10 +71,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     context.originModulePath.includes('react-native-cashfree-pg-sdk')
   ) {
     return {
-      filePath: path.resolve(
-        workspaceRoot,
-        'node_modules/react-native-cashfree-pg-sdk/package.json'
-      ),
+      filePath: require.resolve('react-native-cashfree-pg-sdk/package.json', { paths: [projectRoot] }),
       type: 'sourceFile',
     };
   }
@@ -74,4 +84,3 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 };
 
 module.exports = config;
-

@@ -3,23 +3,12 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
-// Escape strings before interpolation into HTML to prevent XSS
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-    .replace(/\\/g, '\\\\');
-}
-
 serve(async (req) => {
   const url = new URL(req.url)
-  const paymentSessionId = escapeHtml(url.searchParams.get('session') || '')
-  const orderId = escapeHtml(url.searchParams.get('order') || '')
-  const env = escapeHtml(url.searchParams.get('env') || 'sandbox')
-  const returnUrl = escapeHtml(url.searchParams.get('return') || 'cartr://payment-callback')
+  const paymentSessionId = url.searchParams.get('session') || ''
+  const orderId = url.searchParams.get('order') || ''
+  const env = url.searchParams.get('env') || 'sandbox'
+  const returnUrl = url.searchParams.get('return') || 'cartr://payment-callback'
 
   const html = `<!DOCTYPE html>
 <html>

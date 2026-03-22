@@ -58,28 +58,4 @@ class MainActivity : ReactActivity() {
       // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
   }
-
-  override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
-      try {
-          return super.onKeyDown(keyCode, event)
-      } catch (e: Exception) {
-          return false
-      }
-  }
-
-  override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
-      try {
-          return super.onKeyUp(keyCode, event)
-      } catch (e: Exception) {
-          return false
-      }
-  }
-
-  override fun onKeyLongPress(keyCode: Int, event: android.view.KeyEvent): Boolean {
-      try {
-          return super.onKeyLongPress(keyCode, event)
-      } catch (e: Exception) {
-          return false
-      }
-  }
 }

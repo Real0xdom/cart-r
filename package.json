@@ -2,7 +2,9 @@
   "name": "carter-project",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "description": "Carter - Pune's Logistics App",
   "scripts": {
     "customer": "cd apps/customer && npx expo start",
@@ -16,14 +18,25 @@
     "report:allure": "allure generate reports/allure-results -o reports/allure-report --clean",
     "appium:server": "appium --relaxed-security --log-level info",
     "appium:install:android": "appium driver install uiautomator2",
-    "playwright:install": "playwright install --with-deps chromium"
+    "playwright:install": "playwright install --with-deps chromium",
+    "functions:dev": "npx supabase functions serve --env-file .env.development",
+    "functions:deploy": "npx supabase secrets set --env-file .env.production && npx supabase functions deploy"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.91.1",
+    "expo-constants": "^55.0.9",
     "expo-dev-client": "^55.0.11",
+    "expo-file-system": "^55.0.11",
+    "expo-font": "^55.0.4",
+    "expo-location": "^55.1.4",
+    "expo-notifications": "^55.0.13",
+    "expo-splash-screen": "^55.0.12",
+    "expo-status-bar": "^55.0.4",
+    "nativewind": "^4.2.3",
     "node-fetch": "^2.7.0",
-    "pg": "^8.17.2"
+    "pg": "^8.17.2",
+    "tailwindcss": "^4.2.2"
   },
   "resolutions": {
     "react-native-maps": "1.14.0",
@@ -37,8 +50,10 @@
     }
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
     "@playwright/test": "^1.55.0",
+    "@types/chai": "^5.2.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.18.0",
     "allure-commandline": "^2.34.0",
     "allure-mocha": "^3.0.0",
     "allure-playwright": "^3.0.0",
@@ -48,11 +63,9 @@
     "mocha": "^11.7.0",
     "rimraf": "^5.0.1",
     "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4",
     "webdriverio": "^9.20.0",
-    "zod": "^4.3.6",
-    "@types/node": "^22.18.0",
-    "@types/mocha": "^10.0.10",
-    "@types/chai": "^5.2.2"
+    "zod": "^4.3.6"
   }
 }

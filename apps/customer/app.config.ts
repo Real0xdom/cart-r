@@ -88,8 +88,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "b9192aff-c534-4495-aac5-d2fe15a2a92f"
+      "projectId": "8e865f15-cd88-4aec-ba41-4a33f6e0831d"
     }
   },
-  owner: "amycarter192"
+  owner: "pranav321"
 });

@@ -77,6 +77,11 @@ export const sendPhoneOTP = async (phone: string) => {
   try {
     const { error } = await supabase.auth.signInWithOtp({
       phone,
+      options: {
+        data: {
+          bypass_fast2sms: process.env.EXPO_PUBLIC_BYPASS_SMS === 'true'
+        }
+      }
     });
 
     if (error) throw error;
