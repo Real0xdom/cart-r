@@ -1,5 +1,5 @@
-import { addAddonToBooking, AddonService } from "@/lib/addonUtils";
-import { createBooking } from "@/lib/bookings";
+import { AddonService } from "@/lib/addonUtils";
+import { createBookingWithAddons } from "@/lib/bookings";
 import { payWithWallet } from "@/lib/walletPayment";
 import type {
   Booking,
@@ -50,7 +50,15 @@ export async function createBookingWithPayment(
     availableAddons = [],
   } = params;
 
-  const { data, error } = await createBooking({
+  const addonPayload = addonIds
+    .map((addonId) => availableAddons.find((item) => item.id === addonId))
+    .filter((addon): addon is AddonService => !!addon?.code)
+    .map((addon) => ({
+      code: addon.code,
+      quantity: 1,
+    }));
+
+  const { data, error } = await createBookingWithAddons({
     customerId,
     originAddress,
     originLatitude,
@@ -62,31 +70,13 @@ export async function createBookingWithPayment(
     receiverDetails,
     goodsDescription,
     tipAmount: 0,
-  });
+  }, addonPayload);
 
   if (error || !data) {
     return {
       data: null,
       error: error || "Failed to create booking",
     };
-  }
-
-  for (const addonId of addonIds) {
-    const addon = availableAddons.find((item) => item.id === addonId);
-    if (!addon?.code) {
-      continue;
-    }
-
-    const addonResult = await addAddonToBooking(data.id, addon.code);
-    if (addonResult.error) {
-      return {
-        data,
-        error: null,
-        paymentWarning:
-          addonResult.error ||
-          "Some add-ons could not be attached, but your booking was created successfully.",
-      };
-    }
   }
 
   if (paymentMethod === "cash") {

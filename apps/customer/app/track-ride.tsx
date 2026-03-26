@@ -26,6 +26,11 @@ import {
   showTripCompletedCustomerNotification,
   showTripStartedNotification,
 } from "@/lib/notifications";
+import {
+  getOutstandingCustomerAmount,
+  isCustomerPaymentFullySettled,
+  usesWalletFunds,
+} from "@/lib/bookingPayment";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
@@ -37,11 +42,6 @@ import { useAnimatedLocation } from "@/lib/mapAnimation";
 import { icons, images } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
-
-const usesWalletFunds = (booking: Booking | null | undefined) =>
-  booking?.payment_method === "wallet" ||
-  booking?.payment_method === "partial_wallet" ||
-  booking?.payment_method === "wallet_plus_online";
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -214,7 +214,7 @@ const TrackRidePage = () => {
 
       // If completed, show payment confirmation modal first
       if (updatedBooking.status === 'completed') {
-        setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
+        setCompletedBookingAmount(updatedBooking.total_fare);
         setShowPaymentConfirmation(true);
       } else if (updatedBooking.status === 'pending' || updatedBooking.status === 'queued') {
         // Driver cancelled - redirect back to waiting screen to find new driver
@@ -344,6 +344,8 @@ const TrackRidePage = () => {
 
   const status = getStatusMessage();
   const isInProgress = booking?.status === 'in_progress';
+  const outstandingAmount = getOutstandingCustomerAmount(booking);
+  const isFullySettled = isCustomerPaymentFullySettled(booking);
 
   if (isLoading) {
     return (
@@ -552,11 +554,14 @@ const TrackRidePage = () => {
           )}
 
           {/* Waiting Timer - show when driver has arrived */}
-          {booking?.status === 'driver_arrived' && booking?.driver_arrived_at && (
+          {booking?.status === 'driver_arrived'
+            && booking?.driver_arrived_at
+            && booking?.free_waiting_time_minutes != null
+            && booking?.waiting_charge_per_minute != null && (
             <WaitingTimer
               driverArrivedAt={booking.driver_arrived_at}
-              freeWaitingMinutes={booking.free_waiting_time_minutes || 5}
-              waitingChargePerMinute={booking.waiting_charge_per_minute || 2}
+              freeWaitingMinutes={booking.free_waiting_time_minutes}
+              waitingChargePerMinute={booking.waiting_charge_per_minute}
             />
           )}
 
@@ -600,7 +605,7 @@ const TrackRidePage = () => {
                 <View className="items-center flex-1">
                   <Text className="text-xs text-gray-500">Delivery OTP</Text>
                   <Text testID="booking.deliveryOtpValue" accessibilityLabel="booking.deliveryOtpValue" className="text-lg font-JakartaBold text-orange-600">{booking?.delivery_otp || "------"}</Text>
-                  <Text className="text-[10px] text-gray-400 mt-1">Share with Driver to Receive</Text>
+                  <Text className="text-[10px] text-gray-400 mt-1">Also sent via SMS to receiver</Text>
                 </View>
               ) : (
                 <View className="items-center flex-1">
@@ -613,7 +618,7 @@ const TrackRidePage = () => {
               <View className="items-center flex-1">
                 <Text className="text-xs text-gray-500">Fare</Text>
                 <Text className="text-sm font-JakartaBold text-green-600">
-                  ₹{booking?.driver_payout || booking?.total_fare}
+                  ₹{booking?.total_fare}
                 </Text>
               </View>
             </View>
@@ -622,7 +627,7 @@ const TrackRidePage = () => {
             {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
                 For now we rely on status='in_progress' and user check manually via push notification, 
                 or we can add a persistent button here if not paid. */}
-            {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
+            {booking?.status === 'in_progress' && outstandingAmount > 0 && (
                 <TouchableOpacity
                   testID="booking.payOnlineButton"
                   accessibilityLabel="booking.payOnlineButton"
@@ -636,15 +641,30 @@ const TrackRidePage = () => {
                   disabled={isNavigating}
                   className={`mt-4 w-full py-4 rounded-xl flex-row items-center justify-center shadow-md shadow-primary-300 ${isNavigating ? 'bg-gray-400' : 'bg-primary-500'}`}
                >
-                  <Text className="text-white font-JakartaBold text-lg mr-2">Pay Now</Text>
+                  <Text className="text-white font-JakartaBold text-lg mr-2">
+                    {booking?.payment_status === 'paid'
+                      ? `Pay Extra â‚¹${outstandingAmount.toFixed(2)}`
+                      : 'Pay Now'}
+                  </Text>
                   <Feather name="arrow-right" size={20} color="white" />
                </TouchableOpacity>
             )}
 
-            {booking?.payment_status === 'paid' && (
+            {isFullySettled && (
                <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
                   <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
                </View>
+            )}
+
+            {!isFullySettled && booking?.status === 'in_progress' && outstandingAmount > 0 && (
+              <View className="mt-4 bg-amber-100 p-3 rounded-lg items-center">
+                <Text className="text-amber-700 font-JakartaBold text-xs">
+                  ADDITIONAL FARE DUE: â‚¹{outstandingAmount.toFixed(2)}
+                </Text>
+                <Text className="text-amber-700 text-[11px] mt-1 text-center">
+                  Waiting or other live trip charges increased the final fare.
+                </Text>
+              </View>
             )}
 
           </View>

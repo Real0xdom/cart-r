@@ -14,15 +14,16 @@ import {
     getDriverActiveBookings,
     Booking
 } from '@/lib/bookings';
+import { getOutstandingCustomerAmount, usesWalletFunds } from '@/lib/bookingPayment';
 import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
 import { refreshLocationTrackingNotification } from '@/lib/location';
-import { showTripCompletedNotification } from '@/lib/notifications';
+import { NotificationManager, removeActiveRide } from '@/lib/notifications';
 
 
 // Helper to calculate total with fees (simplified for now)
 const calculateTotal = (booking: Booking) => booking.total_fare;
-const formatCurrency = (amount: number) => `₹${amount.toFixed(2)}`;
+const formatCurrency = (amount: number) => `₹${Math.round(amount)}`;
 
 const CollectPayment = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -83,8 +84,8 @@ const CollectPayment = () => {
 
                         if (data.receiver_phone && rpcData?.otp) {
                             Alert.alert(
-                                '✅ Notification Sent',
-                                `Delivery OTP sent to Customer's App. Ask them to check their notifications.`,
+                                '✅ OTP Sent via SMS',
+                                `Delivery OTP sent via SMS to receiver (+91 ${data.receiver_phone}). The sender also sees it in their app.`,
                                 [{ text: 'OK' }]
                             );
                         }
@@ -123,14 +124,24 @@ const CollectPayment = () => {
             // If payment is received via online channel while driver is on this screen
             // but ONLY if we aren't currently middle of manual completion (isProcessingRef.current)
             // to avoid alert conflicts.
-            if (updatedBooking.payment_status === 'paid' && updatedBooking.status !== 'completed' && !isProcessingRef.current) {
+            const hadOutstandingBeforeUpdate = getOutstandingCustomerAmount(booking) > 0;
+            const isSettledNow = getOutstandingCustomerAmount(updatedBooking) <= 0;
+
+            if (
+              updatedBooking.status !== 'completed' &&
+              !isProcessingRef.current &&
+              (
+                updatedBooking.payment_status === 'paid' ||
+                (hadOutstandingBeforeUpdate && isSettledNow)
+              )
+            ) {
 
                 Alert.alert('Payment Received! 💰', 'The payment has been confirmed online.');
             }
         });
 
         return () => unsubscribe();
-    }, [bookingId]);
+    }, [bookingId, booking?.id, booking?.payment_status]);
 
     // Poll for SMS status
     useEffect(() => {
@@ -248,43 +259,17 @@ const CollectPayment = () => {
         };
     }, [booking?.id, booking?.total_fare, booking?.vehicle_type]);
 
-    // Retry sending SMS manually
-    const handleRetrySms = async () => {
-        if (!booking || isRetryingSms) return;
-        setIsRetryingSms(true);
-
-        try {
-            const { error } = await supabase
-                .from('sms_queue')
-                .insert({
-                    phone_number: '+91' + booking.receiver_phone,
-                    message: `CARTR Delivery: Your delivery OTP is ${booking.delivery_otp}. Booking #${booking.booking_number}`,
-                    booking_id: booking.id,
-                    status: 'pending'
-                });
-
-            if (error) throw error;
-            Alert.alert('Retrying', 'Notification has been re-queued for sending.');
-            setSmsStatus({ status: 'pending' });
-
-        } catch (err: any) {
-            Alert.alert('Error', 'Failed to retry Notification: ' + err.message);
-        } finally {
-            setIsRetryingSms(false);
-        }
-    };
-
-    // Regenerate OTP (Hard Reset)
-    const handleRegenerateOtp = async () => {
+    // Resend/Regenerate OTP
+    const handleResendOtp = async () => {
         if (!booking || isRetryingSms) return;
 
         Alert.alert(
-            'Regenerate OTP?',
+            'Resend OTP?',
             'This will create a NEW OTP and send a NEW Notification. The old OTP will be invalid.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Regenerate',
+                    text: 'Resend',
                     style: 'destructive',
                     onPress: async () => {
                         setIsRetryingSms(true);
@@ -296,13 +281,12 @@ const CollectPayment = () => {
 
                             if (rpcError) throw rpcError;
 
-                            Alert.alert('New OTP Generated', `New OTP: ${rpcData.otp}`);
+                            Alert.alert('New OTP Sent', `A new OTP has been sent via SMS to the receiver's phone. The sender's app also shows the updated OTP.`);
                             const { data: refreshed } = await getBookingById(bookingId);
                             if (refreshed) setBooking(refreshed);
-                            setSmsStatus({ status: 'pending' });
-
+                            setDeliveryOtp('');
                         } catch (err: any) {
-                            Alert.alert('Error', 'Failed to regenerate OTP: ' + err.message);
+                            Alert.alert('Error', 'Failed to resend OTP: ' + err.message);
                         } finally {
                             setIsRetryingSms(false);
                         }
@@ -370,15 +354,28 @@ const CollectPayment = () => {
                 finalizedBooking.total_fare,
                 finalizedBooking.vehicle_type
             );
-            const payout = Number(finalizedBooking.driver_payout ?? finalizedCommission.driverShare ?? 0);
+            const isPayoutValid = finalizedBooking.driver_payout && finalizedBooking.driver_payout < finalizedBooking.total_fare;
+            const payout = Number(isPayoutValid ? finalizedBooking.driver_payout : (finalizedCommission.driverShare ?? 0));
 
             setBooking(finalizedBooking);
             setCommissionInfo(finalizedCommission);
-            void showTripCompletedNotification({
+            // Mark this ride as completed in the stacking tracker
+            removeActiveRide(bookingId as string);
+            // Fire notifications after trip is truly complete
+            void NotificationManager.tripCompleted({
                 id: finalizedBooking.id,
                 origin_address: finalizedBooking.origin_address,
                 destination_address: finalizedBooking.destination_address,
             });
+            // For online payments, show payment received notification — only here,
+            // AFTER delivery OTP is confirmed and completeTripAtomic has succeeded.
+            if (paymentMethod === 'online' || finalizedBooking.payment_status === 'paid') {
+                void NotificationManager.paymentSuccess(
+                    finalizedBooking.id,
+                    payout,                        // net driver earnings after commission
+                    Number(finalizedBooking.total_fare) // gross fare for context
+                );
+            }
             void refreshLocationTrackingNotification();
 
             if (finalizedBooking.driver_id) {
@@ -402,7 +399,7 @@ const CollectPayment = () => {
 
             Alert.alert(
                 'Trip Completed! 🎉',
-                `✅ Payment confirmed & credited to wallet\nYou earned ₹${latestBooking.driver_payout || latestBooking.total_fare}`,
+                `✅ Payment confirmed & credited to wallet\nYou earned ₹${payout}`,
                 [
                     {
                         text: 'Back to Home',
@@ -441,10 +438,9 @@ const CollectPayment = () => {
             if (!verifyDeliveryOtp()) return;
         }
 
-        const isPaidStatus = booking.payment_status === 'paid';
-        const isPartial = booking.payment_status === 'partial_paid';
         const fare = calculateTotal(booking);
-        const amountToCollect = isPartial ? (fare - (booking.wallet_amount_used || 0)) : fare;
+        const amountToCollect = getOutstandingCustomerAmount(booking);
+        const isPaidStatus = booking.payment_status === 'paid' && amountToCollect <= 0;
 
         if (!isPaidStatus) {
             Alert.alert(
@@ -476,11 +472,9 @@ const CollectPayment = () => {
     }
 
     const fare = calculateTotal(booking);
-    const isPaid = booking.payment_status === 'paid';
-    const isPartial = booking.payment_status === 'partial_paid';
-    const amountToCollect = isPartial
-        ? (fare - (booking.wallet_amount_used || 0))
-        : fare;
+    const amountToCollect = getOutstandingCustomerAmount(booking);
+    const isPaid = booking.payment_status === 'paid' && amountToCollect <= 0;
+    const isPartial = booking.payment_status === 'partial_paid' || (usesWalletFunds(booking) && amountToCollect > 0);
 
     // Complete button is enabled when:
     // - already paid online, OR
@@ -591,13 +585,13 @@ const CollectPayment = () => {
                                         Platform Commission ({commissionInfo.rate.toFixed(1)}%)
                                     </Text>
                                     <Text className="text-red-500 font-JakartaSemiBold text-sm">
-                                        -₹{commissionInfo.platformFee.toFixed(2)}
+                                        -₹{Math.round(commissionInfo.platformFee)}
                                     </Text>
                                 </View>
                                 <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
                                     <Text className="text-green-800 font-JakartaBold text-sm">You'll Earn:</Text>
                                     <Text className="text-green-800 font-JakartaBold text-sm">
-                                        ₹{commissionInfo.driverShare.toFixed(2)}
+                                        ₹{Math.round(commissionInfo.driverShare)}
                                     </Text>
                                 </View>
                                 {commissionInfo.source === 'vehicle_specific' && (
@@ -616,7 +610,7 @@ const CollectPayment = () => {
                     {isPartial && (
                         <View className="mt-4 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-200">
                             <Text className="text-blue-700 text-xs font-JakartaMedium">
-                                Paid via Wallet: ₹{booking.wallet_amount_used}
+                                Paid via Wallet: ₹{booking.wallet_amount_used || booking.quoted_total_fare || 0}
                             </Text>
                         </View>
                     )}
@@ -679,34 +673,24 @@ const CollectPayment = () => {
                                                 smsStatus?.status === 'failed' ? 'text-red-600' :
                                                 'text-blue-600'
                                             }`}>
-                                                {smsStatus?.status === 'sent' ? 'Notification Sent to Customer App' :
-                                                 smsStatus?.status === 'failed' ? `Notification Failed: ${smsStatus.error?.substring(0, 30)}...` :
-                                                 'Sending Notification...'}
+                                                {smsStatus?.status === 'sent' ? 'OTP SMS Sent to Receiver' :
+                                                 smsStatus?.status === 'failed' ? `SMS Failed: ${smsStatus.error?.substring(0, 30)}...` :
+                                                 'Sending OTP SMS to Receiver...'}
                                             </Text>
                                         </View>
                                     </View>
 
-                                    {smsStatus?.status === 'failed' && (
-                                        <TouchableOpacity
-                                            onPress={handleRetrySms}
-                                            disabled={isRetryingSms}
-                                            className="mt-2"
-                                        >
-                                            <Text className="text-blue-600 text-xs text-center font-JakartaBold">
-                                                {isRetryingSms ? 'Retrying...' : 'Tap to Retry Notification'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-
                                     <TouchableOpacity
-                                        onPress={handleRegenerateOtp}
+                                        onPress={handleResendOtp}
                                         disabled={isRetryingSms}
-                                        className="mt-4 border-t border-gray-200 pt-2"
+                                        className="mt-4 border-t border-gray-200 pt-3"
                                     >
-                                        <Text className="text-gray-600 text-xs text-center font-JakartaMedium">
-                                            Notification not received?{' '}
-                                            <Text className="text-red-600 font-JakartaBold">Regenerate New OTP</Text>
-                                        </Text>
+                                        <View className="flex-row items-center justify-center">
+                                            <Feather name="refresh-cw" size={12} color="#4b5563" />
+                                            <Text className="ml-2 text-gray-600 text-xs text-center font-JakartaBold">
+                                                {isRetryingSms ? 'Sending...' : 'Resend New OTP'}
+                                            </Text>
+                                        </View>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity

@@ -190,11 +190,12 @@ declare interface Booking {
   estimated_duration: number | null;
   total_fare: number;
   addon_charges?: number;
+  quoted_total_fare?: number;
   tip_amount: number;
   fare_multiplier: number;
   driver_payout: number;
   payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid' | 'completed';
-  payment_method: 'cash' | 'online' | 'wallet' | 'partial_wallet' | 'wallet_plus_online';
+  payment_method: 'cash' | 'online' | 'wallet' | 'partial_wallet' | 'wallet_plus_online' | 'wallet_plus_cash';
   wallet_amount_used?: number;
   payment_session_id?: string | null;
   online_payment_order_id?: string | null;

@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, getDriverQueuedBooking, Booking } from '@/lib/bookings';
-import { cancelRideRequestNotification, displayFullScreenRideRequest } from '@/lib/notifications';
+import { cancelRideRequestNotification, displayRideRequestWithStackLogic, addActiveRide, removeActiveRide } from '@/lib/notifications';
 import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
 import { router, useRootNavigationState } from 'expo-router';
@@ -13,13 +13,24 @@ import notifee, { EventType } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
 import { refreshLocationTrackingNotification } from '@/lib/location';
 
-// Configure notifications to show in foreground
+// Configure notifications to show in foreground but suppress generic alerts for ride requests
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    if (data?.type === 'new_booking' || data?.is_data_only) {
+      // We process these manually via Notifee to show the sticky, custom UI
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 interface RideNotificationContextType {
@@ -80,12 +91,11 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       async (newBooking: Booking) => {
         console.log('[NOTIFICATION CONTEXT] New booking received:', newBooking.id);
 
-        // Suppress notifications only when the driver already has a queued ride.
+        // We use stack logic router to decide whether this shows as a Sticky or Normal alert
         if (driverProfile?.id) {
           const { data: queuedRide } = await getDriverQueuedBooking(driverProfile.id);
           if (queuedRide) {
-            console.log('[NOTIFICATION CONTEXT] Driver already has queued ride, suppressing notification for:', newBooking.id);
-            return;
+            console.log('[NOTIFICATION CONTEXT] Driver already has queued ride, treating as stack level high:', newBooking.id);
           }
         }
 
@@ -96,7 +106,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         try {
           // Prepare the payload (add bookingId for background actions)
           const payload = { ...bookingToShow, type: 'new_booking' };
-          await displayFullScreenRideRequest(payload);
+          await displayRideRequestWithStackLogic(payload);
         } catch (e) {
           console.error('[NOTIFICATION CONTEXT] Failed to show Notifee intent', e);
         }
@@ -110,6 +120,20 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         
         // Also cancel it from Notifee explicitly if it was on screen
         void cancelRideRequestNotification(removedBookingId).catch(() => {});
+      },
+      async (updatedBooking: Booking) => {
+        console.log('[NOTIFICATION CONTEXT] Booking updated:', updatedBooking.id);
+        
+        // Re-hydrate full booking to ensure we have joined addon names etc.
+        const { data: fullBooking } = await getBookingById(updatedBooking.id);
+        const bookingToShow = fullBooking || updatedBooking;
+        
+        try {
+          const payload = { ...bookingToShow, type: 'new_booking' };
+          await displayRideRequestWithStackLogic(payload);
+        } catch (e) {
+          console.error('[NOTIFICATION CONTEXT] Failed to update Notifee notification', e);
+        }
       }
     );
 
@@ -121,7 +145,20 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
   // Handle notification taps
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
+    // 1. Listen for foreground push notifications (fallback if Realtime acts up)
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(async (notification) => {
+      const data = notification.request.content.data;
+      if (data?.type === 'new_booking' && data?.booking_id) {
+        console.log('[NOTIFICATION CONTEXT] Foreground push received:', data.booking_id);
+        const { data: fullBooking } = await getBookingById(data.booking_id as string);
+        if (fullBooking) {
+           const payload = { ...fullBooking, type: 'new_booking' };
+           await displayRideRequestWithStackLogic(payload);
+        }
+      }
+    });
+
+    const tapSubscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response.notification.request.content.data;
       const bookingId = data?.bookingId;
       
@@ -150,7 +187,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     });
 
     return () => {
-      subscription.remove();
+      foregroundSubscription.remove();
+      tapSubscription.remove();
     };
   }, [currentNotification]);
 
@@ -174,9 +212,17 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
                 await acceptRide(bookingId);
              }
           } else if (pressAction.id === 'decline_ride') {
-            // Just dismiss the notification — don't persist decline
-            console.log('[NOTIFICATION CONTEXT] Decline pressed — dismissing notification only');
+            console.log('[NOTIFICATION CONTEXT] Decline pressed — updating backend and dismissing...');
+            try {
+              const { declineBooking } = require('@/lib/bookings');
+              await declineBooking(bookingId);
+            } catch (declineError) {
+              console.error('[NOTIFICATION CONTEXT] Failed to persist decline:', declineError);
+            }
             hideNotification();
+          } else if (pressAction.id === 'dismiss_notification') {
+            console.log('[NOTIFICATION CONTEXT] Dismiss pressed — cancelling notification locally');
+            await notifee.cancelNotification(notification.id!);
           } else if (pressAction.id === 'default') {
              // Tapped the notification body
              const { data: booking } = await getBookingById(bookingId);
@@ -312,6 +358,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       
       if (success) {
         console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
+        // Track this as an active ride for stacking logic
+        addActiveRide(bookingId);
         hideNotification();
         void refreshLocationTrackingNotification();
 
@@ -361,6 +409,8 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     
     // Just hide notification — don't persist decline so other drivers can still see it
     hideNotification();
+    // Remove from active ride tracker if it was somehow tracked
+    removeActiveRide(bookingId);
     
     console.log('[NOTIFICATION CONTEXT] Ride notification dismissed');
   };

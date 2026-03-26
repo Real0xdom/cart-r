@@ -8,163 +8,9 @@ import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, decl
 import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import * as Location from 'expo-location';
 import { checkLocationServices } from '@/lib/location';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { refreshLocationTrackingNotification } from '@/lib/location';
-
-// Countdown timer hook for expiration
-// NO grace period for display - show actual expiration time
-// Grace period only used for filtering in backend
-const useCountdown = (expiresAt: string | null) => {
-    const [timeLeft, setTimeLeft] = useState<string>('');
-    const [isExpired, setIsExpired] = useState(false);
-
-    useEffect(() => {
-        if (!expiresAt) {
-            setTimeLeft('');
-            return;
-        }
-
-        const updateCountdown = () => {
-            const now = new Date().getTime();
-            const expiry = new Date(expiresAt).getTime();
-            // Use ACTUAL expiration time for display (no grace period)
-            const diff = expiry - now;
-
-            if (diff <= 0) {
-                setTimeLeft('Expired');
-                setIsExpired(true);
-            } else {
-                const mins = Math.floor(diff / 60000);
-                const secs = Math.floor((diff % 60000) / 1000);
-                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
-                setIsExpired(false);
-            }
-        };
-
-        updateCountdown();
-        const interval = setInterval(updateCountdown, 1000);
-        return () => clearInterval(interval);
-    }, [expiresAt]);
-
-    return { timeLeft, isExpired };
-};
-
-const RideRequestCard = ({ request, index, onAccept, onReject }: { request: Booking; index: number; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
-    const { t } = useLanguage();
-    const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
-    
-    // Don't hide expired requests - show them but indicate expired status
-    // Let server handle rejection when driver tries to accept
-    // This prevents hiding requests due to clock drift between device and server
-    
-    // Debug logging
-    console.log('[DEBUG] RideRequestCard rendering check:', { 
-        id: request.id, 
-        isExpired, 
-        timeLeft, 
-        expires_at: request.expires_at, 
-        now: new Date().toISOString(),
-        serverNow: new Date().toISOString(),
-        deviceTime: Date.now()
-    });
-    
-    return (
-        <View testID={"request.card." + index} accessibilityLabel={"request.card." + index} className="bg-white rounded-2xl p-4 mb-4 border border-gray-200 shadow-sm">
-            {/* Expiration Timer Badge */}
-            {timeLeft && (
-                <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
-                    isExpired ? 'bg-gray-500' : (parseInt(timeLeft) < 1 ? 'bg-red-500' : 'bg-blue-500')
-                }`}>
-                    <View className="flex-row items-center">
-                        <Ionicons name={isExpired ? "close-circle-outline" : "time-outline"} size={12} color="#fff" />
-                        <Text className="ml-1 text-white font-JakartaBold text-xs">{isExpired ? 'Expired' : timeLeft}</Text>
-                    </View>
-                </View>
-            )}
-            
-            {/* Increased Fare Badge */}
-            {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
-                <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
-                    <Ionicons name="flash-outline" size={12} color="#fff" />
-                    <Text className="ml-1 text-white font-JakartaBold text-xs">{t('increasedFare')}</Text>
-                    {request.tip_amount && request.tip_amount > 0 && (
-                        <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
-                    )}
-                </View>
-            )}
-
-            {/* Addons - driver sees addon names and updated price before accepting */}
-            {request.booking_addons && request.booking_addons.length > 0 && (
-                <View className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl mb-3">
-                    <Text className="text-amber-700 font-JakartaBold text-xs mb-1">{t('addonsLabel')}</Text>
-                    {request.booking_addons.map((ba: any, i: number) => (
-                        <Text key={i} className="text-amber-800 font-JakartaMedium text-xs" numberOfLines={1}>
-                            • {ba.addon_services?.name ?? t('addon')} — ₹{(ba.quantity || 1) * (ba.unit_price || 0)}
-                        </Text>
-                    ))}
-                    {request.addon_charges != null && request.addon_charges > 0 && (
-                        <Text className="text-amber-700 font-JakartaSemiBold text-xs mt-1">{t('totalAddons')}: ₹{request.addon_charges}</Text>
-                    )}
-                </View>
-            )}
-            
-            <View className="flex-row justify-between items-start mb-4">
-                <View className="flex-1 pr-16">
-                    <Text className="text-gray-500 text-xs mb-1">{t('pickup')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                        {request.origin_address}
-                    </Text>
-                </View>
-                <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
-                    <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
-                    <Text className="text-green-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">Est. Payout: ₹{Math.round(request.total_fare * 0.8)}</Text>
-                </View>
-            </View>
-
-            <View className="mb-4">
-                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
-                <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                    {request.destination_address}
-                </Text>
-            </View>
-
-            <View className="flex-row gap-4 mb-4">
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('distance')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">Est. Time</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('payment')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold capitalize">{request.payment_method}</Text>
-                </View>
-            </View>
-
-            <View className="flex-row gap-3">
-                <TouchableOpacity
-                    testID={"request.decline." + index} accessibilityLabel={"request.decline." + index} onPress={() => onReject(request.id)}
-                    className="flex-1 bg-red-50 p-4 rounded-xl border border-red-200"
-                >
-                    <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    testID={"request.accept." + index} accessibilityLabel={"request.accept." + index} onPress={() => onAccept(request.id)}
-                    className={`flex-1 p-4 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
-                    disabled={isExpired}
-                >
-                    <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>{t('accept')}</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-};
+import RideRequestCard from '@/components/RideRequestCard';
 
 const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     const { t } = useLanguage();
@@ -259,6 +105,15 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
         return `${diffDays}d ago`;
     };
     
+    const getTripEarning = () => {
+        if (booking.driver_payout && booking.driver_payout < booking.total_fare) {
+            return Math.round(Number(booking.driver_payout));
+        }
+        return Math.round(booking.total_fare * 0.85);
+    };
+
+    const payout = getTripEarning();
+
     return (
         <View className="bg-green-50/50 rounded-2xl p-4 mb-4 border border-green-200 shadow-sm">
             <View className="mb-3">
@@ -277,13 +132,11 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
                 </View>
                 <View className="bg-emerald-100 px-3 py-1 rounded-full items-center justify-center">
                     <Text className="text-emerald-700 font-JakartaBold">
-                        ₹{booking.total_fare}
+                        ₹{payout}
                     </Text>
-                    {booking.driver_payout && (
-                        <Text className="text-emerald-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">
-                            Payout: ₹{booking.driver_payout}
-                        </Text>
-                    )}
+                    <Text className="text-emerald-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">
+                        Fare: ₹{booking.total_fare}
+                    </Text>
                 </View>
             </View>
             <View className="flex-row gap-2 mt-2">
@@ -666,3 +519,6 @@ const DriverRequests = () => {
 };
 
 export default DriverRequests;
+
+
+

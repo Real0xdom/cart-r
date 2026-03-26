@@ -29,7 +29,11 @@
         "googleMaps": {
           "apiKey": "AIzaSyCfTI56S7y49YbdOyD76_8F0lUDRnSCBFU"
         }
-      }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -52,6 +56,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7682dec6-bfef-49c0-bd8b-b90677d65c7d"
+      }
     }
   }
 }

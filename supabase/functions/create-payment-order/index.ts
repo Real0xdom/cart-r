@@ -90,7 +90,7 @@ serve(async (req) => {
     if (!isWalletTopUp) {
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')
-        .select('id, total_fare, payment_status')
+        .select('id, total_fare, quoted_total_fare, payment_status, payment_method')
         .eq('id', booking_id)
         .eq('customer_id', customer_id)
         .single()
@@ -102,7 +102,14 @@ serve(async (req) => {
         )
       }
 
-      if (booking.payment_status === 'paid') {
+      const outstandingAdditional = booking.payment_method === 'wallet_plus_cash'
+        ? 0
+        : Math.max(
+            Number(booking.total_fare ?? 0) - Number(booking.quoted_total_fare ?? booking.total_fare ?? 0),
+            0
+          )
+
+      if (booking.payment_status === 'paid' && outstandingAdditional <= 0) {
         return new Response(
           JSON.stringify({ error: 'Payment already completed for this booking' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -187,7 +194,9 @@ serve(async (req) => {
         .from('bookings')
         .update({
           payment_id: orderId,
-          payment_method: 'online',
+          payment_method: booking.payment_status === 'paid' && outstandingAdditional > 0
+            ? booking.payment_method
+            : 'online',
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking_id)

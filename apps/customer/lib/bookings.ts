@@ -23,6 +23,11 @@ export interface CreateBookingParams {
   fareMultiplier?: number;
 }
 
+interface CreateBookingAddonParam {
+  code: string;
+  quantity?: number;
+}
+
 // Generate unique booking number with nanosecond precision and randomness
 // Format: CARTR-{timestamp}-{nano}-{random} = ~30 characters
 function generateBookingNumber(): string {
@@ -92,8 +97,8 @@ export async function createBooking(params: CreateBookingParams): Promise<{
       status: 'pending',
       payment_status: 'pending',
       payment_method: 'cash', // Default to cash, can be changed later
-      // Booking expires in 10 minutes if no driver accepts (increased from 3 to give drivers enough time)
-      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      // Booking expires in 3 minutes if no driver accepts to cleanly align with UI timeout
+      expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
     };
 
     console.log('[createBooking] Data to insert (NO booking_number):', JSON.stringify(bookingData, null, 2));
@@ -347,40 +352,129 @@ export async function cancelBooking(
  */
 export async function retryBookingWithIncreasedPrice(
   bookingId: string,
+  customerId: string,
   newTipAmount: number,
   newFareMultiplier: number
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    // First get the current booking to calculate new payout (include addon_charges)
-    const { data: booking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('total_fare, addon_charges')
-      .eq('id', bookingId)
-      .single();
-
-    if (fetchError || !booking) {
-      return { success: false, error: 'Booking not found' };
-    }
-
-    const baseTotal = (booking.total_fare || 0) + (booking.addon_charges || 0);
-    const newDriverPayout = (baseTotal * newFareMultiplier) + newTipAmount;
-
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        tip_amount: newTipAmount,
-        fare_multiplier: newFareMultiplier,
-        driver_payout: newDriverPayout,
-        status: 'pending',
-        // Extend expiration by 10 more minutes - drivers will see this ride again
-        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .in('status', ['pending']); // Only update if still pending (not accepted/cancelled)
+    const { data, error } = await supabase.rpc('retry_booking_with_tip_and_wallet_sync' as any, {
+      p_booking_id: bookingId,
+      p_customer_id: customerId,
+      p_new_tip_amount: newTipAmount,
+      p_new_fare_multiplier: newFareMultiplier,
+    });
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Failed to update booking' };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Create a new booking together with any selected add-ons in one DB-side flow.
+ * This avoids a race where drivers see the booking before booking_addons exists.
+ */
+export async function createBookingWithAddons(
+  params: CreateBookingParams,
+  addons: CreateBookingAddonParam[] = []
+): Promise<{
+  data: Booking | null;
+  error: string | null;
+}> {
+  try {
+    const {
+      customerId,
+      vehicle,
+      receiverDetails,
+      goodsDescription,
+      tipAmount = 0,
+      fareMultiplier = 1.0,
+    } = params;
+
+    const driverPayout = (vehicle.total_fare * fareMultiplier) + tipAmount;
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString();
+
+    const addonPayload = addons
+      .filter((addon) => typeof addon.code === 'string' && addon.code.trim().length > 0)
+      .map((addon) => ({
+        code: addon.code.trim(),
+        quantity: addon.quantity && addon.quantity > 0 ? addon.quantity : 1,
+      }));
+
+    const { data: createdBooking, error } = await supabase.rpc('create_booking_with_addons' as any, {
+      p_customer_id: customerId,
+      p_origin_address: params.originAddress,
+      p_origin_latitude: params.originLatitude,
+      p_origin_longitude: params.originLongitude,
+      p_destination_address: params.destinationAddress,
+      p_destination_latitude: params.destinationLatitude,
+      p_destination_longitude: params.destinationLongitude,
+      p_vehicle_type: vehicle.vehicle_type,
+      p_estimated_distance: vehicle.distance_km,
+      p_estimated_duration: vehicle.duration_minutes,
+      p_base_fare: vehicle.base_fare,
+      p_distance_fare: vehicle.distance_fare,
+      p_time_fare: vehicle.time_fare,
+      p_surge_multiplier: vehicle.surge_multiplier,
+      p_total_fare: vehicle.total_fare,
+      p_tip_amount: tipAmount,
+      p_fare_multiplier: fareMultiplier,
+      p_driver_payout: driverPayout,
+      p_pickup_otp: generateOTP(),
+      p_receiver_name: receiverDetails.name,
+      p_receiver_phone: receiverDetails.phone,
+      p_goods_description: goodsDescription || null,
+      p_payment_status: 'pending',
+      p_payment_method: 'cash',
+      p_expires_at: expiresAt,
+      p_addons: addonPayload,
+    });
+
+    if (error || !createdBooking?.id) {
+      return { data: null, error: error?.message || 'Failed to create booking' };
+    }
+
+    const { data: hydratedBooking, error: fetchError } = await getBookingById(createdBooking.id);
+    if (fetchError) {
+      return {
+        data: createdBooking as unknown as Booking,
+        error: null,
+      };
+    }
+
+    return { data: hydratedBooking, error: null };
+  } catch (err: any) {
+    console.error('[createBookingWithAddons] Exception:', err);
+    return { data: null, error: err.message || 'Failed to create booking with add-ons' };
+  }
+}
+
+export async function expireBookingSearch(
+  bookingId: string,
+  customerId: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const { data, error } = await supabase.rpc('expire_booking_search' as any, {
+      p_booking_id: bookingId,
+      p_customer_id: customerId,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Failed to expire booking search' };
     }
 
     return { success: true, error: null };

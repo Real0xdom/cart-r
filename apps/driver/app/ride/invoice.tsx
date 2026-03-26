@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { generateInvoice, getInvoice, generatePdfUri, InvoiceData } from "@/lib/invoiceUtils";
+import * as Sharing from 'expo-sharing';
 
 const InvoiceScreen = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -58,9 +59,8 @@ const InvoiceScreen = () => {
     try {
      const pdfUri = await generatePdfUri(invoice);
 
-      // Lazy-load expo-sharing to avoid native module errors in development
-     const Sharing = await import('expo-sharing');
-     const isSharingAvailable = await Sharing.isAvailableAsync();
+      // Use static import for expo-sharing
+      const isSharingAvailable = await Sharing.isAvailableAsync();
       
       if (isSharingAvailable) {
         await Sharing.shareAsync(pdfUri, {
@@ -102,9 +102,8 @@ const InvoiceScreen = () => {
     try {
      const pdfUri = await generatePdfUri(invoice);
 
-      // Lazy-load expo-sharing to avoid native module errors in development
-     const Sharing = await import('expo-sharing');
-     const isSharingAvailable = await Sharing.isAvailableAsync();
+      // Use static import for expo-sharing
+      const isSharingAvailable = await Sharing.isAvailableAsync();
       
       if (isSharingAvailable) {
         await Sharing.shareAsync(pdfUri, {
@@ -232,7 +231,7 @@ Vehicle: ${invoice.vehicle_type} - ${invoice.vehicle_number}
 From: ${invoice.pickup_address}
 To: ${invoice.dropoff_address}
 
-Total Amount: ₹${invoice.total_amount}
+Driver Payout: ₹${invoice.driver_payout}
 Payment: ${invoice.payment_method} (${invoice.payment_status})
 
 Thank you for using Cart-R!

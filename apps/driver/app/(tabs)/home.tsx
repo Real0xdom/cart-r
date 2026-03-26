@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndicator } from 'react-native';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -14,138 +14,9 @@ import {
     DriverWalletInfoResponse,
 } from '@/lib/wallet';
 import WalletBalanceCard from '@/components/WalletBalanceCard';
+import RideRequestCard from '@/components/RideRequestCard';
 import * as Location from 'expo-location';
 import { refreshLocationTrackingNotification } from '@/lib/location';
-
-// Countdown timer hook for ride requests - MUST be called at top level
-const useCountdown = (expiresAt: string | null) => {
-    const [timeLeft, setTimeLeft] = useState<string>('');
-    const [isExpired, setIsExpired] = useState(false);
-
-    useEffect(() => {
-        if (!expiresAt) {
-            setTimeLeft('');
-            return;
-        }
-
-        const updateCountdown = () => {
-            const now = new Date().getTime();
-            const expiry = new Date(expiresAt).getTime();
-            const diff = expiry - now;
-
-            if (diff <= 0) {
-                setTimeLeft('Expired');
-                setIsExpired(true);
-            } else {
-                const mins = Math.floor(diff / 60000);
-                const secs = Math.floor((diff % 60000) / 1000);
-                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
-                setIsExpired(false);
-            }
-        };
-
-        updateCountdown();
-        const interval = setInterval(updateCountdown, 1000);
-        return () => clearInterval(interval);
-    }, [expiresAt]);
-
-    return { timeLeft, isExpired };
-};
-
-// Keep auto-recovery from looping when the user manually goes back from the active ride screen.
-let lastAutoNavigatedBookingId: string | null = null;
-
-const RideRequestCard = ({ request, onAccept, onReject }: { request: Booking; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
-    const { t } = useLanguage();
-    const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
-    
-    return (
-        <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-200 shadow-sm">
-            {/* Expiration Timer Badge */}
-            {timeLeft && (
-                <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
-                    isExpired ? 'bg-gray-500' : (parseInt(timeLeft) < 1 ? 'bg-red-500' : 'bg-blue-500')
-                }`}>
-                    <View className="flex-row items-center">
-                        <Ionicons name={isExpired ? "close-circle-outline" : "time-outline"} size={12} color="#fff" />
-                        <Text className="ml-1 text-white font-JakartaBold text-xs">{isExpired ? 'Expired' : timeLeft}</Text>
-                    </View>
-                </View>
-            )}
-
-            {/* Increased Fare Badge */}
-            {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
-                <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
-                    <Ionicons name="flash-outline" size={12} color="#fff" />
-                    <Text className="ml-1 text-white font-JakartaBold text-xs">{t('increasedFare')}</Text>
-                    {request.tip_amount && request.tip_amount > 0 && (
-                        <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
-                    )}
-                </View>
-            )}
-
-            {/* Pickup Location */}
-            <View className="flex-row justify-between items-start mb-3">
-                <View className="flex-1 pr-16">
-                    <Text className="text-gray-500 text-xs mb-1">{t('pickup')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                        {request.origin_address}
-                    </Text>
-                </View>
-                <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
-                    <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
-                </View>
-            </View>
-
-            {/* Drop-off Location */}
-            <View className="mb-3">
-                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
-                <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                    {request.destination_address}
-                </Text>
-            </View>
-
-            {/* Trip Details */}
-            <View className="flex-row gap-3 mb-3">
-                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('distance')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">Est. Time</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-2 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('payment')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold capitalize">{request.payment_method}</Text>
-                </View>
-            </View>
-
-            {/* Action Buttons */}
-            <View className="flex-row gap-3">
-                <TouchableOpacity
-                    onPress={() => onReject(request.id)}
-                    className="flex-1 bg-red-50 p-3 rounded-xl border border-red-200"
-                >
-                    <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={() => onAccept(request.id)}
-                    className={`flex-1 p-3 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
-                    disabled={isExpired}
-                >
-                    <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>
-                        {t('accept')}
-                    </Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-};
 
 const DriverHome = () => {
     const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();

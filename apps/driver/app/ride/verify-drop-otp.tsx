@@ -17,6 +17,7 @@ const VerifyDropOtp = () => {
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRetryingSms, setIsRetryingSms] = useState(false);
     
     // Refs for OTP inputs
     const inputRefs = [
@@ -39,6 +40,34 @@ const VerifyDropOtp = () => {
             const { data, error } = await getBookingById(bookingId);
             if (data) {
                 setBooking(data);
+
+                // IMPORTANT: Generate OTP if not present when arriving at drop-off
+                if (!data.delivery_otp) {
+                    console.log('Generating Delivery OTP at drop-off...');
+                    const { data: rpcData, error: rpcError } = await supabase.rpc('initiate_delivery_otp', {
+                        p_booking_id: bookingId
+                    });
+
+                    if (rpcError) {
+                        console.error('Failed to generate OTP:', rpcError);
+                        Alert.alert('Error', 'Failed to generate delivery OTP');
+                    } else {
+                        console.log('OTP Generated and SMS queued automatically:', rpcData);
+                        
+                        // Notify driver playfully that SMS has been sent to receiver
+                        if (data.receiver_phone && rpcData?.otp) {
+                            Alert.alert(
+                                '✅ OTP Sent via SMS',
+                                `A 6-digit OTP has been sent via SMS to the receiver's phone (+91 ${data.receiver_phone}). The sender can also see it in their app. Ask for the OTP to complete delivery!`,
+                                [{ text: 'Got it!' }]
+                            );
+                        }
+
+                        // Refresh booking to get the new OTP into state
+                        const { data: refreshed } = await getBookingById(bookingId);
+                        if (refreshed) setBooking(refreshed);
+                    }
+                }
             } else {
                 Alert.alert('Error', 'Failed to load booking details');
                 router.back();
@@ -141,6 +170,44 @@ const VerifyDropOtp = () => {
             setError(err.message || 'Verification failed. Please try again.');
             setIsVerifying(false);
         }
+    };
+
+    // Resend/Regenerate OTP
+    const handleResendOtp = async () => {
+        if (!booking || !bookingId || isRetryingSms) return;
+
+        Alert.alert(
+            'Resend OTP?',
+            'This will create a NEW OTP and send a NEW Notification to the receiver. The old OTP will become invalid.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Resend',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsRetryingSms(true);
+                        try {
+                            const { data: rpcData, error: rpcError } = await supabase.rpc('initiate_delivery_otp', {
+                                p_booking_id: bookingId,
+                                p_force_regenerate: true
+                            });
+
+                            if (rpcError) throw rpcError;
+
+                            Alert.alert('New OTP Sent', `A new 6-digit OTP has been sent via SMS to the receiver's phone. The sender's app also shows the updated OTP.`);
+                            const { data: refreshed } = await getBookingById(bookingId);
+                            if (refreshed) setBooking(refreshed);
+                            setOtp(['', '', '', '', '', '']);
+                            setError(null);
+                        } catch (err: any) {
+                            Alert.alert('Error', 'Failed to resend OTP: ' + err.message);
+                        } finally {
+                            setIsRetryingSms(false);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const handleBack = () => {
@@ -293,12 +360,24 @@ const VerifyDropOtp = () => {
                             )}
                         </TouchableOpacity>
 
+                        {/* Resend Action */}
+                        <TouchableOpacity 
+                            onPress={handleResendOtp}
+                            disabled={isRetryingSms}
+                            className={`mt-6 py-4 px-6 rounded-xl flex-row items-center justify-center w-full bg-gray-100 ${isRetryingSms ? 'opacity-50' : 'active:bg-gray-200'}`}
+                        >
+                            <Feather name="refresh-cw" size={18} color="#4b5563" />
+                            <Text className="ml-2 font-JakartaBold text-gray-700">
+                                {isRetryingSms ? 'Sending...' : 'Resend OTP'}
+                            </Text>
+                        </TouchableOpacity>
+
                         {/* Footer Info */}
                         <View className="bg-yellow-500/10 rounded-xl p-4 mt-6 w-full border border-yellow-200">
                             <View className="flex-row items-start">
                                 <Feather name="info" size={18} color="#ca8a04" />
                                 <Text className="ml-2 text-yellow-700 font-JakartaMedium flex-1">
-                                    The customer/receiver has received a 6-digit OTP via the app. Ask them to share it to verify successful delivery.
+                                    The receiver has been sent a 6-digit OTP via SMS. The sender (customer) can also see it in their app. Ask either of them for the OTP to verify successful delivery.
                                 </Text>
                             </View>
                         </View>

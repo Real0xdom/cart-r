@@ -10,10 +10,46 @@ type Booking = Database['public']['Tables']['bookings']['Row'];
 interface RideRequest extends Booking {
     estimated_distance_str?: string;
     estimated_duration_str?: string;
+    addon_charges?: number | null;
+    booking_addons?: Array<{
+        quantity: number;
+        unit_price: number;
+        total_price?: number | null;
+        addon_services?: {
+            name?: string | null;
+            code?: string | null;
+            price?: number | null;
+        } | null;
+    }>;
 }
 
 const RideRequestCard = ({ request, onAccept, onReject }: { request: RideRequest; onAccept: (id: string) => void; onReject: (id: string) => void }) => (
     <View className="bg-gray-800 rounded-2xl p-4 mb-4">
+        {request.booking_addons && request.booking_addons.length > 0 && (
+            <View className="bg-amber-500/15 border border-amber-400/30 rounded-xl p-3 mb-4">
+                <Text className="text-amber-300 font-JakartaBold mb-2">Add-on Services</Text>
+                {request.booking_addons.map((addon, index) => (
+                    <View
+                        key={`${request.id}-addon-${index}`}
+                        className={`flex-row justify-between items-center ${index > 0 ? 'mt-2 pt-2 border-t border-amber-400/20' : ''}`}
+                    >
+                        <Text className="text-white flex-1 mr-3">
+                            {addon.addon_services?.name || 'Add-on'}
+                            {addon.quantity > 1 ? ` x${addon.quantity}` : ''}
+                        </Text>
+                        <Text className="text-amber-300 font-JakartaBold">
+                            ₹{Math.round(Number(addon.total_price ?? ((addon.unit_price || 0) * (addon.quantity || 1))))}
+                        </Text>
+                    </View>
+                ))}
+                {request.addon_charges && request.addon_charges > 0 && (
+                    <Text className="text-amber-200 mt-3 font-JakartaSemiBold">
+                        Total add-ons: ₹{Math.round(Number(request.addon_charges))}
+                    </Text>
+                )}
+            </View>
+        )}
+
         <View className="flex-row justify-between items-start mb-4">
             <View className="flex-1">
                 <Text className="text-gray-400 text-xs mb-1">PICKUP</Text>
@@ -71,6 +107,30 @@ const DriverRequests = () => {
     const [isLoading, setIsLoading] = useState(true);
     const { driverProfile } = useAuth();
 
+    const fetchBookingWithAddons = useCallback(async (bookingId: string): Promise<RideRequest | null> => {
+        try {
+            const { data, error } = await supabase
+                .from('bookings')
+                .select(`
+                    *,
+                    booking_addons(
+                        quantity,
+                        unit_price,
+                        total_price,
+                        addon_services(name, code, price)
+                    )
+                `)
+                .eq('id', bookingId)
+                .single();
+
+            if (error) throw error;
+            return (data as RideRequest) || null;
+        } catch (error: any) {
+            console.error('[fetchBookingWithAddons] Error:', error.message);
+            return null;
+        }
+    }, []);
+
     // Fetch initial pending bookings
     const fetchPendingBookings = useCallback(async () => {
         if (!driverProfile?.vehicle_type) return;
@@ -78,14 +138,22 @@ const DriverRequests = () => {
         try {
             const { data, error } = await supabase
                 .from('bookings')
-                .select('*')
+                .select(`
+                    *,
+                    booking_addons(
+                        quantity,
+                        unit_price,
+                        total_price,
+                        addon_services(name, code, price)
+                    )
+                `)
                 .eq('status', 'pending')
                 .is('driver_id', null)
                 .eq('vehicle_type', driverProfile.vehicle_type)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            setRequests(data || []);
+            setRequests((data as RideRequest[]) || []);
         } catch (error: any) {
             console.error('[fetchPendingBookings] Error:', error.message);
         } finally {
@@ -112,7 +180,7 @@ const DriverRequests = () => {
                     schema: 'public',
                     table: 'bookings',
                 },
-                (payload) => {
+                async (payload) => {
                     const newBooking = payload.new as Booking;
                     // Filter: only pending, unassigned, matching vehicle type
                     if (
@@ -120,13 +188,23 @@ const DriverRequests = () => {
                         !newBooking.driver_id &&
                         newBooking.vehicle_type === driverProfile.vehicle_type
                     ) {
+                        const fullBooking = await fetchBookingWithAddons(newBooking.id);
+                        const bookingToAdd = fullBooking || (newBooking as RideRequest);
                         setRequests((prev) => {
                             // Avoid duplicates
                             if (prev.some((r) => r.id === newBooking.id)) {
                                 return prev;
                             }
-                            return [newBooking, ...prev];
+                            return [bookingToAdd, ...prev];
                         });
+
+                        // Add-ons are often inserted just after the booking row
+                        // itself, so retry shortly to refresh the card.
+                        setTimeout(async () => {
+                            const refreshed = await fetchBookingWithAddons(newBooking.id);
+                            if (!refreshed) return;
+                            setRequests((prev) => prev.map((r) => (r.id === refreshed.id ? refreshed : r)));
+                        }, 1200);
                     }
                 }
             )
@@ -137,11 +215,42 @@ const DriverRequests = () => {
                     schema: 'public',
                     table: 'bookings',
                 },
-                (payload) => {
+                async (payload) => {
                     const updatedBooking = payload.new as Booking;
                     // Remove if no longer pending or has been assigned
                     if (updatedBooking.status !== 'pending' || updatedBooking.driver_id) {
                         setRequests((prev) => prev.filter((r) => r.id !== updatedBooking.id));
+                    } else {
+                        const fullBooking = await fetchBookingWithAddons(updatedBooking.id);
+                        if (!fullBooking) return;
+                        setRequests((prev) => prev.map((r) => (r.id === fullBooking.id ? fullBooking : r)));
+                    }
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'booking_addons',
+                },
+                async (payload) => {
+                    const bookingId = (payload.new as any)?.booking_id ?? (payload.old as any)?.booking_id;
+                    if (!bookingId) return;
+
+                    const fullBooking = await fetchBookingWithAddons(String(bookingId));
+                    if (!fullBooking) return;
+
+                    if (
+                        fullBooking.status === 'pending' &&
+                        !fullBooking.driver_id &&
+                        fullBooking.vehicle_type === driverProfile.vehicle_type
+                    ) {
+                        setRequests((prev) => {
+                            const exists = prev.some((r) => r.id === fullBooking.id);
+                            if (!exists) return [fullBooking, ...prev];
+                            return prev.map((r) => (r.id === fullBooking.id ? fullBooking : r));
+                        });
                     }
                 }
             )
@@ -150,7 +259,7 @@ const DriverRequests = () => {
         return () => {
             channel.unsubscribe();
         };
-    }, [driverProfile?.vehicle_type]);
+    }, [driverProfile?.vehicle_type, fetchBookingWithAddons]);
 
     const onRefresh = useCallback(() => {
         setRefreshing(true);

@@ -6,6 +6,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const DRIVER_RIDE_REQUEST_CHANNEL = 'driver_ride_request_urgent'
 
 interface ExpoPushMessage {
   to: string
@@ -114,7 +115,7 @@ serve(async (req) => {
           data: notification.data || {},
           sound: 'default',
           priority: 'high',
-          channelId: 'ride-requests',
+          channelId: DRIVER_RIDE_REQUEST_CHANNEL,
           ttl: 0,
         }
 

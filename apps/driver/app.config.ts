@@ -64,10 +64,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "android.permission.WAKE_LOCK",
       "android.permission.USE_FULL_SCREEN_INTENT"
     ],
-    // Only add google-services.json if it exists to avoid build errors
-    ...(fs.existsSync(path.join(__dirname, "google-services.json"))
-      ? { googleServicesFile: "./google-services.json" }
-      : {}),
+    // Resolve google-services.json — check project root first, then android/app fallback
+    ...(() => {
+      const rootPath = path.join(__dirname, "google-services.json");
+      const androidAppPath = path.join(__dirname, "android", "app", "google-services.json");
+      if (fs.existsSync(rootPath)) {
+        return { googleServicesFile: "./google-services.json" };
+      } else if (fs.existsSync(androidAppPath)) {
+        return { googleServicesFile: "./android/app/google-services.json" };
+      }
+      return {};
+    })(),
   },
   web: {
     bundler: "metro",
@@ -100,8 +107,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://driver.cart-r.com/"
     },
     eas: {
-      "projectId": "11cd06f0-40e0-4bd3-8166-f913e65dd2d6"
+      "projectId": "d9c33966-9cb1-4343-a119-4f50819eaec1"
     }
   },
-  owner: "amycarter192"
+  owner: "nanofi1189"
 });

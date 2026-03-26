@@ -10,6 +10,7 @@ const corsHeaders = {
 }
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
+const DRIVER_RIDE_REQUEST_CHANNEL = 'driver_ride_request_urgent'
 
 interface NotificationRequest {
   user_id: string
@@ -109,7 +110,7 @@ serve(async (req) => {
         data: data || {},
         sound: 'default',
         priority: 'high',
-        channelId: 'ride-requests',
+        channelId: DRIVER_RIDE_REQUEST_CHANNEL,
         _displayInForeground: true,
       }
 

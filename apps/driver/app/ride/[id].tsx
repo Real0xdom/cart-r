@@ -14,7 +14,7 @@ import { getCurrentLocation, checkLocationServices } from '@/lib/location';
 import { refreshLocationTrackingNotification } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { showTripCancelledNotification } from '@/lib/notifications';
+import { showTripCancelledNotification, NotificationManager, removeActiveRide } from '@/lib/notifications';
 import { icons, images } from '@/constants';
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
@@ -295,7 +295,11 @@ const ActiveRide = () => {
     };
 
     const callCustomer = () => {
-        const phone = booking?.customer?.phone || booking?.receiver_phone;
+        const isInProgress = booking?.status === 'in_progress';
+        const phone = isInProgress 
+            ? (booking?.receiver_phone || booking?.customer?.phone)
+            : (booking?.customer?.phone || booking?.receiver_phone);
+            
         if (phone) {
             Linking.openURL(`tel:${phone}`);
         }
@@ -346,7 +350,9 @@ const ActiveRide = () => {
 
             const { success, error } = await updateBookingStatus(id, newStatus);
 
-            if (!success) {
+            if (success) {
+                void NotificationManager.driverArrived(id);
+            } else {
                 Alert.alert('Error', error || 'Failed to update status');
             }
         } catch (err: any) {
@@ -512,10 +518,6 @@ const ActiveRide = () => {
                                     setCachedRouteCoords(result.coordinates);
                                     setUseDirectionsFallback(false);
                                 }}
-                                onError={(error) => {
-                                    console.log('[ActiveRide] Directions API error, using cached route:', error);
-                                    setUseDirectionsFallback(true);
-                                }}
                             />
                         )}
 
@@ -600,6 +602,36 @@ const ActiveRide = () => {
                             </TouchableOpacity>
                         </View>
                     </View>
+
+                    {/* Addons Info */}
+                    {booking.booking_addons && booking.booking_addons.length > 0 && (
+                        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200">
+                            <View className="flex-row items-center mb-2">
+                                <Feather name="plus-circle" size={18} color="#d97706" />
+                                <Text className="text-amber-800 font-JakartaBold ml-2">Ride Addons Included</Text>
+                            </View>
+                            <Text className="text-amber-700 text-sm font-JakartaMedium mb-3">
+                                This customer has requested extra services. Fulfil these addons to earn the additional charges!
+                            </Text>
+                            <View className="bg-white rounded-xl p-3 border border-amber-100">
+                                {booking.booking_addons.map((addon, index) => (
+                                    <View key={`addon-${index}`} className={`flex-row justify-between items-center ${index > 0 ? 'mt-2 pt-2 border-t border-amber-50' : ''}`}>
+                                        <View className="flex-row items-center flex-1">
+                                            <View className="w-6 h-6 bg-amber-100 rounded-full items-center justify-center mr-2">
+                                                <Text className="text-amber-700 text-xs font-JakartaBold">{addon.quantity}x</Text>
+                                            </View>
+                                            <Text className="text-gray-900 font-JakartaSemiBold flex-1" numberOfLines={2}>
+                                                {addon.addon_services?.name || 'Additional Service'}
+                                            </Text>
+                                        </View>
+                                        <Text className="text-green-600 font-JakartaBold">
+                                            ₹{addon.total_price || (addon.unit_price * addon.quantity)}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    )}
 
                     {/* Pickup OTP - shown when arrived */}
                     {booking.status === 'driver_arrived' && booking.pickup_otp && (
@@ -770,6 +802,8 @@ const ActiveRide = () => {
                                                 const { success, error } = await cancelBookingByDriver(id, booking.driver_id, 'Cancelled by driver');
                                                 
                                                 if (success) {
+                                                    // Remove from stacking tracker on driver cancel
+                                                    removeActiveRide(id);
                                                     router.replace('/(tabs)/home');
                                                 } else {
                                                     Alert.alert('Error', error || 'Failed to cancel ride');

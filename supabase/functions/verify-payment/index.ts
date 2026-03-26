@@ -190,14 +190,11 @@ serve(async (req) => {
           })
         }
       } else if (type === 'booking' && bid && bid !== 'none') {
-        // Update booking
-         await supabase
-          .from('bookings')
-          .update({ 
-            payment_status: 'paid',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', bid)
+        await supabase.rpc('apply_booking_online_payment', {
+          p_booking_id: bid,
+          p_amount: paymentAmount,
+          p_payment_order_id: order_id,
+        })
       }
     } else if (status === 'FAILED') {
        // Also update failed status so user doesn't see "Pending" forever
@@ -210,13 +207,21 @@ serve(async (req) => {
             })
             .eq('payment_order_id', order_id)
        } else if (type === 'booking' && bid && bid !== 'none') {
-          await supabase
+          const { data: booking } = await supabase
             .from('bookings')
-            .update({ 
+            .select('payment_status')
+            .eq('id', bid)
+            .maybeSingle()
+
+          if (booking?.payment_status !== 'paid') {
+            await supabase
+              .from('bookings')
+              .update({
                 payment_status: 'failed',
                 updated_at: new Date().toISOString()
-            })
-            .eq('id', bid)
+              })
+              .eq('id', bid)
+          }
        }
     }
 

@@ -1,13 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
   <uses-permission android:name="android.permission.INTERNET"/>
-  <!-- OPTIONAL PERMISSIONS, REMOVE WHATEVER YOU DO NOT NEED -->
+  <!-- Push notifications - required on Android 13+ (API 33+) -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <!-- Full-screen intent (heads-up ride requests) - required on Android 14+ (API 34+) -->
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+  <!-- Overlay / SYSTEM_ALERT_WINDOW - required for heads-up pop-ups over other apps -->
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
-  <!-- These require runtime permissions on M -->
+  <!-- Storage permissions -->
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-  <!-- END OPTIONAL PERMISSIONS -->
+
 
   <queries>
     <!-- Support checking for http(s) links via the Linking API -->

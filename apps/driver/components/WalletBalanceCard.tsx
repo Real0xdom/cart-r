@@ -47,30 +47,22 @@ export function WalletBalanceCard({ walletInfo, isLoading }: WalletBalanceCardPr
         <Text className="text-green-600 font-JakartaSemiBold text-xs">View Details</Text>
       </View>
 
-      <View className="flex-row items-center">
-        <View className="flex-1">
-          <Text className="text-gray-500 text-xs mb-1">Available</Text>
-          <Text className={`font-JakartaBold text-2xl ${has_negative_balance ? 'text-red-500' : 'text-green-600'}`}>
-            Rs {Number(available_balance || 0).toFixed(2)}
+      <View className="flex-col">
+        <Text className="text-gray-500 text-xs mb-1">Available</Text>
+        <Text 
+          className={`font-JakartaBold text-xl ${has_negative_balance ? 'text-red-500' : 'text-green-600'}`}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          Rs {Math.round(Number(available_balance || 0))}
+        </Text>
+        {total_commission_owed > 0 ? (
+          <Text className="text-amber-600 text-xs mt-1 font-JakartaMedium">
+            Debt tracked: Rs {Math.round(Number(total_commission_owed))} (Recharge to clear)
           </Text>
-          {has_negative_balance && (
-            <Text className="text-amber-600 text-xs mt-1">
-              Recharge required to clear debt
-            </Text>
-          )}
-        </View>
-
-        <View className="w-px h-14 bg-gray-200 mx-4" />
-
-        <View className="flex-1">
-          <Text className="text-gray-500 text-xs mb-1">Pending</Text>
-          <Text className="text-gray-900 font-JakartaBold text-2xl">
-            Rs {Number(pending_balance || 0).toFixed(2)}
-          </Text>
-          <Text className="text-gray-400 text-xs mt-1">
-            {total_commission_owed > 0 ? `Debt tracked: Rs ${Number(total_commission_owed).toFixed(2)}` : 'Releases after trip settlement'}
-          </Text>
-        </View>
+        ) : (
+          <Text className="text-gray-400 text-xs mt-1">Releases after trip settlement</Text>
+        )}
       </View>
     </Pressable>
   );
