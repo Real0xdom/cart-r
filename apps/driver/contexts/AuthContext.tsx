@@ -35,25 +35,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch user profile from database
-  const fetchProfile = async (userId: string) => {
+  // Fetch or create user profile from database
+  const fetchProfile = async (authUser: User) => {
     try {
-      // Fetch user profile (might not exist for new phone auth users)
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', userId)
-        .single();
+        .eq('id', authUser.id)
+        .maybeSingle();
       
-      if (!userError && userData) {
+      if (userError && userError.code !== 'PGRST116') {
+        console.error('Error fetching profile:', userError);
+        return;
+      }
+
+      if (!userData) {
+        const phone = authUser.phone || null;
+        const email =
+          authUser.email ||
+          (phone ? `${phone.replace('+', '')}@phone.carter.app` : 'unknown@carter.app');
+        const name =
+          authUser.user_metadata?.name ||
+          authUser.user_metadata?.full_name ||
+          'Driver Partner';
+
+        const { data: newProfile, error: insertError } = await supabase
+          .from('users')
+          .insert({
+            id: authUser.id,
+            email,
+            name,
+            phone,
+            role: 'driver',
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            const { data: existingProfile } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', authUser.id)
+              .maybeSingle();
+
+            if (existingProfile) {
+              setProfile(existingProfile);
+            }
+          } else {
+            console.error('Error creating profile:', insertError);
+            return;
+          }
+        } else {
+          setProfile(newProfile);
+        }
+      } else {
         setProfile(userData);
       }
 
-      // Always try to fetch driver profile in the driver app
       const { data: driverData, error: driverError } = await supabase
         .from('drivers')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', authUser.id)
         .maybeSingle();
       
       if (!driverError && driverData) {
@@ -86,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          await fetchProfile(session.user.id);
+          await fetchProfile(session.user);
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
@@ -107,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          await fetchProfile(session.user.id);
+          await fetchProfile(session.user);
           // Register push token with retries
           import('@/lib/notifications').then(async ({ registerPushToken }) => {
             let attempts = 0;
@@ -288,7 +331,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await supabase.from('users').insert({
             id: data.user.id,
             email: data.user.email || `${phone}@phone.carter.app`,
-            name: 'Carter User',
+            name: 'Cartr User',
             phone,
             role: targetRole as 'customer' | 'driver',
           });
@@ -317,8 +360,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Refresh profile
   const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user.id);
+    const authUser =
+      user ??
+      (await supabase.auth.getUser()).data.user ??
+      (await supabase.auth.getSession()).data.session?.user ??
+      null;
+
+    if (authUser) {
+      await fetchProfile(authUser);
     }
   };
 

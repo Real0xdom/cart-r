@@ -43,6 +43,8 @@ import { icons, images } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
+const formatCurrency = (amount: number | null | undefined) => `Rs. ${Number(amount || 0).toFixed(2)}`;
+
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const { currentBooking, setCurrentBooking } = useBookingStore();
@@ -346,6 +348,8 @@ const TrackRidePage = () => {
   const isInProgress = booking?.status === 'in_progress';
   const outstandingAmount = getOutstandingCustomerAmount(booking);
   const isFullySettled = isCustomerPaymentFullySettled(booking);
+  const isCashCollectionBooking =
+    booking?.payment_method === "cash" || booking?.payment_method === "wallet_plus_cash";
 
   if (isLoading) {
     return (
@@ -618,7 +622,7 @@ const TrackRidePage = () => {
               <View className="items-center flex-1">
                 <Text className="text-xs text-gray-500">Fare</Text>
                 <Text className="text-sm font-JakartaBold text-green-600">
-                  ₹{booking?.total_fare}
+                  {formatCurrency(booking?.total_fare)}
                 </Text>
               </View>
             </View>
@@ -627,7 +631,7 @@ const TrackRidePage = () => {
             {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
                 For now we rely on status='in_progress' and user check manually via push notification, 
                 or we can add a persistent button here if not paid. */}
-            {booking?.status === 'in_progress' && outstandingAmount > 0 && (
+            {booking?.status === 'in_progress' && outstandingAmount > 0 && !isCashCollectionBooking && (
                 <TouchableOpacity
                   testID="booking.payOnlineButton"
                   accessibilityLabel="booking.payOnlineButton"
@@ -643,7 +647,7 @@ const TrackRidePage = () => {
                >
                   <Text className="text-white font-JakartaBold text-lg mr-2">
                     {booking?.payment_status === 'paid'
-                      ? `Pay Extra â‚¹${outstandingAmount.toFixed(2)}`
+                      ? `Pay Extra ${formatCurrency(outstandingAmount)}`
                       : 'Pay Now'}
                   </Text>
                   <Feather name="arrow-right" size={20} color="white" />
@@ -654,17 +658,6 @@ const TrackRidePage = () => {
                <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
                   <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
                </View>
-            )}
-
-            {!isFullySettled && booking?.status === 'in_progress' && outstandingAmount > 0 && (
-              <View className="mt-4 bg-amber-100 p-3 rounded-lg items-center">
-                <Text className="text-amber-700 font-JakartaBold text-xs">
-                  ADDITIONAL FARE DUE: â‚¹{outstandingAmount.toFixed(2)}
-                </Text>
-                <Text className="text-amber-700 text-[11px] mt-1 text-center">
-                  Waiting or other live trip charges increased the final fare.
-                </Text>
-              </View>
             )}
 
           </View>
@@ -735,3 +728,4 @@ const TrackRidePage = () => {
 };
 
 export default TrackRidePage;
+

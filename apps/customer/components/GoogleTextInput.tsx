@@ -4,7 +4,6 @@ import {
   Image, 
   TouchableOpacity, 
   TextInput, 
-  FlatList, 
   Text,
   ActivityIndicator,
   Keyboard,
@@ -74,12 +73,24 @@ const GoogleTextInput = ({
   const [isFocused, setIsFocused] = useState(false);
   const [showList, setShowList] = useState(false);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const blurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (initialLocation && initialLocation !== query) {
       setQuery(initialLocation);
     }
   }, [initialLocation]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const searchPlaces = async (text: string) => {
     if (!text || text.trim().length < 3) {
@@ -126,7 +137,12 @@ const GoogleTextInput = ({
   };
 
   const handleSelect = (item: Prediction) => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
     setQuery(item.description);
+    setPredictions([]);
     setShowList(false);
     setIsFocused(false);
     Keyboard.dismiss();
@@ -173,6 +189,10 @@ const GoogleTextInput = ({
           testID={testID}
           accessibilityLabel={testID}
           onFocus={() => {
+            if (blurTimeoutRef.current) {
+              clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
             setShowList(true);
             setIsFocused(true);
             if (onFocus) onFocus();
@@ -180,7 +200,7 @@ const GoogleTextInput = ({
           onBlur={() => {
             setIsFocused(false);
             // Small delay to allow handleSelect to fire before the list disappears
-            setTimeout(() => setShowList(false), 200);
+            blurTimeoutRef.current = setTimeout(() => setShowList(false), 250);
             if (onBlur) onBlur();
           }}
           className="flex-1 text-base font-JakartaSemiBold text-black h-12"
@@ -213,13 +233,14 @@ const GoogleTextInput = ({
           ) : (
             <ScrollView 
               className="w-full"
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
               nestedScrollEnabled={true}
             >
               {predictions.map((item) => (
                 <TouchableOpacity
                   key={item.place_id}
-                  onPress={() => handleSelect(item)}
+                  onPressIn={() => handleSelect(item)}
+                  activeOpacity={0.7}
                   className="px-4 py-3 border-b border-gray-100 flex-row items-center"
                 >
                   <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />

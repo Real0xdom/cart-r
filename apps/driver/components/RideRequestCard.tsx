@@ -1,5 +1,5 @@
+import { ReactNode, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { useEffect, useState } from 'react';
 import { Ionicons, Feather } from '@expo/vector-icons';
 
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -44,6 +44,8 @@ interface RideRequestCardProps {
   index?: number;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
+  showActions?: boolean;
+  footer?: ReactNode;
 }
 
 export default function RideRequestCard({
@@ -51,6 +53,8 @@ export default function RideRequestCard({
   index,
   onAccept,
   onReject,
+  showActions = true,
+  footer,
 }: RideRequestCardProps) {
   const { t } = useLanguage();
   const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
@@ -155,27 +159,31 @@ export default function RideRequestCard({
         </View>
       </View>
 
-      <View className="flex-row gap-3">
-        <TouchableOpacity
-          testID={typeof index === 'number' ? `request.decline.${index}` : undefined}
-          accessibilityLabel={typeof index === 'number' ? `request.decline.${index}` : undefined}
-          onPress={() => onReject(request.id)}
-          className="flex-1 bg-red-50 p-4 rounded-xl border border-red-200"
-        >
-          <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          testID={typeof index === 'number' ? `request.accept.${index}` : undefined}
-          accessibilityLabel={typeof index === 'number' ? `request.accept.${index}` : undefined}
-          onPress={() => onAccept(request.id)}
-          className={`flex-1 p-4 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
-          disabled={isExpired}
-        >
-          <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>
-            {t('accept')}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {footer ? (
+        <View>{footer}</View>
+      ) : showActions ? (
+        <View className="flex-row gap-3">
+          <TouchableOpacity
+            testID={typeof index === 'number' ? `request.decline.${index}` : undefined}
+            accessibilityLabel={typeof index === 'number' ? `request.decline.${index}` : undefined}
+            onPress={() => onReject(request.id)}
+            className="flex-1 bg-red-50 p-4 rounded-xl border border-red-200"
+          >
+            <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID={typeof index === 'number' ? `request.accept.${index}` : undefined}
+            accessibilityLabel={typeof index === 'number' ? `request.accept.${index}` : undefined}
+            onPress={() => onAccept(request.id)}
+            className={`flex-1 p-4 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
+            disabled={isExpired}
+          >
+            <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>
+              {t('accept')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </View>
   );
 }

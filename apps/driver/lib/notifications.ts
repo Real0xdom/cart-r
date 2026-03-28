@@ -19,11 +19,14 @@ import notifee, {
 } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
 import { declineBooking, getBookingById, type Booking } from './bookings';
+import { getRideAlertSoundName } from './rideAlertSound';
 
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
 const RIDE_REQUESTS_FULLSCREEN_CHANNEL = 'driver_ride_request_urgent';
 const TRIP_STATUS_CHANNEL = 'driver_trip_status';
 const DRIVER_MARKETING_CHANNEL = 'driver_marketing';
+const RIDE_REQUEST_SOUND_NAME = getRideAlertSoundName();
+const ANDROID_NOTIFICATION_SMALL_ICON = 'notification_icon';
 
 export const RIDE_REQUESTS_CHANNEL = RIDE_REQUESTS_FULLSCREEN_CHANNEL;
 export const RIDE_REQUEST_COUNTDOWN_SECONDS = 180;
@@ -122,6 +125,34 @@ function formatDuration(value: unknown): string {
 function getRideRequestBookingId(data: RideRequestNotificationInput): string {
   const rawId = data.id ?? data.bookingId ?? data.booking_id;
   return rawId ? String(rawId) : '';
+}
+
+async function dismissExpoNotificationByRequestId(requestId: unknown) {
+  if (typeof requestId !== 'string' || requestId.trim().length === 0) {
+    return;
+  }
+
+  try {
+    await Notifications.dismissNotificationAsync(requestId);
+    console.log('[RideRequest] Dismissed raw Expo notification:', requestId);
+  } catch (error) {
+    console.warn('[RideRequest] Failed to dismiss raw Expo notification:', requestId, error);
+  }
+}
+
+export async function dismissRawRideRequestNotification(
+  notificationLike:
+    | Notifications.Notification
+    | {
+        request?: {
+          identifier?: string;
+        };
+      }
+    | null
+    | undefined
+) {
+  const requestId = notificationLike?.request?.identifier;
+  await dismissExpoNotificationByRequestId(requestId);
 }
 
 export function getRideRequestNotificationId(bookingId: string): string {
@@ -243,6 +274,7 @@ function buildRideRequestNotification(
       Platform.OS === 'android'
         ? {
             channelId: options.channelId,
+            smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
             importance: AndroidImportance.HIGH,
             visibility: AndroidVisibility.PUBLIC,
             category: AndroidCategory.CALL,
@@ -302,7 +334,7 @@ async function ensureRideRequestChannel(): Promise<string> {
     id: RIDE_REQUESTS_FULLSCREEN_CHANNEL,
     name: 'Ride Requests (Urgent)',
     importance: AndroidImportance.HIGH,
-    sound: 'default',
+    sound: RIDE_REQUEST_SOUND_NAME,
     vibration: true,
     vibrationPattern: [300, 500, 300, 500],
     bypassDnd: true,
@@ -440,6 +472,10 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
     
     if (!bookingId) return;
 
+    if (parsedPayload.type === 'new_booking' || parsedPayload.type === 'cancel_booking' || parsedPayload.is_data_only) {
+      await dismissRawRideRequestNotification(notification);
+    }
+
     // Handle cancellation
     if (parsedPayload.type === 'cancel_booking') {
       console.log('[Background] Cancelling notification for booking:', bookingId);
@@ -567,13 +603,27 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 });
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+
+    if (data?.type === 'new_booking' || data?.is_data_only) {
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
+      };
+    }
+
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 /**
@@ -589,7 +639,7 @@ export async function setupNotificationChannels() {
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
-        sound: 'default',
+        sound: RIDE_REQUEST_SOUND_NAME,
         bypassDnd: true,
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         enableVibrate: true,
@@ -767,6 +817,7 @@ export async function displayNormalRideRequest(data: RideRequestNotificationInpu
     android: Platform.OS === 'android'
       ? {
           channelId,
+          smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
           importance: AndroidImportance.HIGH,
           visibility: AndroidVisibility.PUBLIC,
           color: '#F59E0B',
@@ -859,6 +910,7 @@ export async function showTripAcceptedNotification(
       Platform.OS === 'android'
         ? {
             channelId,
+            smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
             importance: AndroidImportance.HIGH,
             visibility: AndroidVisibility.PUBLIC,
             color: '#10B981',
@@ -899,6 +951,7 @@ export async function showTripCancelledNotification(
       Platform.OS === 'android'
         ? {
             channelId,
+            smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
             importance: AndroidImportance.HIGH,
             visibility: AndroidVisibility.PUBLIC,
             color: '#EF4444',
@@ -939,6 +992,7 @@ export async function showTripCompletedNotification(
       Platform.OS === 'android'
         ? {
             channelId,
+            smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
             importance: AndroidImportance.HIGH,
             visibility: AndroidVisibility.PUBLIC,
             color: '#10B981',
@@ -971,6 +1025,7 @@ export async function showDriverArrivedNotification(bookingId: string) {
     data: { id: bookingId, type: 'driver_arrived' },
     android: {
       channelId,
+      smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,
       color: '#EAB308',
@@ -996,6 +1051,7 @@ export async function showPaymentSuccessNotification(bookingId: string, payout: 
     data: { id: bookingId, type: 'payment_success' },
     android: {
       channelId,
+      smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
       importance: AndroidImportance.HIGH,
       visibility: AndroidVisibility.PUBLIC,
       color: '#10B981',
@@ -1043,6 +1099,7 @@ export const NotificationManager = {
       body,
       android: {
         channelId,
+        smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
         ongoing: true,
         autoCancel: false,
         importance: AndroidImportance.LOW,
@@ -1059,6 +1116,7 @@ export const NotificationManager = {
       data,
       android: {
         channelId,
+        smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
         importance: AndroidImportance.HIGH,
         fullScreenAction: { id: 'default', launchActivity: 'default' },
       },
@@ -1073,6 +1131,7 @@ export const NotificationManager = {
       body,
       android: {
         channelId,
+        smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
         autoCancel: true,
         color,
         actions: [{ title: 'Dismiss', pressAction: { id: 'dismiss_notification' } }],
@@ -1092,6 +1151,7 @@ export async function showMarketingNotification(title: string, body: string, dat
       Platform.OS === 'android'
         ? {
             channelId,
+            smallIcon: ANDROID_NOTIFICATION_SMALL_ICON,
             importance: AndroidImportance.DEFAULT,
             pressAction: {
               id: 'default',
@@ -1192,7 +1252,7 @@ export async function requestNotificationPermissions(openSettingsIfDenied = fals
         if (openSettingsIfDenied) {
           Alert.alert(
             'Allow Full-Screen Notifications',
-            'To see ride requests as full-screen pop-ups (even when the screen is locked), grant \"Display over other apps\" access to Carter Driver.',
+            'To see ride requests as full-screen pop-ups (even when the screen is locked), grant \"Display over other apps\" access to Cartr Driver.',
             [
               { text: 'Later', style: 'cancel' },
               {

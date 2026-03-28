@@ -1,29 +1,32 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
-import Sidebar from '@/components/Sidebar';
-import { 
-  Users, 
-  Truck, 
-  Package, 
-  CheckCircle, 
-  Star,
-  LifeBuoy,
-  TrendingUp,
-  Filter
-} from 'lucide-react';
-import { format, subDays, startOfDay, endOfDay, isAfter, isBefore, isSameDay } from 'date-fns';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
+import { format } from 'date-fns';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
+import {
+  CheckCircle,
+  Filter,
+  LifeBuoy,
+  Package,
+  Star,
+  TrendingUp,
+  Truck,
+  Users,
+} from 'lucide-react';
+
+import { getDashboardFinanceData, getDashboardOverviewStats, type DashboardStats, type InvoiceData } from '@/app/actions/dashboard';
+import Sidebar from '@/components/Sidebar';
+import { useRole } from '@/contexts/RoleContext';
 
 interface ChartDataPoint {
   date: string;
@@ -33,9 +36,22 @@ interface ChartDataPoint {
   Pending: number;
 }
 
-import { getDashboardOverviewStats, getDashboardFinanceData, type DashboardStats, type InvoiceData } from '@/app/actions/dashboard';
+const DASHBOARD_THEME = {
+  greenDark: '#14532D',
+  green: '#166534',
+  greenSoft: '#DCFCE7',
+  orangeDark: '#9A3412',
+  orange: '#C2410C',
+  orangeSoft: '#FFEDD5',
+  grid: '#E7E5E4',
+  textMuted: '#6B7280',
+  tooltipCursor: '#F6F6F2',
+} as const;
 
 export default function Home() {
+  const { role } = useRole();
+  const isManager = role === 'manager';
+
   const [stats, setStats] = useState<DashboardStats>({
     recentBookings: 0,
     newDriverRequests: 0,
@@ -44,11 +60,10 @@ export default function Home() {
     totalRatings: 0,
     openTickets: 0,
   });
-  
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
-  const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | '90d' | 'all'>('7d');
+  const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | '90d' | 'all'>('30d');
 
   const fetchOverviewStats = async () => {
     try {
@@ -72,22 +87,24 @@ export default function Home() {
     const loadAll = async () => {
       setLoading(true);
       await fetchOverviewStats();
-      await fetchFinanceData();
+      if (!isManager) {
+        await fetchFinanceData();
+      }
       setLoading(false);
       setLastUpdated(new Date().toLocaleTimeString());
     };
+
     loadAll();
-  }, [dateRange]);
+  }, [dateRange, isManager]);
 
-  // Compute aggregated numbers for the selected range
   const financeSummary = useMemo(() => {
-    const paidInvoices = invoices.filter(i => i.payment_status === 'paid');
-    const pendingInvoices = invoices.filter(i => i.payment_status !== 'paid');
+    const paidInvoices = invoices.filter((invoice) => invoice.payment_status === 'paid');
+    const pendingInvoices = invoices.filter((invoice) => invoice.payment_status !== 'paid');
 
-    const totalRevenue = paidInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-    const platformEarnings = paidInvoices.reduce((sum, i) => sum + Number(i.platform_fee || 0), 0);
-    const driverPayouts = paidInvoices.reduce((sum, i) => sum + Number(i.driver_payout || 0), 0);
-    const pendingAmount = pendingInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
+    const totalRevenue = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
+    const platformEarnings = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.platform_fee || 0), 0);
+    const driverPayouts = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.driver_payout || 0), 0);
+    const pendingAmount = pendingInvoices.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
     const avgAmount = invoices.length > 0 ? totalRevenue / paidInvoices.length || 0 : 0;
 
     return {
@@ -95,256 +112,272 @@ export default function Home() {
       avgAmount: Math.round(avgAmount),
       platformEarnings,
       driverPayouts,
-      pendingAmount
+      pendingAmount,
     };
   }, [invoices]);
 
-  // Aggregate data for the chart by date
   const chartData = useMemo(() => {
     const dailyData: Record<string, ChartDataPoint> = {};
 
-    invoices.forEach(inv => {
-      const dateKey = format(new Date(inv.created_at), 'MMM dd');
+    invoices.forEach((invoice) => {
+      const dateKey = format(new Date(invoice.created_at), 'MMM dd');
+
       if (!dailyData[dateKey]) {
         dailyData[dateKey] = {
           date: dateKey,
           Revenue: 0,
           PlatformEarnings: 0,
           DriverPayout: 0,
-          Pending: 0
+          Pending: 0,
         };
       }
-      
-      if (inv.payment_status === 'paid') {
-        dailyData[dateKey].Revenue += Number(inv.total_amount || 0);
-        dailyData[dateKey].PlatformEarnings += Number(inv.platform_fee || 0);
-        dailyData[dateKey].DriverPayout += Number(inv.driver_payout || 0);
+
+      if (invoice.payment_status === 'paid') {
+        dailyData[dateKey].Revenue += Number(invoice.total_amount || 0);
+        dailyData[dateKey].PlatformEarnings += Number(invoice.platform_fee || 0);
+        dailyData[dateKey].DriverPayout += Number(invoice.driver_payout || 0);
       } else {
-        dailyData[dateKey].Pending += Number(inv.total_amount || 0);
+        dailyData[dateKey].Pending += Number(invoice.total_amount || 0);
       }
     });
 
-    // Sort by date sequentially
     return Object.values(dailyData).sort((a, b) => {
-      // Basic sorting by month/day 
-      return new Date(a.date + " " + new Date().getFullYear()).getTime() - 
-             new Date(b.date + " " + new Date().getFullYear()).getTime();
+      return (
+        new Date(`${a.date} ${new Date().getFullYear()}`).getTime() -
+        new Date(`${b.date} ${new Date().getFullYear()}`).getTime()
+      );
     });
   }, [invoices]);
 
-  const fmt = (n: number) => '₹' + Number(n).toLocaleString('en-IN');
+  const fmt = (amount: number) => `Rs. ${Number(amount).toLocaleString('en-IN')}`;
 
   return (
     <div className="min-h-screen bg-[var(--color-brand-cream)] font-sans">
       <Sidebar />
 
-      <div className="ml-72 p-8 max-w-[1600px]">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-10">
+      <div className="ml-72 max-w-[1600px] p-8">
+        <div className="mb-10 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-1">Dashboard Overview</h1>
-            <p className="text-gray-500 text-sm">Key metrics and platform health at a glance.</p>
+            <h1 className="mb-1 text-3xl font-bold text-gray-900">Dashboard Overview</h1>
+            <p className="text-sm text-gray-500">Key metrics and platform health at a glance.</p>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-500 bg-white px-3 py-1.5 rounded-full border border-gray-100 shadow-sm">
+            <span className="rounded-full border border-gray-100 bg-white px-3 py-1.5 text-sm text-gray-500 shadow-sm">
               Last updated: {lastUpdated || '...'}
             </span>
           </div>
         </div>
 
-        {/* Overview Stat Cards Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-10">
-          
-          <Link href="/bookings" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-emerald-50 rounded-xl group-hover:bg-emerald-100 transition-colors">
+        <div className="mb-10 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <Link href="/bookings" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-emerald-50 p-3 transition-colors group-hover:bg-emerald-100">
                 <Package size={22} className="text-emerald-600" />
               </div>
-              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">Last 24h</span>
+              <span className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600">Last 24h</span>
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">Recent Bookings</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">Recent Bookings</h3>
+            <p className="text-3xl font-bold tracking-tight text-gray-900">
               {loading ? '...' : stats.recentBookings.toLocaleString()}
             </p>
           </Link>
 
-          <Link href="/drivers" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-orange-50 rounded-xl group-hover:bg-orange-100 transition-colors">
+          <Link href="/drivers" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-orange-50 p-3 transition-colors group-hover:bg-orange-100">
                 <CheckCircle size={22} className="text-orange-600" />
               </div>
-              <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">Action Needed</span>
+              <span className="rounded-lg bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-600">Action Needed</span>
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">Driver Verification Reqs</h3>
-            <p className="text-3xl font-bold text-orange-600 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">Driver Verification Reqs</h3>
+            <p className="text-3xl font-bold tracking-tight text-orange-600">
               {loading ? '...' : stats.newDriverRequests.toLocaleString()}
             </p>
           </Link>
 
-          <Link href="/users" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-blue-50 rounded-xl group-hover:bg-blue-100 transition-colors">
+          <Link href="/users" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-blue-50 p-3 transition-colors group-hover:bg-blue-100">
                 <Users size={22} className="text-blue-600" />
               </div>
-              <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">Last 7d</span>
+              <span className="rounded-lg bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-600">Last 7d</span>
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">New Users</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">New Users</h3>
+            <p className="text-3xl font-bold tracking-tight text-gray-900">
               {loading ? '...' : stats.newUsers.toLocaleString()}
             </p>
           </Link>
 
-          <Link href="/drivers" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-indigo-50 rounded-xl group-hover:bg-indigo-100 transition-colors">
+          <Link href="/drivers" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-indigo-50 p-3 transition-colors group-hover:bg-indigo-100">
                 <Truck size={22} className="text-indigo-600" />
               </div>
-              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">All Time</span>
+              <span className="rounded-lg bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-600">All Time</span>
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">Total Drivers</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">Total Drivers</h3>
+            <p className="text-3xl font-bold tracking-tight text-gray-900">
               {loading ? '...' : stats.totalDrivers.toLocaleString()}
             </p>
           </Link>
 
-          <Link href="/ratings" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-yellow-50 rounded-xl group-hover:bg-yellow-100 transition-colors">
+          <Link href="/ratings" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-yellow-50 p-3 transition-colors group-hover:bg-yellow-100">
                 <Star size={22} className="text-yellow-600" />
               </div>
-              <span className="text-xs font-semibold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">All Time</span>
+              <span className="rounded-lg bg-yellow-50 px-2 py-1 text-xs font-semibold text-yellow-600">All Time</span>
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">Total Ratings</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">Total Ratings</h3>
+            <p className="text-3xl font-bold tracking-tight text-gray-900">
               {loading ? '...' : stats.totalRatings.toLocaleString()}
             </p>
           </Link>
 
-          <Link href="/support" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow group cursor-pointer block">
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-red-50 rounded-xl group-hover:bg-red-100 transition-colors">
+          <Link href="/support" className="group block cursor-pointer rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="rounded-xl bg-red-50 p-3 transition-colors group-hover:bg-red-100">
                 <LifeBuoy size={22} className="text-red-600" />
               </div>
               {stats.openTickets > 0 && (
-                <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-lg animate-pulse">Needs Attention</span>
+                <span className="animate-pulse rounded-lg bg-red-50 px-2 py-1 text-xs font-semibold text-red-600">Needs Attention</span>
               )}
             </div>
-            <h3 className="text-gray-500 text-sm font-medium mb-1">Open Support Tickets</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <h3 className="mb-1 text-sm font-medium text-gray-500">Open Support Tickets</h3>
+            <p className="text-3xl font-bold tracking-tight text-gray-900">
               {loading ? '...' : stats.openTickets.toLocaleString()}
             </p>
           </Link>
-
         </div>
 
-        {/* Finance Analytics Section */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <TrendingUp size={20} className="text-green-600" />
-                Financial Analytics
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">Revenue breakdowns based on completed (paid) invoices</p>
-            </div>
-            
-            <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-100">
-              {(['today', '7d', '30d', '90d', 'all'] as const).map(range => (
-                <button
-                  key={range}
-                  onClick={() => setDateRange(range)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    dateRange === range 
-                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200' 
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100/50'
-                  }`}
-                >
-                  {range === 'today' ? 'Today' : 
-                   range === '7d' ? '7 Days' : 
-                   range === '30d' ? '30 Days' : 
-                   range === '90d' ? '3 Months' : 'All Time'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="h-[400px] flex items-center justify-center">
-              <div className="animate-spin w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full"/>
-            </div>
-          ) : (
-            <>
-              {/* Finance Summary Pills */}
-              <div className="flex flex-wrap gap-4 mb-8">
-                <div className="bg-gray-50 px-5 py-3 rounded-xl border border-gray-100">
-                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Total Revenue</p>
-                  <p className="text-xl font-bold text-green-600">{fmt(financeSummary.totalRevenue)}</p>
-                </div>
-                <div className="bg-gray-50 px-5 py-3 rounded-xl border border-gray-100">
-                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Avg Amount</p>
-                  <p className="text-xl font-bold text-gray-900">{fmt(financeSummary.avgAmount)}</p>
-                </div>
-                <div className="bg-gray-50 px-5 py-3 rounded-xl border border-gray-100">
-                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Platform Earnings</p>
-                  <p className="text-xl font-bold text-purple-600">{fmt(financeSummary.platformEarnings)}</p>
-                </div>
-                <div className="bg-gray-50 px-5 py-3 rounded-xl border border-gray-100">
-                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Driver Payout</p>
-                  <p className="text-xl font-bold text-cyan-600">{fmt(financeSummary.driverPayouts)}</p>
-                </div>
-                <div className="bg-gray-50 px-5 py-3 rounded-xl border border-gray-100 flex-grow text-right">
-                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Pending (Unpaid)</p>
-                  <p className="text-xl font-bold text-orange-600">{fmt(financeSummary.pendingAmount)}</p>
-                </div>
+        {!isManager && (
+          <div className="rounded-3xl border border-gray-100 bg-white p-8 shadow-sm">
+            <div className="mb-8 flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
+              <div>
+                <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900">
+                  <TrendingUp size={20} className="text-green-800" />
+                  Financial Analytics
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">Revenue breakdowns based on completed (paid) invoices</p>
               </div>
 
-              {/* Chart */}
-              <div className="h-[400px] w-full">
-                {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={chartData}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                      <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#6B7280', fontSize: 12 }} 
-                        dy={10}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#6B7280', fontSize: 12 }}
-                        tickFormatter={(val) => `₹${val}`}
-                      />
-                      <Tooltip 
-                        cursor={{ fill: '#F3F4F6' }}
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, undefined]}
-                      />
-                      <Legend 
-                        wrapperStyle={{ paddingTop: '20px' }} 
-                        iconType="circle"
-                      />
-                      <Bar dataKey="Revenue" fill="#10B981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="PlatformEarnings" name="Earnings" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="DriverPayout" name="Payout" fill="#06B6D4" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Pending" fill="#F97316" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 rounded-2xl border border-gray-100 border-dashed">
-                    <Filter className="mb-2 opacity-50" size={32} />
-                    <p>No financial data found for this period</p>
+              <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-1.5">
+                {(['today', '7d', '30d', '90d', 'all'] as const).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setDateRange(range)}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                      dateRange === range
+                        ? 'border border-green-200 bg-white text-green-900 shadow-sm'
+                        : 'text-gray-500 hover:bg-gray-100/50 hover:text-gray-900'
+                    }`}
+                  >
+                    {range === 'today'
+                      ? 'Today'
+                      : range === '7d'
+                        ? '7 Days'
+                        : range === '30d'
+                          ? '30 Days'
+                          : range === '90d'
+                            ? '3 Months'
+                            : 'All Time'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex h-[400px] items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
+              </div>
+            ) : (
+              <>
+                <div className="mb-8 flex flex-wrap gap-4">
+                  <div
+                    className="rounded-xl border px-5 py-3"
+                    style={{ backgroundColor: DASHBOARD_THEME.greenSoft, borderColor: '#BBF7D0' }}
+                  >
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Total Revenue</p>
+                    <p className="text-xl font-bold text-green-900">{fmt(financeSummary.totalRevenue)}</p>
                   </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-3">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Avg Amount</p>
+                    <p className="text-xl font-bold text-gray-900">{fmt(financeSummary.avgAmount)}</p>
+                  </div>
+                  <div
+                    className="rounded-xl border px-5 py-3"
+                    style={{ backgroundColor: '#F0FDF4', borderColor: '#D1FAE5' }}
+                  >
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Platform Earnings</p>
+                    <p className="text-xl font-bold" style={{ color: DASHBOARD_THEME.green }}>
+                      {fmt(financeSummary.platformEarnings)}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-xl border px-5 py-3"
+                    style={{ backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }}
+                  >
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Driver Payout</p>
+                    <p className="text-xl font-bold" style={{ color: DASHBOARD_THEME.orange }}>
+                      {fmt(financeSummary.driverPayouts)}
+                    </p>
+                  </div>
+                  <div
+                    className="flex-grow rounded-xl border px-5 py-3 text-right"
+                    style={{ backgroundColor: DASHBOARD_THEME.orangeSoft, borderColor: '#FDBA74' }}
+                  >
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Pending (Unpaid)</p>
+                    <p className="text-xl font-bold" style={{ color: DASHBOARD_THEME.orangeDark }}>
+                      {fmt(financeSummary.pendingAmount)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="h-[400px] w-full">
+                  {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid stroke={DASHBOARD_THEME.grid} strokeDasharray="3 3" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: DASHBOARD_THEME.textMuted, fontSize: 12 }}
+                          dy={10}
+                        />
+                        <YAxis
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: DASHBOARD_THEME.textMuted, fontSize: 12 }}
+                          tickFormatter={(value) => `Rs.${value}`}
+                        />
+                        <Tooltip
+                          cursor={{ fill: DASHBOARD_THEME.tooltipCursor }}
+                          contentStyle={{
+                            borderRadius: '12px',
+                            border: '1px solid #E7E5E4',
+                            boxShadow: '0 10px 30px -12px rgb(0 0 0 / 0.18)',
+                          }}
+                          formatter={(value) => [fmt(Number(value ?? 0)), '']}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '20px', color: DASHBOARD_THEME.textMuted }} iconType="circle" />
+                        <Bar dataKey="Revenue" fill={DASHBOARD_THEME.greenDark} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="PlatformEarnings" name="Earnings" fill={DASHBOARD_THEME.green} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="DriverPayout" name="Payout" fill={DASHBOARD_THEME.orange} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="Pending" fill={DASHBOARD_THEME.orangeDark} radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center rounded-2xl border border-dashed border-gray-100 bg-gray-50/50 text-gray-400">
+                      <Filter className="mb-2 opacity-50" size={32} />
+                      <p>No financial data found for this period</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -379,7 +379,7 @@ const WalletSkeleton = () => (
 );
 
 const DriverEarnings = () => {
-    const { openRecharge } = useLocalSearchParams<{ openRecharge?: string }>();
+    const { openRecharge, openWithdraw } = useLocalSearchParams<{ openRecharge?: string; openWithdraw?: string }>();
     const { driverProfile, user, profile } = useAuth();
     const { t } = useLanguage();
     const driverId = driverProfile?.id ?? null;
@@ -430,6 +430,43 @@ const DriverEarnings = () => {
         setShowAddMoneyModal(true);
         router.replace('/(tabs)/earnings');
     }, [openRecharge]);
+
+    useEffect(() => {
+        if (openWithdraw !== '1' || !wallet) {
+            return;
+        }
+
+        if (wallet.available_balance <= 0) {
+            Alert.alert('No Balance', 'You have no available balance to withdraw.');
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        if ((wallet.pending_withdrawals || 0) > 0) {
+            Alert.alert(
+                'Pending Withdrawal',
+                'You already have a pending withdrawal request. Please wait for it to be processed before requesting another.'
+            );
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        if (!wallet.bank_details || !wallet.bank_details.account_number) {
+            Alert.alert(
+                'Bank Account Required',
+                'Please add your bank account details first to enable withdrawals.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Add Bank', onPress: () => router.push('/profile/bank') }
+                ]
+            );
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        setShowWithdrawModal(true);
+        router.replace('/(tabs)/earnings');
+    }, [openWithdraw, wallet]);
 
     const handleWalletUpdate = useCallback((newBalance: number | null | undefined, oldBalance: number | null | undefined) => {
         if (typeof newBalance !== 'number' || typeof oldBalance !== 'number') return;

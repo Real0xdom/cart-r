@@ -34,6 +34,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const registerPushTokenWithRetry = async (userId: string) => {
+    import('@/lib/notifications').then(async ({ registerPushToken }) => {
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          const success = await registerPushToken(userId);
+          if (success) {
+            console.log('Push token registered after attempt', attempts + 1);
+            break;
+          }
+        } catch (err: any) {
+          // If Firebase isn't configured, don't retry because it will never work.
+          if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
+            console.log('Push notifications disabled (Firebase not configured). Skipping retries.');
+            break;
+          }
+          console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          await new Promise(resolve =>
+            setTimeout(resolve, attempts === 1 ? 2000 : 5000)
+          );
+          console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
+        }
+      }
+
+      if (attempts === maxAttempts) {
+        console.error('Failed to register push token after 3 attempts');
+      }
+    });
+  };
+
   // Fetch or create user profile from database
   const fetchProfile = async (authUser: User) => {
     try {
@@ -111,65 +147,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const applySession = async (nextSession: Session | null) => {
+    setSession(nextSession);
+    setUser(nextSession?.user ?? null);
+
+    if (nextSession?.user) {
+      await fetchProfile(nextSession.user);
+      void registerPushTokenWithRetry(nextSession.user.id);
+      return;
+    }
+
+    setProfile(null);
+    setDriverProfile(null);
+  };
+
   // Initialize auth state
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user);
+    let isMounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted) {
+          await applySession(data.session);
+        }
+      } catch (error: any) {
+        console.error('Error restoring auth session:', error);
+
+        const message = error?.message?.toLowerCase?.() ?? '';
+        if (message.includes('refresh token')) {
+          // Clear only the local device session if the cached refresh token is stale.
+          await supabase.auth.signOut({ scope: 'local' });
+          if (isMounted) {
+            await applySession(null);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
-    });
+    };
+
+    void initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user);
-          // Register push token with retries
-          import('@/lib/notifications').then(async ({ registerPushToken }) => {
-            let attempts = 0;
-            const maxAttempts = 3;
-            
-            while (attempts < maxAttempts) {
-              try {
-                const success = await registerPushToken(session.user.id);
-                if (success) {
-                  console.log('âœ… Push token registered after attempt', attempts + 1);
-                  break;
-                }
-              } catch (err: any) {
-                // If Firebase isn't configured, don't retry â€” it will never work
-                if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
-                  console.log('âš ï¸ Push notifications disabled (Firebase not configured). Skipping retries.');
-                  break;
-                }
-                console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
-              }
-              
-              attempts++;
-              if (attempts < maxAttempts) {
-                // Wait before retrying (2 seconds, then 5 seconds)
-                await new Promise(resolve => 
-                  setTimeout(resolve, attempts === 1 ? 2000 : 5000)
-                );
-                console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
-              }
-            }
-            
-            if (attempts === maxAttempts) {
-              console.error('âŒ Failed to register push token after 3 attempts');
-            }
-          });
-        } else {
-          setProfile(null);
-          setDriverProfile(null);
+        if (!isMounted) {
+          return;
         }
+
+        await applySession(session);
+        setIsLoading(false);
 
         // Handle navigation based on auth state
         if (event === 'SIGNED_IN') {
@@ -180,7 +215,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Sign up with email/password

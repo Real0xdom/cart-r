@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
-import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText, Wallet, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { User, Users, ArrowLeft, Star, MapPin, Calendar, CheckCircle, XCircle, Car, CreditCard, Phone, Mail, History, Clock, FileText, Wallet, ArrowDownCircle, ArrowUpCircle, ExternalLink, ShieldAlert } from 'lucide-react';
 
 interface DriverDetail {
   id: string;
@@ -56,6 +56,130 @@ interface VerificationHistoryEntry {
   created_at: string;
 }
 
+type DocumentKind = 'image' | 'pdf';
+
+interface SelectedDocument {
+  kind: DocumentKind;
+  label: string;
+  url: string;
+}
+
+const SAFE_STORAGE_SEGMENTS = [
+  '/storage/v1/object/public/driver-documents/',
+  '/storage/v1/object/sign/driver-documents/',
+  '/storage/v1/object/authenticated/driver-documents/',
+];
+
+function getDocumentExtension(value?: string | null) {
+  if (!value) return null;
+  const sanitized = value.split('?')[0].split('#')[0];
+  const match = sanitized.match(/\.([a-zA-Z0-9]+)$/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function getDocumentKind(value?: string | null): DocumentKind | null {
+  const extension = getDocumentExtension(value);
+  if (!extension) return null;
+  if (extension === 'pdf') return 'pdf';
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(extension)) return 'image';
+  return null;
+}
+
+function isSafeDriverDocumentUrl(value?: string | null) {
+  const kind = getDocumentKind(value);
+  if (!kind || !value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) {
+      return false;
+    }
+
+    const supabaseOrigin = new URL(supabaseUrl).origin;
+    if (parsed.origin !== supabaseOrigin) {
+      return false;
+    }
+
+    return SAFE_STORAGE_SEGMENTS.some((segment) => parsed.pathname.includes(segment));
+  } catch {
+    return false;
+  }
+}
+
+function getSelectedDocument(label: string, url?: string | null): SelectedDocument | null {
+  const kind = getDocumentKind(url);
+  if (!kind || !url || !isSafeDriverDocumentUrl(url)) {
+    return null;
+  }
+
+  return { kind, label, url };
+}
+
+function DocumentTile({
+  label,
+  url,
+  onOpen,
+  compact = false,
+}: {
+  compact?: boolean;
+  label: string;
+  onOpen: (document: SelectedDocument) => void;
+  url?: string | null;
+}) {
+  const safeDocument = getSelectedDocument(label, url);
+  const unsafeValue = Boolean(url) && !safeDocument;
+  const containerClass = compact
+    ? 'h-16 rounded overflow-hidden border border-gray-200'
+    : 'w-full h-32 rounded-lg overflow-hidden border border-gray-200';
+
+  if (!url) {
+    return (
+      <div className={`${containerClass} flex items-center justify-center bg-gray-100 text-xs text-gray-400`}>
+        No file
+      </div>
+    );
+  }
+
+  if (!safeDocument) {
+    return (
+      <div className={`${containerClass} flex flex-col items-center justify-center bg-red-50 px-2 text-center`}>
+        <ShieldAlert size={compact ? 16 : 18} className="mb-1 text-red-500" />
+        <span className="text-xs font-medium text-red-600">
+          {unsafeValue ? 'Blocked unsafe file' : 'Unsupported file'}
+        </span>
+      </div>
+    );
+  }
+
+  if (safeDocument.kind === 'pdf') {
+    return (
+      <button
+        className={`${containerClass} flex flex-col items-center justify-center bg-red-50 text-red-700 transition-opacity hover:opacity-80`}
+        onClick={() => onOpen(safeDocument)}
+      >
+        <FileText size={compact ? 18 : 26} />
+        <span className={`mt-1 ${compact ? 'text-[10px]' : 'text-xs'} font-medium`}>View PDF</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      className={`${containerClass} bg-gray-100 transition-opacity hover:opacity-80`}
+      onClick={() => onOpen(safeDocument)}
+    >
+      <img
+        src={safeDocument.url}
+        alt={label}
+        className="h-full w-full object-cover"
+      />
+    </button>
+  );
+}
+
 export default function DriverDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -66,7 +190,7 @@ export default function DriverDetailPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({ vehicle_number: '', vehicle_model: '', vehicle_type: '' });
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<SelectedDocument | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'history' | 'wallet'>('details');
   const [verificationHistory, setVerificationHistory] = useState<VerificationHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -502,22 +626,7 @@ export default function DriverDetailPage() {
                   {documents.map((doc) => (
                     <div key={doc.label} className="text-center">
                       <p className="text-gray-500 text-sm mb-2">{doc.label}</p>
-                      {doc.url ? (
-                        <button
-                          onClick={() => setSelectedImage(doc.url)}
-                          className="w-full h-32 bg-gray-100 rounded-lg overflow-hidden hover:opacity-80 transition-opacity"
-                        >
-                          <img
-                            src={doc.url}
-                            alt={doc.label}
-                            className="w-full h-full object-cover"
-                          />
-                        </button>
-                      ) : (
-                        <div className="w-full h-32 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
-                          No file
-                        </div>
-                      )}
+                      <DocumentTile label={doc.label} onOpen={setSelectedDocument} url={doc.url} />
                     </div>
                   ))}
                 </div>
@@ -578,36 +687,16 @@ export default function DriverDetailPage() {
                                 <p className="text-xs text-gray-500 mb-2">Documents at time of {entry.action}:</p>
                                 <div className="grid grid-cols-4 gap-2">
                                   {entry.document_snapshot.license_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.license_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
-                                      <img src={entry.document_snapshot.license_image_url} alt="License" className="w-full h-full object-cover" />
-                                    </button>
+                                    <DocumentTile compact label="License" onOpen={setSelectedDocument} url={entry.document_snapshot.license_image_url} />
                                   )}
                                   {entry.document_snapshot.rc_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.rc_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
-                                      <img src={entry.document_snapshot.rc_image_url} alt="RC" className="w-full h-full object-cover" />
-                                    </button>
+                                    <DocumentTile compact label="RC" onOpen={setSelectedDocument} url={entry.document_snapshot.rc_image_url} />
                                   )}
                                   {entry.document_snapshot.insurance_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.insurance_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
-                                      <img src={entry.document_snapshot.insurance_image_url} alt="Insurance" className="w-full h-full object-cover" />
-                                    </button>
+                                    <DocumentTile compact label="Insurance" onOpen={setSelectedDocument} url={entry.document_snapshot.insurance_image_url} />
                                   )}
                                   {entry.document_snapshot.vehicle_image_url && (
-                                    <button
-                                      onClick={() => setSelectedImage(entry.document_snapshot?.vehicle_image_url || null)}
-                                      className="h-16 bg-gray-100 rounded overflow-hidden hover:opacity-80"
-                                    >
-                                      <img src={entry.document_snapshot.vehicle_image_url} alt="Vehicle" className="w-full h-full object-cover" />
-                                    </button>
+                                    <DocumentTile compact label="Vehicle" onOpen={setSelectedDocument} url={entry.document_snapshot.vehicle_image_url} />
                                   )}
                                 </div>
                                 {/* Vehicle info at time of action */}
@@ -781,19 +870,49 @@ export default function DriverDetailPage() {
       )}
 
       {/* Image Viewer Modal */}
-      {selectedImage && (
+      {selectedDocument && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 cursor-pointer"
-          onClick={() => setSelectedImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setSelectedDocument(null)}
         >
-          <img
-            src={selectedImage}
-            alt="Document"
-            className="max-w-4xl max-h-[90vh] object-contain"
-          />
+          <div
+            className="relative h-[90vh] w-[min(92vw,1100px)] rounded-xl bg-white p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-3">
+              <div>
+                <p className="font-semibold text-gray-900">{selectedDocument.label}</p>
+                <p className="text-xs uppercase text-gray-500">{selectedDocument.kind}</p>
+              </div>
+              <a
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                href={selectedDocument.url}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={16} />
+                Open in new tab
+              </a>
+            </div>
+
+            {selectedDocument.kind === 'pdf' ? (
+              <iframe
+                className="h-[calc(90vh-88px)] w-full rounded-lg border border-gray-200"
+                sandbox="allow-downloads allow-same-origin"
+                src={selectedDocument.url}
+                title={selectedDocument.label}
+              />
+            ) : (
+              <img
+                src={selectedDocument.url}
+                alt={selectedDocument.label}
+                className="max-h-[calc(90vh-88px)] w-full object-contain"
+              />
+            )}
+          </div>
           <button
-            className="absolute top-4 right-4 text-white text-2xl hover:text-gray-300"
-            onClick={() => setSelectedImage(null)}
+            className="absolute right-4 top-4 text-2xl text-white hover:text-gray-300"
+            onClick={() => setSelectedDocument(null)}
           >
             ✕
           </button>

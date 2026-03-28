@@ -1,42 +1,62 @@
-// Ride Notification Context
-// Global state for showing ride request notifications on any screen
-
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { acceptBooking, subscribeToAvailableBookings, getBookingById, getDriverActiveBooking, getDriverQueuedBooking, Booking } from '@/lib/bookings';
-import { cancelRideRequestNotification, displayRideRequestWithStackLogic, addActiveRide, removeActiveRide } from '@/lib/notifications';
-import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
-import { useAuth } from '@/contexts/AuthContext';
-import { router, useRootNavigationState } from 'expo-router';
-import { Alert } from 'react-native';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
-import { refreshLocationTrackingNotification } from '@/lib/location';
+import { router, useRootNavigationState } from 'expo-router';
+import * as Location from 'expo-location';
 
-// Configure notifications to show in foreground but suppress generic alerts for ride requests
+import RideRequestModal from '@/components/RideRequestModal';
+import {
+  acceptBooking,
+  declineBooking,
+  getAvailableBookings,
+  getBookingById,
+  getDriverQueuedBooking,
+  getDriverSearchRadius,
+  type Booking,
+  type AcceptBookingResult,
+  subscribeToAvailableBookings,
+} from '@/lib/bookings';
+import {
+  addActiveRide,
+  cancelRideRequestNotification,
+  dismissRawRideRequestNotification,
+  displayRideRequestWithStackLogic,
+  removeActiveRide,
+} from '@/lib/notifications';
+import { refreshLocationTrackingNotification } from '@/lib/location';
+import { playRideAlertSound, stopRideAlertSound } from '@/lib/rideAlertSound';
+import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
+import { useAuth } from '@/contexts/AuthContext';
+
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
     if (data?.type === 'new_booking' || data?.is_data_only) {
-      // We process these manually via Notifee to show the sticky, custom UI
       return {
         shouldShowAlert: false,
         shouldPlaySound: false,
         shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
       };
     }
+
     return {
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
     };
   },
 });
 
 interface RideNotificationContextType {
-  currentNotification: null;
+  currentNotification: Booking | null;
   showNotification: (booking: Booking) => void;
-  hideNotification: () => void;
+  hideNotification: (bookingId?: string) => void;
   acceptRide: (bookingId: string) => Promise<void>;
   declineRide: (bookingId: string) => Promise<void>;
 }
@@ -45,144 +65,363 @@ const RideNotificationContext = createContext<RideNotificationContextType | unde
 
 export function RideNotificationProvider({ children }: { children: ReactNode }) {
   const { driverProfile } = useAuth();
-  const [currentNotification, setCurrentNotification] = useState<Booking | null>(null);
-  const hasHandledInitial = useRef(false);
   const navigationState = useRootNavigationState();
+  const [currentNotification, setCurrentNotification] = useState<Booking | null>(null);
+  const [queuedNotifications, setQueuedNotifications] = useState<Booking[]>([]);
   const [pendingRoute, setPendingRoute] = useState<string | null>(null);
+  const hasHandledInitial = useRef(false);
+  const currentNotificationRef = useRef<Booking | null>(null);
+  const appStateRef = useRef(AppState.currentState);
+  const surfacedBookingIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    currentNotificationRef.current = currentNotification;
+  }, [currentNotification]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (pendingRoute && navigationState?.key) {
-      console.log('[NOTIFICATION CONTEXT] Executing pending route:', pendingRoute);
       router.push(pendingRoute as any);
       setPendingRoute(null);
     }
-  }, [pendingRoute, navigationState?.key]);
+  }, [navigationState?.key, pendingRoute]);
+
+  useEffect(() => {
+    if (!currentNotification && queuedNotifications.length > 0) {
+      const [nextNotification, ...rest] = queuedNotifications;
+      setQueuedNotifications(rest);
+      setCurrentNotification(nextNotification);
+    }
+  }, [currentNotification, queuedNotifications]);
+
+  useEffect(() => {
+    if (!currentNotification) {
+      void stopRideAlertSound();
+      return;
+    }
+
+    void playRideAlertSound();
+
+    return () => {
+      void stopRideAlertSound();
+    };
+  }, [currentNotification?.id]);
+
+  useEffect(() => {
+    if (!currentNotification?.id || !currentNotification.expires_at) {
+      return;
+    }
+
+    const expiresAtMs = new Date(currentNotification.expires_at).getTime();
+    if (Number.isNaN(expiresAtMs)) {
+      return;
+    }
+
+    const delayMs = expiresAtMs - Date.now();
+    if (delayMs <= 0) {
+      console.log('[RIDE NOTIFICATION] Hiding expired booking immediately:', currentNotification.id);
+      hideNotification(currentNotification.id);
+      void cancelRideRequestNotification(currentNotification.id).catch(() => {});
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      console.log('[RIDE NOTIFICATION] Hiding booking after expiry timeout:', currentNotification.id);
+      hideNotification(currentNotification.id);
+      void cancelRideRequestNotification(currentNotification.id).catch(() => {});
+    }, delayMs);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentNotification?.expires_at, currentNotification?.id]);
 
   const navigateTo = (path: string) => {
     if (navigationState?.key) {
       router.push(path as any);
     } else {
-      console.log('[NOTIFICATION CONTEXT] Delaying route until routing is ready:', path);
       setPendingRoute(path);
     }
   };
 
-  // Subscribe to new ride requests
-  useEffect(() => {
-    console.log('[NOTIFICATION CONTEXT] Checking subscription conditions:', { 
-      vehicle_type: driverProfile?.vehicle_type, 
-      is_online: driverProfile?.is_online 
+  const removeQueuedNotification = (bookingId: string) => {
+    setQueuedNotifications((previous) => previous.filter((item) => item.id !== bookingId));
+  };
+
+  const showNotification = (booking: Booking) => {
+    console.log('[RIDE NOTIFICATION] showNotification called for booking:', booking.id);
+    surfacedBookingIdsRef.current.add(booking.id);
+    setCurrentNotification((current) => {
+      if (!current) {
+        return booking;
+      }
+
+      if (current.id === booking.id) {
+        return { ...current, ...booking };
+      }
+
+      setQueuedNotifications((previous) => {
+        const withoutBooking = previous.filter((item) => item.id !== booking.id);
+        return [...withoutBooking, booking];
+      });
+
+      return current;
     });
-    
-    if (!driverProfile?.vehicle_type) {
-      console.log('[NOTIFICATION CONTEXT] No vehicle type set - cannot subscribe');
-      return;
+  };
+
+  const hideNotification = (bookingId?: string) => {
+    const activeId = currentNotificationRef.current?.id;
+    if (bookingId) {
+      surfacedBookingIdsRef.current.delete(bookingId);
     }
-    
-    if (!driverProfile?.is_online) {
-      console.log('[NOTIFICATION CONTEXT] Driver is offline - notifications disabled. Go online to receive ride requests.');
+
+    if (!bookingId || bookingId === activeId) {
+      setCurrentNotification(null);
+    }
+
+    if (bookingId) {
+      removeQueuedNotification(bookingId);
+    }
+  };
+
+  const openRechargeFlow = useMemo(
+    () => () => {
+      const route = getDriverWalletRechargeNavigationTarget();
+      navigateTo(`${route.pathname}?openRecharge=${route.params.openRecharge}`);
+    },
+    [navigationState?.key]
+  );
+
+  const acceptRide = async (bookingId: string) => {
+    if (!bookingId || !driverProfile?.id) {
+      Alert.alert('Error', 'Unable to accept ride.');
       return;
     }
 
-    console.log('[NOTIFICATION CONTEXT] Subscribing to ride requests for:', driverProfile.vehicle_type);
+    try {
+      const eligibility = await checkDriverWalletEligibility(driverProfile.id);
+
+      if (!eligibility.canAcceptRides) {
+        hideNotification(bookingId);
+        Alert.alert(
+          'Cannot Accept Ride',
+          `Your wallet balance is Rs ${eligibility.currentBalance.toFixed(2)}.\n\nRecharge Rs ${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Recharge Now', onPress: openRechargeFlow },
+          ]
+        );
+        return;
+      }
+
+      const result: AcceptBookingResult = await acceptBooking(bookingId, driverProfile.id);
+
+      if (!result.success) {
+        hideNotification(bookingId);
+
+        if (result.errorCode === 'wallet_recharge_required') {
+          Alert.alert(
+            'Wallet Recharge Required',
+            `Your wallet balance is Rs ${(result.currentBalance || 0).toFixed(2)}.\n\nRecharge Rs ${(result.requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Recharge Now', onPress: openRechargeFlow },
+            ]
+          );
+          return;
+        }
+
+        Alert.alert('Error', result.error || 'Failed to accept ride. It may have been taken by another driver.');
+        return;
+      }
+
+      addActiveRide(bookingId);
+      hideNotification(bookingId);
+      await cancelRideRequestNotification(bookingId).catch(() => {});
+      void refreshLocationTrackingNotification();
+
+      if (result.assignmentMode === 'queued') {
+        Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current trip to start it.');
+        return;
+      }
+
+      navigateTo(`/ride/${bookingId}`);
+    } catch (error) {
+      console.error('[RIDE NOTIFICATION] Failed to accept ride:', error);
+      hideNotification(bookingId);
+      Alert.alert('Error', 'Failed to verify wallet status. Please try again.');
+    }
+  };
+
+  const declineRide = async (bookingId: string) => {
+    if (!bookingId) {
+      return;
+    }
+
+    hideNotification(bookingId);
+    removeActiveRide(bookingId);
+
+    try {
+      await declineBooking(bookingId);
+    } catch (error) {
+      console.error('[RIDE NOTIFICATION] Failed to decline ride:', error);
+    } finally {
+      await cancelRideRequestNotification(bookingId).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (!driverProfile?.vehicle_type || !driverProfile?.is_online) {
+      console.log('[RIDE NOTIFICATION] Subscription disabled:', {
+        driverId: driverProfile?.id,
+        isOnline: driverProfile?.is_online,
+        vehicleType: driverProfile?.vehicle_type,
+      });
+      return;
+    }
+
+    console.log('[RIDE NOTIFICATION] Subscription enabled:', {
+      driverId: driverProfile.id,
+      isOnline: driverProfile.is_online,
+      vehicleType: driverProfile.vehicle_type,
+      currentLatitude: (driverProfile as any).current_latitude,
+      currentLongitude: (driverProfile as any).current_longitude,
+    });
+
+    const surfaceBooking = async (booking: Booking) => {
+      console.log('[RIDE NOTIFICATION] surfaceBooking triggered:', booking.id, 'appState=', appStateRef.current);
+      const { data: fullBooking } = await getBookingById(booking.id);
+      const bookingToShow = fullBooking || booking;
+
+      if (appStateRef.current === 'active') {
+        await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+        showNotification(bookingToShow);
+        return;
+      }
+
+      await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+    };
+
+    const fetchAndSurfaceAvailableBookings = async () => {
+      try {
+        let latitude = Number((driverProfile as any).current_latitude);
+        let longitude = Number((driverProfile as any).current_longitude);
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          console.log('[RIDE NOTIFICATION] Driver profile missing coordinates, requesting foreground location for fallback fetch.');
+          const permission = await Location.getForegroundPermissionsAsync();
+          if (permission.status !== 'granted') {
+            console.log('[RIDE NOTIFICATION] Location permission not granted; skipping fallback fetch.');
+            return;
+          }
+
+          const currentLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          latitude = currentLocation.coords.latitude;
+          longitude = currentLocation.coords.longitude;
+        }
+
+        const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
+        const { data, error } = await getAvailableBookings(
+          latitude,
+          longitude,
+          driverProfile.vehicle_type,
+          searchRadiusKm
+        );
+
+        if (error) {
+          console.error('[RIDE NOTIFICATION] Fallback fetch failed:', error);
+          return;
+        }
+
+        console.log('[RIDE NOTIFICATION] Fallback fetch found bookings:', data.map((booking) => booking.id));
+
+        for (const booking of data) {
+          if (surfacedBookingIdsRef.current.has(booking.id)) {
+            continue;
+          }
+
+          await surfaceBooking(booking);
+        }
+      } catch (error) {
+        console.error('[RIDE NOTIFICATION] Fallback fetch exception:', error);
+      }
+    };
+
+    void fetchAndSurfaceAvailableBookings();
+    const pollingInterval = setInterval(() => {
+      void fetchAndSurfaceAvailableBookings();
+    }, 15000);
 
     const unsubscribe = subscribeToAvailableBookings(
       driverProfile.vehicle_type,
-      async (newBooking: Booking) => {
-        console.log('[NOTIFICATION CONTEXT] New booking received:', newBooking.id);
-
-        // We use stack logic router to decide whether this shows as a Sticky or Normal alert
+      async (newBooking) => {
         if (driverProfile?.id) {
           const { data: queuedRide } = await getDriverQueuedBooking(driverProfile.id);
           if (queuedRide) {
-            console.log('[NOTIFICATION CONTEXT] Driver already has queued ride, treating as stack level high:', newBooking.id);
+            console.log('[RIDE NOTIFICATION] Driver already has a queued ride:', queuedRide.id);
           }
         }
 
-        // Fetch full booking so we have addons and correct total for display
-        const { data: fullBooking } = await getBookingById(newBooking.id);
-        const bookingToShow = fullBooking || newBooking;
-        // Display full screen ride request via Notifee
-        try {
-          // Prepare the payload (add bookingId for background actions)
-          const payload = { ...bookingToShow, type: 'new_booking' };
-          await displayRideRequestWithStackLogic(payload);
-        } catch (e) {
-          console.error('[NOTIFICATION CONTEXT] Failed to show Notifee intent', e);
-        }
+        await surfaceBooking(newBooking);
       },
-      (removedBookingId: string) => {
-        console.log('[NOTIFICATION CONTEXT] Booking removed:', removedBookingId);
-        // If current notification matches, hide it
-        if (currentNotification?.id === removedBookingId) {
+      (removedBookingId) => {
+        console.log('[RIDE NOTIFICATION] Booking removed:', removedBookingId);
+        surfacedBookingIdsRef.current.delete(removedBookingId);
+        if (currentNotificationRef.current?.id === removedBookingId) {
           setCurrentNotification(null);
         }
-        
-        // Also cancel it from Notifee explicitly if it was on screen
+
+        removeQueuedNotification(removedBookingId);
         void cancelRideRequestNotification(removedBookingId).catch(() => {});
       },
-      async (updatedBooking: Booking) => {
-        console.log('[NOTIFICATION CONTEXT] Booking updated:', updatedBooking.id);
-        
-        // Re-hydrate full booking to ensure we have joined addon names etc.
-        const { data: fullBooking } = await getBookingById(updatedBooking.id);
-        const bookingToShow = fullBooking || updatedBooking;
-        
-        try {
-          const payload = { ...bookingToShow, type: 'new_booking' };
-          await displayRideRequestWithStackLogic(payload);
-        } catch (e) {
-          console.error('[NOTIFICATION CONTEXT] Failed to update Notifee notification', e);
-        }
+      async (updatedBooking) => {
+        console.log('[RIDE NOTIFICATION] Booking updated from realtime:', updatedBooking.id);
+        await surfaceBooking(updatedBooking);
       }
     );
 
     return () => {
-      console.log('[NOTIFICATION CONTEXT] Unsubscribing from ride requests');
+      clearInterval(pollingInterval);
       unsubscribe();
     };
-  }, [driverProfile?.vehicle_type, driverProfile?.is_online]);
+  }, [driverProfile?.id, driverProfile?.is_online, driverProfile?.vehicle_type]);
 
-  // Handle notification taps
   useEffect(() => {
-    // 1. Listen for foreground push notifications (fallback if Realtime acts up)
     const foregroundSubscription = Notifications.addNotificationReceivedListener(async (notification) => {
       const data = notification.request.content.data;
+      console.log('[RIDE NOTIFICATION] Foreground push received:', data);
       if (data?.type === 'new_booking' && data?.booking_id) {
-        console.log('[NOTIFICATION CONTEXT] Foreground push received:', data.booking_id);
-        const { data: fullBooking } = await getBookingById(data.booking_id as string);
-        if (fullBooking) {
-           const payload = { ...fullBooking, type: 'new_booking' };
-           await displayRideRequestWithStackLogic(payload);
+        await dismissRawRideRequestNotification(notification);
+        const { data: booking } = await getBookingById(String(data.booking_id));
+        if (booking) {
+          showNotification(booking);
         }
       }
     });
 
     const tapSubscription = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response.notification.request.content.data;
-      const bookingId = data?.bookingId;
-      
-      console.log('[NOTIFICATION CONTEXT] Notification tapped:', bookingId);
-      
-      if (bookingId) {
-        // If we already have this notification showing, just bring app to foreground (default behavior)
-        if (currentNotification?.id === bookingId) {
-          return;
-        }
+      console.log('[RIDE NOTIFICATION] Notification response received:', data);
+      const bookingId = data?.bookingId || data?.booking_id;
 
-        // Fetch booking details
-        try {
-          const { data: booking, error } = await getBookingById(bookingId);
-          
-          if (booking && !error) {
-            console.log('[NOTIFICATION CONTEXT] Opening booking from notification');
-            showNotification(booking);
-          } else {
-            console.error('[NOTIFICATION CONTEXT] Failed to fetch booking from notification:', error);
-          }
-        } catch (err) {
-          console.error('[NOTIFICATION CONTEXT] Error handling notification tap:', err);
-        }
+      if (!bookingId) {
+        return;
+      }
+
+      if (data?.type === 'new_booking' || data?.is_data_only) {
+        await dismissRawRideRequestNotification(response.notification);
+      }
+
+      const { data: booking } = await getBookingById(String(bookingId));
+      if (booking) {
+        showNotification(booking);
       }
     });
 
@@ -190,235 +429,103 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       foregroundSubscription.remove();
       tapSubscription.remove();
     };
-  }, [currentNotification]);
+  }, []);
 
-  // Listen for Notifee actionable notification presses
   useEffect(() => {
     const unsubscribe = notifee.onForegroundEvent(async ({ type, detail }) => {
       const { notification, pressAction } = detail;
+      if (type !== EventType.ACTION_PRESS || !pressAction?.id) {
+        return;
+      }
 
-      if (type === EventType.ACTION_PRESS && pressAction?.id) {
-        console.log('[NOTIFICATION CONTEXT] Notifee action pressed:', pressAction.id);
-        const bookingId = notification?.data?.id;
+      const bookingId = notification?.data?.id;
+      if (!bookingId || typeof bookingId !== 'string') {
+        return;
+      }
 
-        if (bookingId && typeof bookingId === 'string') {
-          if (pressAction.id === 'accept_ride') {
-             // First let's check if it's already accepted by this driver (via background task)
-             const { data: booking } = await getBookingById(bookingId);
-              if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
-                console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
-                navigateTo(`/ride/${bookingId}`);
-             } else {
-                await acceptRide(bookingId);
-             }
-          } else if (pressAction.id === 'decline_ride') {
-            console.log('[NOTIFICATION CONTEXT] Decline pressed — updating backend and dismissing...');
-            try {
-              const { declineBooking } = require('@/lib/bookings');
-              await declineBooking(bookingId);
-            } catch (declineError) {
-              console.error('[NOTIFICATION CONTEXT] Failed to persist decline:', declineError);
-            }
-            hideNotification();
-          } else if (pressAction.id === 'dismiss_notification') {
-            console.log('[NOTIFICATION CONTEXT] Dismiss pressed — cancelling notification locally');
-            await notifee.cancelNotification(notification.id!);
-          } else if (pressAction.id === 'default') {
-             // Tapped the notification body
-             const { data: booking } = await getBookingById(bookingId);
-             if (driverProfile?.id && booking?.driver_id === driverProfile.id && ['accepted', 'driver_arrived', 'in_progress'].includes(booking?.status || '')) {
-                navigateTo(`/ride/${bookingId}`);
-             } else {
-                navigateTo(`/(tabs)/requests`);
-             }
-          }
+      if (pressAction.id === 'accept_ride') {
+        const { data: booking } = await getBookingById(bookingId);
+        if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+          navigateTo(`/ride/${bookingId}`);
+        } else {
+          await acceptRide(bookingId);
         }
-        
-        // Remove the notification after taking action
-        if (bookingId && typeof bookingId === 'string') {
-          await cancelRideRequestNotification(bookingId);
+      } else if (pressAction.id === 'decline_ride') {
+        await declineRide(bookingId);
+      } else if (pressAction.id === 'dismiss_notification') {
+        await cancelRideRequestNotification(bookingId);
+      } else if (pressAction.id === 'default') {
+        const { data: booking } = await getBookingById(bookingId);
+        if (driverProfile?.id && booking?.driver_id === driverProfile.id && ['accepted', 'driver_arrived', 'in_progress'].includes(booking?.status || '')) {
+          navigateTo(`/ride/${bookingId}`);
+        } else {
+          navigateTo('/(tabs)/requests');
         }
       }
     });
 
     return () => unsubscribe();
-  }, [driverProfile?.id]);
+  }, [driverProfile?.id, navigationState?.key]);
 
-  // Check for background accepted ride routes that bypassed Notifee launch intents
   useEffect(() => {
-    async function checkPendingRoutes() {
-      if (!driverProfile?.id) return;
-      
-      try {
-        const pendingBookingId = await SecureStore.getItemAsync('pending_route_booking_id');
-        if (pendingBookingId) {
-          console.log('[NOTIFICATION CONTEXT] Found pending route booking from background:', pendingBookingId);
-          await SecureStore.deleteItemAsync('pending_route_booking_id');
-          navigateTo(`/ride/${pendingBookingId}`);
-        }
-      } catch (e) {
-        console.error('Error checking pending routes', e);
-      }
-    }
-    checkPendingRoutes();
-  }, [driverProfile?.id]);
-
-  // Handle killed state launch from Notifee actionable notification
-  useEffect(() => {
-    async function checkInitialNotification() {
-      if (!driverProfile?.id || hasHandledInitial.current) return;
-
-      const initialNotification = await notifee.getInitialNotification();
-
-      if (initialNotification) {
-        const { notification, pressAction } = initialNotification;
-        if (pressAction?.id) {
-          console.log('[NOTIFICATION CONTEXT] App opened from Notifee action (Initial):', pressAction.id);
-          const bookingId = notification?.data?.id;
-
-          if (bookingId && typeof bookingId === 'string') {
-            hasHandledInitial.current = true; // Mark as handled
-
-            if (pressAction.id === 'accept_ride') {
-               // First let's check if it's already accepted by this driver (via background task)
-               const { data: booking } = await getBookingById(bookingId);
-             if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
-                  console.log('[NOTIFICATION CONTEXT] Ride already accepted in background. Routing to ride screen.');
-                  navigateTo(`/ride/${bookingId}`);
-               } else {
-                  await acceptRide(bookingId);
-               }
-            } else if (pressAction.id === 'decline_ride') {
-              // Cancel pressed from killed state — do nothing, just cancel the notification.
-              // We do NOT persist this to the backend so other drivers can still see the booking.
-              console.log('[NOTIFICATION CONTEXT] Decline from killed state — notification dismissed, no action taken.');
-            } else if (pressAction.id === 'default') {
-              // Tapped the notification body from killed state
-              const { data: booking } = await getBookingById(bookingId);
-              if (driverProfile?.id && booking?.driver_id === driverProfile.id && ['accepted', 'driver_arrived', 'in_progress'].includes(booking?.status || '')) {
-                 navigateTo(`/ride/${bookingId}`);
-              } else {
-                 navigateTo(`/(tabs)/requests`);
-              }
-            }
-          }
-          
-          if (bookingId && typeof bookingId === 'string') {
-            await cancelRideRequestNotification(bookingId);
-          }
-        }
-      }
-    }
-
-    checkInitialNotification();
-  }, [driverProfile?.id]);
-
-  const showNotification = (booking: Booking) => {
-    setCurrentNotification(booking);
-  };
-
-  const hideNotification = () => {
-    setCurrentNotification(null);
-  };
-
-  const acceptRide = async (bookingId: string) => {
-    if (!bookingId || !driverProfile?.id) {
-      Alert.alert('Error', 'Unable to accept ride');
-      return;
-    }
-
-    console.log('[NOTIFICATION CONTEXT] Accepting ride:', bookingId);
-
-    const openRechargeFlow = () => {
-      const route = getDriverWalletRechargeNavigationTarget();
-      navigateTo(`${route.pathname}?openRecharge=${route.params.openRecharge}`);
-    };
-
-    try {
-      const eligibility = await checkDriverWalletEligibility(driverProfile.id);
-      console.log('[NOTIFICATION CONTEXT] Wallet eligibility:', { bookingId, ...eligibility });
-
-      if (!eligibility.canAcceptRides) {
-        hideNotification();
-        Alert.alert(
-          'Cannot Accept Ride',
-          `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
-          [
-            { text: 'Later', style: 'cancel' },
-            {
-              text: 'Recharge Now',
-              onPress: openRechargeFlow,
-            },
-          ]
-        );
+    async function checkPendingRoute() {
+      if (!driverProfile?.id) {
         return;
       }
 
-      const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(bookingId, driverProfile.id);
-      
-      if (success) {
-        console.log('[NOTIFICATION CONTEXT] Ride accepted successfully');
-        // Track this as an active ride for stacking logic
-        addActiveRide(bookingId);
-        hideNotification();
-        void refreshLocationTrackingNotification();
-
-        if (assignmentMode === 'queued') {
-          Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current trip to start it.');
-          return;
-        }
-
-        // Navigate to ride screen
-        navigateTo(`/ride/${bookingId}`);
-
-        Alert.alert('Success', 'Ride accepted! Navigate to pickup location.');
-      } else if (errorCode === 'wallet_recharge_required') {
-        console.error('[NOTIFICATION CONTEXT] Wallet blocked ride acceptance:', {
-          bookingId,
-          currentBalance,
-          requiredRecharge,
-        });
-        hideNotification();
-        Alert.alert(
-          'Wallet Recharge Required',
-          `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
-          [
-            { text: 'Later', style: 'cancel' },
-            {
-              text: 'Recharge Now',
-              onPress: openRechargeFlow,
-            },
-          ]
-        );
-      } else {
-        console.error('[NOTIFICATION CONTEXT] Failed to accept:', error);
-        hideNotification();
-        Alert.alert('Error', error || 'Failed to accept ride. It may have been taken by another driver.');
+      const pendingBookingId = await SecureStore.getItemAsync('pending_route_booking_id');
+      if (!pendingBookingId) {
+        return;
       }
-    } catch (acceptError) {
-      console.error('[NOTIFICATION CONTEXT] Unexpected accept error:', acceptError);
-      hideNotification();
-      Alert.alert('Error', 'Failed to verify wallet status. Please try again.');
+
+      await SecureStore.deleteItemAsync('pending_route_booking_id');
+      navigateTo(`/ride/${pendingBookingId}`);
     }
-  };
 
-  const declineRide = async (bookingId: string) => {
-    if (!bookingId) return;
+    void checkPendingRoute();
+  }, [driverProfile?.id, navigationState?.key]);
 
-    console.log('[NOTIFICATION CONTEXT] Dismissing ride notification:', bookingId);
-    
-    // Just hide notification — don't persist decline so other drivers can still see it
-    hideNotification();
-    // Remove from active ride tracker if it was somehow tracked
-    removeActiveRide(bookingId);
-    
-    console.log('[NOTIFICATION CONTEXT] Ride notification dismissed');
-  };
+  useEffect(() => {
+    async function checkInitialNotification() {
+      if (!driverProfile?.id || hasHandledInitial.current) {
+        return;
+      }
+
+      const initialNotification = await notifee.getInitialNotification();
+      if (!initialNotification?.pressAction?.id) {
+        return;
+      }
+
+      const bookingId = initialNotification.notification?.data?.id;
+      if (!bookingId || typeof bookingId !== 'string') {
+        return;
+      }
+
+      hasHandledInitial.current = true;
+
+      if (initialNotification.pressAction.id === 'accept_ride') {
+        const { data: booking } = await getBookingById(bookingId);
+        if (driverProfile?.id && booking?.driver_id === driverProfile.id && booking?.status === 'accepted') {
+          navigateTo(`/ride/${bookingId}`);
+        } else {
+          await acceptRide(bookingId);
+        }
+      } else if (initialNotification.pressAction.id === 'decline_ride') {
+        await declineRide(bookingId);
+      } else if (initialNotification.pressAction.id === 'default') {
+        navigateTo('/(tabs)/requests');
+      }
+
+      await cancelRideRequestNotification(bookingId).catch(() => {});
+    }
+
+    void checkInitialNotification();
+  }, [driverProfile?.id, navigationState?.key]);
 
   return (
     <RideNotificationContext.Provider
       value={{
-        currentNotification: null,
+        currentNotification,
         showNotification,
         hideNotification,
         acceptRide,
@@ -426,13 +533,29 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       }}
     >
       {children}
+      <RideRequestModal
+        visible={!!currentNotification}
+        bookingId={currentNotification?.id || ''}
+        request={currentNotification || ({} as Booking)}
+        driverId={driverProfile?.id}
+        onAccept={() => {
+          if (currentNotification?.id) {
+            void acceptRide(currentNotification.id);
+          }
+        }}
+        onReject={() => {
+          if (currentNotification?.id) {
+            void declineRide(currentNotification.id);
+          }
+        }}
+      />
     </RideNotificationContext.Provider>
   );
 }
 
 export function useRideNotification() {
   const context = useContext(RideNotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useRideNotification must be used within RideNotificationProvider');
   }
   return context;

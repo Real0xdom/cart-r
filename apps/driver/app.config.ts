@@ -4,7 +4,7 @@ import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Carter Driver",
+  name: "Cartr Driver",
   slug: "carter-driver",
   version: "1.0.0",
   orientation: "portrait",
@@ -14,11 +14,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   splash: {
     image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#31502d"
+    backgroundColor: "#355A31"
   },
   notification: {
     icon: "./assets/images/notification-icon.png",
-    color: "#22C55E"
+    color: "#355A31"
   },
   ios: {
     supportsTablet: false,
@@ -32,15 +32,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         "location",
         "fetch"
       ],
-      NSLocationAlwaysAndWhenInUseUsageDescription: "Carter Driver needs your location to receive ride requests and navigate to pickups.",
-      NSLocationWhenInUseUsageDescription: "Carter Driver needs your location to receive ride requests."
+      NSLocationAlwaysAndWhenInUseUsageDescription: "Cartr Driver needs your location to receive ride requests and navigate to pickups.",
+      NSLocationWhenInUseUsageDescription: "Cartr Driver needs your location to receive ride requests."
     }
   },
   android: {
     jsEngine: "hermes",
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#22C55E"
+      backgroundColor: "#355A31"
     },
     package: "com.carter.driver",
     config: {
@@ -92,12 +92,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
+        "locationAlwaysAndWhenInUsePermission": "Cartr Driver needs your location to receive ride requests and navigate to pickups.",
         "isAndroidBackgroundLocationEnabled": true
       }
     ],
     "expo-font",
-    "expo-secure-store"
+    "expo-secure-store",
+    "expo-document-picker"
   ],
   experiments: {
     typedRoutes: true

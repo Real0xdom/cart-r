@@ -13,7 +13,7 @@ import {
 } from "@/lib/vehicleTypes";
 import { useBookingStore, useLocationStore, useRideStore } from "@/store";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -49,6 +49,8 @@ const SelectVehiclePage = () => {
   const [availableAddons, setAvailableAddons] = useState<AddonService[]>([]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>(storedAddonIds);
   const [showAddonModal, setShowAddonModal] = useState(false);
+  const pendingAddonModalVehicleTypeRef = useRef<string | null>(null);
+  const addonFetchRequestIdRef = useRef(0);
 
   const activeVehicleTypes = new Set(vehicleSpecs.map((vehicle) => vehicle.vehicle_type));
   const visibleFares = fares.filter((fare) => activeVehicleTypes.has(fare.vehicle_type));
@@ -109,27 +111,40 @@ const SelectVehiclePage = () => {
         setAvailableAddons([]);
         setSelectedAddonIds([]);
         setStoredAddonIds([]);
+        pendingAddonModalVehicleTypeRef.current = null;
+        setShowAddonModal(false);
         return;
       }
 
-      const { data, error: addonError } = await getApplicableAddons(selectedVehicle.vehicle_type);
+      const requestId = ++addonFetchRequestIdRef.current;
+      const vehicleType = selectedVehicle.vehicle_type;
+      const { data, error: addonError } = await getApplicableAddons(vehicleType);
+
+      // Ignore stale responses from older vehicle selections.
+      if (requestId !== addonFetchRequestIdRef.current) {
+        return;
+      }
+
       if (data && !addonError) {
         setAvailableAddons(data);
+
+        if (pendingAddonModalVehicleTypeRef.current === vehicleType) {
+          pendingAddonModalVehicleTypeRef.current = null;
+          setShowAddonModal(data.length > 0);
+        }
+
         return;
       }
 
       console.error("[SELECT VEHICLE] Failed to load add-ons:", addonError);
       setAvailableAddons([]);
+      if (pendingAddonModalVehicleTypeRef.current === vehicleType) {
+        pendingAddonModalVehicleTypeRef.current = null;
+      }
     };
 
     fetchAddonsForVehicle();
   }, [selectedVehicle, setStoredAddonIds]);
-
-  useEffect(() => {
-    if (selectedVehicle && availableAddons.length > 0) {
-      setShowAddonModal(true);
-    }
-  }, [availableAddons.length, selectedVehicle]);
 
   useEffect(() => {
     if (selectedVehicle && !activeVehicleTypes.has(selectedVehicle.vehicle_type)) {
@@ -143,6 +158,17 @@ const SelectVehiclePage = () => {
   const totalFare = selectedVehicle ? selectedVehicle.total_fare + addonChargesForIds(selectedAddonIds) : 0;
 
   const handleSelectVehicle = (vehicle: FareEstimate) => {
+    if (
+      selectedVehicle?.vehicle_type === vehicle.vehicle_type &&
+      !showAddonModal &&
+      availableAddons.length > 0
+    ) {
+      setShowAddonModal(true);
+      return;
+    }
+
+    setShowAddonModal(false);
+    pendingAddonModalVehicleTypeRef.current = vehicle.vehicle_type;
     setSelectedVehicle(vehicle);
     setSelectedAddonIds([]);
     setStoredAddonIds([]);

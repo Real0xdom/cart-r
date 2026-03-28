@@ -3,10 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
-import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking, getAvailableBookings, subscribeToAvailableBookings, getDriverSearchRadius } from '@/lib/bookings';
+import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import {
     checkDriverWalletEligibility,
     getDriverWalletInfo,
@@ -14,23 +14,25 @@ import {
     DriverWalletInfoResponse,
 } from '@/lib/wallet';
 import WalletBalanceCard from '@/components/WalletBalanceCard';
-import RideRequestCard from '@/components/RideRequestCard';
 import * as Location from 'expo-location';
 import { refreshLocationTrackingNotification } from '@/lib/location';
 
+let lastAutoNavigatedBookingId: string | null = null;
+
 const DriverHome = () => {
-    const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
+    const { driverProfile, toggleDriverOnline, profile } = useAuth();
     const { t } = useLanguage();
     const [isOnline, setIsOnline] = useState(driverProfile?.is_online || false);
     const [isTogglingStatus, setIsTogglingStatus] = useState(false);
     const [activeBookings, setActiveBookings] = useState<Booking[]>([]);
-    const [rideRequests, setRideRequests] = useState<Booking[]>([]);
     const [isRidesExpanded, setIsRidesExpanded] = useState(true);
     const [todayStats, setTodayStats] = useState({ earnings: 0, trips: 0 });
     const [isLoadingStats, setIsLoadingStats] = useState(true);
     const [walletInfo, setWalletInfo] = useState<DriverWalletInfoResponse | null>(null);
     const [isLoadingWallet, setIsLoadingWallet] = useState(true);
+    const [isRefreshingWallet, setIsRefreshingWallet] = useState(false);
     const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
+    const hasLoadedWalletRef = useRef(false);
     useEffect(() => {
         setIsOnline(driverProfile?.is_online || false);
     }, [driverProfile]);
@@ -74,66 +76,6 @@ const DriverHome = () => {
             }
         })();
     }, []);
-
-    // Fetch ride requests when location and driver profile are available
-    useEffect(() => {
-        if (!location || !driverProfile?.vehicle_type || !isOnline) {
-            return; // Only show requests when driver is online
-        }
-
-        const fetchRideRequests = async () => {
-            // Fetch admin-configured search radius for this vehicle type
-            const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
-            const { data, error } = await getAvailableBookings(
-                location.latitude,
-                location.longitude,
-                driverProfile.vehicle_type,
-                searchRadiusKm
-            );
-            
-            if (!error && data) {
-                console.log('[HOME] Fetched ride requests:', data.length);
-                setRideRequests(data);
-            }
-        };
-
-        fetchRideRequests();
-
-        // Subscribe to real-time updates
-        const unsubscribe = subscribeToAvailableBookings(
-            driverProfile.vehicle_type,
-            (newBooking: Booking) => {
-                console.log('[HOME SUBSCRIPTION] New booking received:', newBooking.id);
-                setRideRequests(prev => {
-                    // Avoid duplicates and add to top
-                    if (prev.some(b => b.id === newBooking.id)) {
-                        return prev;
-                    }
-                    return [newBooking, ...prev];
-                });
-            },
-            (removedBookingId: string) => {
-                console.log('[HOME SUBSCRIPTION] Booking removed:', removedBookingId);
-                setRideRequests(prev => prev.filter(b => b.id !== removedBookingId));
-            },
-            (updatedBooking: Booking) => {
-                console.log('[HOME SUBSCRIPTION] Booking updated:', updatedBooking.id);
-                setRideRequests(prev => {
-                    const idx = prev.findIndex(b => b.id === updatedBooking.id);
-                    if (idx >= 0) {
-                        const next = [...prev];
-                        next[idx] = { ...next[idx], ...updatedBooking };
-                        return next;
-                    }
-                    return [updatedBooking, ...prev];
-                });
-            }
-        );
-
-        return () => {
-            unsubscribe();
-        };
-    }, [location, driverProfile?.vehicle_type, isOnline]);
 
     // Check for active booking and fetch today's stats
     useEffect(() => {
@@ -186,13 +128,19 @@ const DriverHome = () => {
 
         const loadWallet = async () => {
             try {
-                setIsLoadingWallet(true);
+                if (hasLoadedWalletRef.current) {
+                    setIsRefreshingWallet(true);
+                } else {
+                    setIsLoadingWallet(true);
+                }
                 const { data } = await getDriverWalletInfo(driverProfile.id);
                 setWalletInfo(data);
+                hasLoadedWalletRef.current = true;
             } catch (error) {
                 console.error('Failed to load wallet:', error);
             } finally {
                 setIsLoadingWallet(false);
+                setIsRefreshingWallet(false);
             }
         };
 
@@ -204,6 +152,42 @@ const DriverHome = () => {
 
     const openRechargeFlow = () => {
         router.push(getDriverWalletRechargeNavigationTarget() as any);
+    };
+
+    const openWithdrawFlow = () => {
+        if (!walletInfo?.wallet) {
+            return;
+        }
+
+        if (Number(walletInfo.wallet.available_balance || 0) <= 0) {
+            Alert.alert('No Balance', 'You have no available balance to withdraw right now.');
+            return;
+        }
+
+        if (Number(walletInfo.wallet.pending_withdrawals || 0) > 0) {
+            Alert.alert(
+                'Pending Withdrawal',
+                'You already have a pending withdrawal request. Please wait for it to be processed before requesting another.'
+            );
+            return;
+        }
+
+        if (!walletInfo.wallet.bank_details || !walletInfo.wallet.bank_details.account_number) {
+            Alert.alert(
+                'Bank Account Required',
+                'Please add your bank account details first to enable withdrawals.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Add Bank', onPress: () => router.push('/profile/bank') },
+                ]
+            );
+            return;
+        }
+
+        router.push({
+            pathname: '/(tabs)/earnings',
+            params: { openWithdraw: '1' },
+        } as any);
     };
 
     const handleToggleOnline = async (value: boolean) => {
@@ -372,95 +356,6 @@ const DriverHome = () => {
     const navigateToRide = (bookingId: string) => {
         router.push(`/ride/${bookingId}` as any);
     };
-
-    const handleAcceptRequest = async (bookingId: string) => {
-        if (!driverProfile?.id) {
-            Alert.alert(t('error'), t('driverProfileNotFound'));
-            return;
-        }
-
-        try {
-            const eligibility = await checkDriverWalletEligibility(driverProfile.id);
-            console.log('[HOME] Accept wallet eligibility:', { bookingId, ...eligibility });
-
-            if (!eligibility.canAcceptRides) {
-                Alert.alert(
-                    'Cannot Accept Ride',
-                    `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
-                    [
-                        { text: 'Later', style: 'cancel' },
-                        {
-                            text: 'Recharge Now',
-                            onPress: openRechargeFlow,
-                        },
-                    ]
-                );
-                return;
-            }
-
-            const { acceptBooking } = await import('@/lib/bookings');
-            const { success, error, errorCode, currentBalance, requiredRecharge, assignmentMode } = await acceptBooking(bookingId, driverProfile.id);
-            
-            if (success) {
-                // Remove from requests list
-                setRideRequests(prev => prev.filter(r => r.id !== bookingId));
-                void refreshLocationTrackingNotification();
-                if (assignmentMode === 'queued') {
-                    Alert.alert('Ride queued', 'Next ride queued successfully. Finish your current ride to activate it.');
-                    const { data: activeRides } = await getDriverActiveBookings(driverProfile.id);
-                    if (activeRides) {
-                        setActiveBookings(activeRides);
-                    }
-                } else {
-                    Alert.alert('Success', 'Booking accepted! Navigate to pickup location.');
-                    router.push(`/ride/${bookingId}` as any);
-                }
-            } else if (errorCode === 'wallet_recharge_required') {
-                Alert.alert(
-                    'Wallet Recharge Required',
-                    `Your wallet balance is \u20b9${(currentBalance || 0).toFixed(2)}.\n\nRecharge \u20b9${(requiredRecharge || 0).toFixed(0)} to continue accepting rides.`,
-                    [
-                        { text: 'Later', style: 'cancel' },
-                        {
-                            text: 'Recharge Now',
-                            onPress: openRechargeFlow,
-                        },
-                    ]
-                );
-            } else {
-                Alert.alert('Error', error || 'Failed to accept booking');
-            }
-        } catch (err) {
-            console.error('Failed to accept booking:', err);
-            Alert.alert('Error', 'Failed to accept booking');
-        }
-    };
-
-    const handleDeclineRequest = async (bookingId: string) => {
-        Alert.alert(
-            t('declineRequest'),
-            t('areYouSureDecline'),
-            [
-                { text: t('cancel'), style: 'cancel' },
-                { 
-                    text: t('decline'), 
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            const { declineBooking } = await import('@/lib/bookings');
-                            const { success } = await declineBooking(bookingId);
-                            if (success) {
-                                setRideRequests(prev => prev.filter(r => r.id !== bookingId));
-                            }
-                        } catch (err) {
-                            console.error('Failed to decline booking:', err);
-                        }
-                    }
-                }
-            ]
-        );
-    };
-
     const getStatusBadge = (status: Booking['status']) => {
         switch (status) {
             case 'accepted':
@@ -485,78 +380,70 @@ const DriverHome = () => {
                             {profile?.name || 'Driver'}
                         </Text>
                     </View>
-                    <TouchableOpacity
-                        onPress={signOut}
-                        className="bg-red-50 px-4 py-2 rounded-full"
-                    >
-                        <Text className="text-red-600 font-JakartaSemiBold">Logout</Text>
-                    </TouchableOpacity>
                 </View>
 
-                {/* Ride Requests Section - Only show when driver is online and has NON-EXPIRED requests */}
-                {isOnline && rideRequests.length > 0 && (
-                    <View className="mb-6">
-                        <View className="flex-row justify-between items-center mb-3">
-                            <Text className="text-gray-900 text-lg font-JakartaBold">
-                                {t('rideRequests')} ({rideRequests.filter(r => {
-                                    if (!r.expires_at) return true;
-                                    return new Date(r.expires_at).getTime() > Date.now();
-                                }).length})
-                            </Text>
-                            <TouchableOpacity onPress={() => router.push('/(tabs)/requests')}>
-                                <Text className="text-blue-600 font-JakartaMedium text-sm">{t('viewAll')}</Text>
-                            </TouchableOpacity>
-                        </View>
-                        {rideRequests
-                            .filter(request => {
-                                // Filter out expired requests from home screen
-                                if (!request.expires_at) return true;
-                                return new Date(request.expires_at).getTime() > Date.now();
-                            })
-                            .map((request) => (
-                                <RideRequestCard
-                                    key={request.id}
-                                    request={request}
-                                    onAccept={handleAcceptRequest}
-                                    onReject={handleDeclineRequest}
-                                />
-                            ))
-                        }
-                    </View>
-                )}
-
                 {/* Online Status Card */}
-                <View className="bg-gray-50 p-6 rounded-2xl mb-6 border border-gray-200">
-                    <View className="flex-row justify-between items-center">
-                        <View>
-                            <Text className="text-gray-500 text-sm mb-1">{t('status')}</Text>
-                            <Text className={`text-2xl font-JakartaBold ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
-                                {isOnline ? t('online') : t('offline')}
+                <View className={`rounded-[24px] p-5 mb-6 border overflow-hidden ${
+                    isOnline ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'
+                }`}>
+                    <View className={`absolute -top-8 -right-6 w-24 h-24 rounded-full ${
+                        isOnline ? 'bg-emerald-100' : 'bg-slate-200'
+                    }`} />
+                    <View className={`absolute -bottom-10 -left-8 w-24 h-24 rounded-full ${
+                        isOnline ? 'bg-emerald-100/80' : 'bg-slate-200/80'
+                    }`} />
+                    <View className="flex-row justify-between items-start">
+                        <View className="flex-1 mr-4">
+                            <Text className="text-gray-500 text-xs uppercase tracking-[1px] mb-2">{t('status')}</Text>
+                            <View className="flex-row items-center mb-2">
+                                <View className={`w-2.5 h-2.5 rounded-full mr-2 ${
+                                    isOnline ? 'bg-emerald-500' : 'bg-slate-400'
+                                }`} />
+                                <Text className={`text-[28px] font-JakartaBold ${
+                                    isOnline ? 'text-emerald-700' : 'text-slate-700'
+                                }`}>
+                                    {isOnline ? t('online') : t('offline')}
+                                </Text>
+                            </View>
+                            <Text className={`text-sm leading-5 ${
+                                isOnline ? 'text-emerald-700/80' : 'text-slate-600'
+                            }`}>
+                                {isTogglingStatus
+                                    ? t('updatingStatus')
+                                    : isOnline
+                                        ? t('visibleToCustomers')
+                                        : t('goOnlineToReceive')}
                             </Text>
                         </View>
 
-                        <Switch
-                            testID="driver.toggleOnline"
-                            accessibilityLabel="driver.toggleOnline"
-                            value={isOnline}
-                            onValueChange={handleToggleOnline}
-                            trackColor={{ false: '#d1d5db', true: '#22c55e' }}
-                            thumbColor={isOnline ? '#ffffff' : '#9ca3af'}
-                            disabled={isTogglingStatus}
-                        />
+                        <View className={`rounded-2xl px-3 py-3 min-w-[112px] items-center border ${
+                            isOnline ? 'bg-white/80 border-emerald-200' : 'bg-white/90 border-slate-200'
+                        }`}>
+                            <Text className={`text-[11px] font-JakartaBold mb-2 uppercase ${
+                                isOnline ? 'text-emerald-600' : 'text-slate-500'
+                            }`}>
+                                {isOnline ? 'Enabled' : 'Disabled'}
+                            </Text>
+                            <Switch
+                                testID="driver.toggleOnline"
+                                accessibilityLabel="driver.toggleOnline"
+                                value={isOnline}
+                                onValueChange={handleToggleOnline}
+                                trackColor={{ false: '#cbd5e1', true: '#10b981' }}
+                                thumbColor="#ffffff"
+                                disabled={isTogglingStatus}
+                            />
+                        </View>
                     </View>
-                    <Text className="text-gray-500 text-sm mt-3">
-                        {isTogglingStatus 
-                            ? t('updatingStatus') 
-                            : isOnline 
-                                ? t('visibleToCustomers') 
-                                : t('goOnlineToReceive')}
-                    </Text>
                 </View>
 
                 <WalletBalanceCard
                     walletInfo={walletInfo}
                     isLoading={isLoadingWallet}
+                    isRefreshing={isRefreshingWallet}
+                    onPressAddMoney={openRechargeFlow}
+                    onPressWithdraw={openWithdrawFlow}
+                    onPressDetails={() => router.push('/(tabs)/earnings')}
                 />
 
                 {!!walletInfo?.wallet?.requires_recharge && (
@@ -581,9 +468,12 @@ const DriverHome = () => {
 
                 {/* Today's Stats */}
                 <Text className="text-gray-900 text-xl font-JakartaBold mb-4">{t('todaysSummary')}</Text>
-                <View className="flex-row gap-3 mb-6">
-                    <View className="flex-1 bg-blue-50 p-4 rounded-xl border border-blue-100">
-                        <Text className="text-blue-600 text-sm mb-1">Earnings</Text>
+                <View className="mb-6">
+                    <View className="bg-[#EFF6FF] p-5 rounded-[24px] border border-[#BFDBFE] mb-3 overflow-hidden">
+                        <View className="absolute -top-8 -right-6 w-24 h-24 rounded-full bg-blue-200/50" />
+                        <View className="flex-row justify-between items-start">
+                            <View className="flex-1 mr-4">
+                        <Text className="text-blue-700 text-xs uppercase tracking-[1px] mb-2">Earnings</Text>
                         {isLoadingStats ? (
                             <ActivityIndicator size="small" color="#2563eb" />
                         ) : (
@@ -591,21 +481,39 @@ const DriverHome = () => {
                                 ₹{todayStats.earnings.toLocaleString()}
                             </Text>
                         )}
+                                <Text className="text-blue-700/80 text-sm mt-2">
+                                    Today's completed trip earnings
+                                </Text>
+                            </View>
+                            <View className="w-12 h-12 rounded-2xl bg-white/80 items-center justify-center border border-blue-100">
+                                <Ionicons name="cash-outline" size={24} color="#2563eb" />
+                            </View>
+                        </View>
                     </View>
-                    <View className="flex-1 bg-purple-50 p-4 rounded-xl border border-purple-100">
-                        <Text className="text-purple-600 text-sm mb-1">{t('trips')}</Text>
+                    <View className="flex-row gap-3">
+                    <View className="flex-1 bg-[#F5F3FF] px-3 py-2.5 rounded-[16px] border border-[#DDD6FE]">
+                        <View className="w-7 h-7 rounded-lg bg-white/80 items-center justify-center border border-purple-100 mb-2">
+                            <Ionicons name="car-outline" size={15} color="#7c3aed" />
+                        </View>
+                        <Text className="text-purple-700 text-[11px] uppercase tracking-[1px] mb-1">{t('trips')}</Text>
                         {isLoadingStats ? (
                             <ActivityIndicator size="small" color="#7c3aed" />
                         ) : (
-                            <Text className="text-gray-900 text-2xl font-JakartaBold">{todayStats.trips}</Text>
+                            <Text className="text-gray-900 text-[22px] font-JakartaBold">{todayStats.trips}</Text>
                         )}
+                        <Text className="text-purple-700/80 text-[10px] mt-1">Trips completed today</Text>
                     </View>
-                    <View className="flex-1 bg-green-50 p-4 rounded-xl border border-green-100">
-                        <Text className="text-green-600 text-sm mb-1">Rating</Text>
-                        <Text className="text-gray-900 text-2xl font-JakartaBold">
+                    <View className="flex-1 bg-[#ECFDF5] px-3 py-2.5 rounded-[16px] border border-[#BBF7D0]">
+                        <View className="w-7 h-7 rounded-lg bg-white/80 items-center justify-center border border-emerald-100 mb-2">
+                            <Ionicons name="star-outline" size={15} color="#16a34a" />
+                        </View>
+                        <Text className="text-emerald-700 text-[11px] uppercase tracking-[1px] mb-1">Rating</Text>
+                        <Text className="text-gray-900 text-[22px] font-JakartaBold">
                             {driverProfile?.rating?.toFixed(1) || '5.0'}
                         </Text>
+                        <Text className="text-emerald-700/80 text-[10px] mt-1">Current driver rating</Text>
                     </View>
+                </View>
                 </View>
 
                 {/* Quick Actions */}

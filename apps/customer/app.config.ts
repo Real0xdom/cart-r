@@ -12,13 +12,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "carter",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#31502d"
+    backgroundColor: "#21461E"
   },
   notification: {
     icon: "./assets/images/notification-icon.png",
-    color: "#4CAF50"
+    color: "#21461E"
   },
   ios: {
     supportsTablet: true,
@@ -41,7 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#21461E"
     },
     package: "com.carter.customer",
     config: {

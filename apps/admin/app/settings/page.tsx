@@ -208,7 +208,6 @@ export default function SettingsPage() {
                       <th className="text-left py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Per KM (₹)</th>
                       <th className="text-left py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Per Min (₹)</th>
                       <th className="text-left py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Min Fare (₹)</th>
-                      <th className="text-left py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Cancel Fee (₹)</th>
                       <th className="text-left py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="text-right py-4 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -217,7 +216,7 @@ export default function SettingsPage() {
                     {configs.map(c => (
                       <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="py-4 px-4"><div className="font-bold text-gray-900 capitalize flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-300" />{c.vehicle_type}</div></td>
-                        {(['base_fare', 'per_km_rate', 'per_minute_rate', 'minimum_fare', 'cancellation_fee'] as const).map(field => (
+                        {(['base_fare', 'per_km_rate', 'per_minute_rate', 'minimum_fare'] as const).map(field => (
                           <td key={field} className="py-2 px-4">
                             <input type="number" value={c[field]} onChange={e => handleUpdate(c.id, field, e.target.value)}
                               className="w-24 px-3 py-2 bg-gray-50 border border-transparent hover:border-gray-200 focus:border-orange-500 focus:bg-white rounded-lg transition-all font-medium text-gray-900 focus:outline-none" />
@@ -384,3 +383,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

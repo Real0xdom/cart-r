@@ -14,6 +14,13 @@ import {
 
 import CustomButton from "@/components/CustomButton";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  isPdfDocument,
+  isSupportedDocumentReference,
+  normalizeImageAsset,
+  pickDriverDocumentFromDevice,
+  uploadDriverDocument,
+} from "@/lib/driverDocuments";
 import { supabase } from "@/lib/supabase";
 import { useOnboardingStore } from "@/store";
 
@@ -21,9 +28,9 @@ interface DocumentItem {
   id: string;
   name: string;
   description: string;
-  required: boolean;
   uri: string | null;
   uploading: boolean;
+  required: boolean;
 }
 
 const Documents = () => {
@@ -81,24 +88,19 @@ const Documents = () => {
     },
   ]);
 
-  const pickImage = async (docId: string) => {
+  const pickFile = async (docId: DocumentItem["id"]) => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        await uploadDocument(docId, result.assets[0].uri);
+      const file = await pickDriverDocumentFromDevice();
+      if (file) {
+        await uploadDocument(docId, file);
       }
     } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image");
+      console.error("Error picking file:", error);
+      Alert.alert("Error", "Failed to pick file");
     }
   };
 
-  const takePhoto = async (docId: string) => {
+  const takePhoto = async (docId: DocumentItem["id"]) => {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== "granted") {
@@ -107,13 +109,13 @@ const Documents = () => {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
+        allowsEditing: false,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
       });
 
       if (!result.canceled && result.assets[0]) {
-        await uploadDocument(docId, result.assets[0].uri);
+        await uploadDocument(docId, normalizeImageAsset(result.assets[0]));
       }
     } catch (error) {
       console.error("Error taking photo:", error);
@@ -121,49 +123,35 @@ const Documents = () => {
     }
   };
 
-  const uploadDocument = async (docId: string, uri: string) => {
+  const uploadDocument = async (
+    docId: DocumentItem["id"],
+    file: Awaited<ReturnType<typeof pickDriverDocumentFromDevice>> | ReturnType<typeof normalizeImageAsset>
+  ) => {
+    if (!user?.id || !file) {
+      Alert.alert("Error", "Please sign in again before uploading documents.");
+      return;
+    }
+
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, uploading: true } : d))
     );
 
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as ArrayBuffer);
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(blob);
+      const uploaded = await uploadDriverDocument({
+        documentId: docId,
+        file,
+        userId: user.id,
       });
-
-      const fileExt = uri.split(".").pop() || "jpg";
-      const fileName = `${user?.id}/${docId}_${Date.now()}.${fileExt}`;
-
-      const { error } = await supabase.storage
-        .from("driver-documents")
-        .upload(fileName, arrayBuffer, {
-          contentType: `image/${fileExt}`,
-          upsert: true,
-        });
-
-      if (error) {
-        throw error;
-      }
-
-      const { data: urlData } = supabase.storage
-        .from("driver-documents")
-        .getPublicUrl(fileName);
 
       setDocuments((prev) =>
         prev.map((d) =>
           d.id === docId
-            ? { ...d, uri: urlData.publicUrl, uploading: false }
+            ? { ...d, uri: uploaded.publicUrl, uploading: false }
             : d
         )
       );
 
-      setDocumentUrl(docId, urlData.publicUrl);
+      setDocumentUrl(docId, uploaded.publicUrl);
       Alert.alert("Success", "Document uploaded successfully!");
     } catch (error: any) {
       console.error("Upload error:", error);
@@ -176,7 +164,9 @@ const Documents = () => {
 
   const onSubmit = async () => {
     const requiredDocs = documents.filter((d) => d.required);
-    const missingDocs = requiredDocs.filter((d) => !d.uri);
+    const missingDocs = requiredDocs.filter(
+      (d) => !d.uri || !isSupportedDocumentReference(d.uri)
+    );
 
     if (missingDocs.length > 0) {
       Alert.alert(
@@ -228,10 +218,10 @@ const Documents = () => {
     return new Date().toISOString().split("T")[0];
   };
 
-  const showDocumentOptions = (docId: string) => {
+  const showDocumentOptions = (docId: DocumentItem["id"]) => {
     Alert.alert("Upload Document", "Choose an option", [
       { text: "Take Photo", onPress: () => takePhoto(docId) },
-      { text: "Choose from Gallery", onPress: () => pickImage(docId) },
+      { text: "Choose Image or PDF", onPress: () => pickFile(docId) },
       { text: "Cancel", style: "cancel" },
     ]);
   };
@@ -259,6 +249,10 @@ const Documents = () => {
 
         <View className="p-5">
           {documents.map((doc) => (
+            (() => {
+              const isSafeReference = !doc.uri || isSupportedDocumentReference(doc.uri);
+              const isPdf = Boolean(doc.uri) && isPdfDocument(doc.uri);
+              return (
             <TouchableOpacity
               key={doc.id}
               onPress={() => showDocumentOptions(doc.id)}
@@ -273,11 +267,19 @@ const Documents = () => {
                 <View className="h-16 w-16 items-center justify-center rounded-lg bg-gray-100">
                   <ActivityIndicator color="#22c55e" />
                 </View>
-              ) : doc.uri ? (
+              ) : doc.uri && !isSafeReference ? (
+                <View className="h-16 w-16 items-center justify-center rounded-lg bg-red-50">
+                  <Ionicons name="warning-outline" size={28} color="#dc2626" />
+                </View>
+              ) : doc.uri && !isPdf ? (
                 <Image
                   source={{ uri: doc.uri }}
                   className="h-16 w-16 rounded-lg"
                 />
+              ) : doc.uri ? (
+                <View className="h-16 w-16 items-center justify-center rounded-lg bg-red-50">
+                  <Ionicons name="document-attach" size={28} color="#dc2626" />
+                </View>
               ) : (
                 <View className="h-16 w-16 items-center justify-center rounded-lg bg-gray-100">
                   <Ionicons
@@ -301,19 +303,27 @@ const Documents = () => {
                 {doc.uri && (
                   <View className="mt-1 flex-row items-center">
                     <Ionicons
-                      name="checkmark-circle"
+                      name={isSafeReference ? "checkmark-circle" : "warning"}
                       size={14}
-                      color="#16a34a"
+                      color={isSafeReference ? "#16a34a" : "#dc2626"}
                     />
-                    <Text className="ml-1 text-xs text-green-600">
-                      Uploaded
+                    <Text className={`ml-1 text-xs ${isSafeReference ? "text-green-600" : "text-red-600"}`}>
+                      {!isSafeReference
+                        ? "Re-upload required"
+                        : isPdf
+                          ? "PDF uploaded"
+                          : "Uploaded"}
                     </Text>
                   </View>
                 )}
               </View>
 
               {doc.uri ? (
-                <Ionicons name="checkmark-circle" size={22} color="#16a34a" />
+                <Ionicons
+                  name={isSafeReference ? "checkmark-circle" : "warning"}
+                  size={22}
+                  color={isSafeReference ? "#16a34a" : "#dc2626"}
+                />
               ) : (
                 <Ionicons
                   name="add-circle-outline"
@@ -322,13 +332,15 @@ const Documents = () => {
                 />
               )}
             </TouchableOpacity>
+              );
+            })()
           ))}
 
           <View className="mt-4 flex-row items-start rounded-xl bg-yellow-50 p-4">
             <Ionicons name="alert-circle-outline" size={18} color="#a16207" />
             <Text className="ml-2 flex-1 text-center text-sm text-yellow-800">
-              Make sure documents are clear and readable. Blurry images may
-              delay verification.
+              Upload a clear image or PDF. Files are checked before upload and
+              anything outside the supported document types will be blocked.
             </Text>
           </View>
 
