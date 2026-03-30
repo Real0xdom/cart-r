@@ -11,13 +11,31 @@ import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import * as Location from 'expo-location';
 import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, getDriverQueuedBooking, subscribeToDriverQueuedBooking, Booking } from '@/lib/bookings';
 import { getCurrentLocation, checkLocationServices } from '@/lib/location';
+import { updateDriverLocation as publishDriverLocation } from '@/lib/api';
 import { refreshLocationTrackingNotification } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { showTripCancelledNotification, NotificationManager, removeActiveRide } from '@/lib/notifications';
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from '@/lib/vehicleTypes';
 import { icons, images } from '@/constants';
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
+
+const isDropoffPhase = (status?: Booking['status']) => status === 'in_progress';
+
+const getCurrentTargetCoordinates = (booking: Booking) => {
+    if (isDropoffPhase(booking.status)) {
+        return {
+            latitude: booking.destination_latitude,
+            longitude: booking.destination_longitude,
+        };
+    }
+
+    return {
+        latitude: booking.origin_latitude,
+        longitude: booking.origin_longitude,
+    };
+};
 
 const ActiveRide = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,6 +52,7 @@ const ActiveRide = () => {
     const [cancellationNotice, setCancellationNotice] = useState<Booking | null>(null);
     const [queuedBooking, setQueuedBooking] = useState<Booking | null>(null);
     const [queuedCardMinimized, setQueuedCardMinimized] = useState(false);
+    const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
     const cancellationHandledRef = useRef(false);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
@@ -77,6 +96,13 @@ const ActiveRide = () => {
                         latitude: location.coords.latitude,
                         longitude: location.coords.longitude
                     });
+                    void publishDriverLocation(
+                        location.coords.latitude,
+                        location.coords.longitude,
+                        location.coords.heading || undefined,
+                        location.coords.speed || undefined,
+                        location.coords.accuracy || undefined
+                    );
                     setLocationError(null);
                 } else {
                     const errorMsg = t('enableLocationServices') || 'Current location is unavailable. Turn on device location services to show the route.';
@@ -95,12 +121,23 @@ const ActiveRide = () => {
 
                 // Start watcher
                 subscription = await Location.watchPositionAsync(
-                    { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+                    {
+                        accuracy: Location.Accuracy.BestForNavigation,
+                        distanceInterval: 3,
+                        timeInterval: 2000,
+                    },
                     (loc) => {
                         setDriverLocation({
                             latitude: loc.coords.latitude,
                             longitude: loc.coords.longitude
                         });
+                        void publishDriverLocation(
+                            loc.coords.latitude,
+                            loc.coords.longitude,
+                            loc.coords.heading || undefined,
+                            loc.coords.speed || undefined,
+                            loc.coords.accuracy || undefined
+                        );
                         setLocationError(null);
                     }
                 );
@@ -157,6 +194,15 @@ const ActiveRide = () => {
             stopWatching();
             subscriptionState.remove();
         };
+    }, []);
+
+    useEffect(() => {
+        const fetchVehicleSpecs = async () => {
+            const { data } = await getActiveVehicleTypes();
+            if (data) setVehicleSpecs(data);
+        };
+
+        fetchVehicleSpecs();
     }, []);
 
     // Fetch booking data
@@ -231,14 +277,12 @@ const ActiveRide = () => {
     // Fit map to show route when booking and driver location are available
     useEffect(() => {
         if (booking && driverLocation && mapRef.current) {
-            const isInProgress = booking.status === 'in_progress';
-            
+            const currentTarget = getCurrentTargetCoordinates(booking);
             const pointsToFit = [
                 { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
-                { latitude: booking.origin_latitude, longitude: booking.origin_longitude },
-                { latitude: booking.destination_latitude, longitude: booking.destination_longitude }
+                currentTarget,
             ];
-            
+
             mapRef.current.fitToCoordinates(pointsToFit, {
                 edgePadding: { top: 100, right: 60, bottom: 350, left: 60 },
                 animated: true
@@ -250,6 +294,9 @@ const ActiveRide = () => {
         if (!booking) return;
 
         // Force directions to recalculate when the ride phase switches from pickup to drop-off.
+        setLiveETA(null);
+        setLiveDistance(null);
+        setCachedRouteCoords([]);
         setUseDirectionsFallback(false);
     }, [booking?.status, booking?.origin_latitude, booking?.origin_longitude, booking?.destination_latitude, booking?.destination_longitude]);
 
@@ -280,18 +327,35 @@ const ActiveRide = () => {
         void refreshLocationTrackingNotification();
     }, [booking?.id, booking?.status, queuedBooking?.id]);
 
-    const openNavigation = () => {
+    const openNavigation = async () => {
         if (!booking) return;
-        
-        const isPickedUp = booking.status === 'in_progress';
-        const lat = isPickedUp ? booking.destination_latitude : booking.origin_latitude;
-        const lng = isPickedUp ? booking.destination_longitude : booking.origin_longitude;
 
-        const url = Platform.select({
-            ios: `maps://app?daddr=${lat},${lng}`,
-            android: `google.navigation:q=${lat},${lng}`,
-        });
-        if (url) Linking.openURL(url);
+        const { latitude, longitude } = getCurrentTargetCoordinates(booking);
+        const destination = `${latitude},${longitude}`;
+        const origin = driverLocation
+            ? `${driverLocation.latitude},${driverLocation.longitude}`
+            : null;
+
+        try {
+            if (Platform.OS === 'ios') {
+                const googleMapsUrl = `comgooglemaps://?${origin ? `saddr=${encodeURIComponent(origin)}&` : ''}daddr=${encodeURIComponent(destination)}&directionsmode=driving`;
+
+                if (await Linking.canOpenURL(googleMapsUrl)) {
+                    await Linking.openURL(googleMapsUrl);
+                    return;
+                }
+
+                const appleMapsUrl = `http://maps.apple.com/?${origin ? `saddr=${encodeURIComponent(origin)}&` : ''}daddr=${encodeURIComponent(destination)}&dirflg=d`;
+                await Linking.openURL(appleMapsUrl);
+                return;
+            }
+
+            const googleMapsDirectionsUrl = `https://www.google.com/maps/dir/?api=1&${origin ? `origin=${encodeURIComponent(origin)}&` : ''}destination=${encodeURIComponent(destination)}&travelmode=driving`;
+            await Linking.openURL(googleMapsDirectionsUrl);
+        } catch (error) {
+            console.error('[ActiveRide] Failed to open navigation:', error);
+            Alert.alert('Navigation unavailable', 'Unable to open navigation for this location right now.');
+        }
     };
 
     const callCustomer = () => {
@@ -397,10 +461,11 @@ const ActiveRide = () => {
 
     const status = getStatusBadge();
     const customerName = booking.customer?.name || 'Customer';
-    const isInProgress = booking.status === 'in_progress';
+    const isInProgress = isDropoffPhase(booking.status);
     const isCancelled = booking.status === 'cancelled';
-    const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
-    const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
+    const currentTarget = getCurrentTargetCoordinates(booking);
+    const targetLat = currentTarget.latitude;
+    const targetLng = currentTarget.longitude;
     const routeKey = `${booking.status}-${targetLat}-${targetLng}`;
 
     return (
@@ -464,21 +529,28 @@ const ActiveRide = () => {
                             flat={true}
                         >
                             <Animated.View className="items-center justify-center">
-                                <Image source={images.truckTransparent} style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }} />
+                                <Image
+                                    source={(() => {
+                                        const spec = vehicleSpecs.find(s => s.vehicle_type === booking.vehicle_type);
+                                        return getVehicleImageSource(booking.vehicle_type, spec?.icon_url) || images.truckTransparent;
+                                    })()}
+                                    style={{ width: 40, height: 40, resizeMode: 'contain' }}
+                                />
                             </Animated.View>
                         </Marker.Animated>
 
-                        {/* Pickup marker */}
-                        <Marker
-                            coordinate={{
-                                latitude: booking.origin_latitude,
-                                longitude: booking.origin_longitude,
-                            }}
-                            title="Pickup"
-                            anchor={{ x: 0.5, y: 0.5 }}
-                        >
-                            <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
-                        </Marker>
+                        {!isInProgress && (
+                            <Marker
+                                coordinate={{
+                                    latitude: booking.origin_latitude,
+                                    longitude: booking.origin_longitude,
+                                }}
+                                title="Pickup"
+                                anchor={{ x: 0.5, y: 0.5 }}
+                            >
+                                <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
+                            </Marker>
+                        )}
 
                         {/* Dropoff marker */}
                         <Marker
@@ -492,22 +564,10 @@ const ActiveRide = () => {
                             <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
                         </Marker>
 
-                        {/* 1. Trip Route (Pickup -> Drop-off) - Always shown in background or foreground */}
-                        {!useDirectionsFallback && (
-                            <OlaMapViewDirections
-                                key={`trip-route-${booking.id}`}
-                                origin={{ latitude: booking.origin_latitude, longitude: booking.origin_longitude }}
-                                destination={{ latitude: booking.destination_latitude, longitude: booking.destination_longitude }}
-                                strokeColor={isInProgress ? "#ef4444" : "#94a3b8"}
-                                strokeWidth={isInProgress ? 5 : 3}
-                                lineDashPattern={isInProgress ? undefined : [5, 5]}
-                            />
-                        )}
-
-                        {/* 2. Navigation Route (Driver -> Next Target) */}
+                        {/* Driver -> current trip destination only */}
                         {driverLocation && !useDirectionsFallback && (
                             <OlaMapViewDirections
-                                key={`nav-route-${booking.status}-${driverLocation.latitude}-${driverLocation.longitude}`}
+                                key={`nav-route-${routeKey}-${driverLocation.latitude}-${driverLocation.longitude}`}
                                 origin={driverLocation}
                                 destination={{ latitude: targetLat, longitude: targetLng }}
                                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}

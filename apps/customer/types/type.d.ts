@@ -128,6 +128,7 @@ declare interface LocationStore {
     longitude: number;
     address: string;
   }) => void;
+  clearUserLocation: () => void;
   clearDestination: () => void;
 }
 

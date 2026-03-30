@@ -19,7 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
-import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
+import { subscribeToBooking, subscribeToBookingDriverLocation, getBookingById, cancelBooking, getLatestDriverLocation } from "@/lib/bookings";
 import {
   showDriverArrivedNotification,
   showPaymentSuccessNotification,
@@ -53,11 +53,10 @@ const TrackRidePage = () => {
   const [booking, setBooking] = useState<Booking | null>(
     currentBooking?.id === bookingId ? currentBooking : null
   );
-  const [driverLocation, setDriverLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number; heading?: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const lastUpdateRef = useRef<number>(Date.now());
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
   const [completedBookingAmount, setCompletedBookingAmount] = useState(0);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -69,8 +68,47 @@ const TrackRidePage = () => {
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const previousBookingStatusRef = useRef<Booking["status"] | null>(currentBooking?.status ?? null);
   const previousPaymentStatusRef = useRef<string | null>(currentBooking?.payment_status ?? null);
+  const latestDriverLocationTimestampRef = useRef<number>(0);
+  const trackingStartedAtRef = useRef<string | null>(currentBooking?.accepted_at ?? currentBooking?.created_at ?? null);
 
   const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
+
+  const applyDriverLocationUpdate = (location: { latitude: number; longitude: number; heading?: number; recordedAt?: string }) => {
+    const parsedTimestamp = location.recordedAt ? new Date(location.recordedAt).getTime() : Date.now();
+    const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+
+    if (nextTimestamp < latestDriverLocationTimestampRef.current) {
+      console.log('[TRACK-RIDE] Ignoring stale driver location update', {
+        incoming: location.recordedAt,
+        latest: new Date(latestDriverLocationTimestampRef.current).toISOString(),
+      });
+      return;
+    }
+
+    latestDriverLocationTimestampRef.current = nextTimestamp;
+    setDriverLocation({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      heading: location.heading,
+    });
+    lastUpdateRef.current = Date.now();
+  };
+
+  const isFreshForCurrentBooking = (recordedAt?: string | null) => {
+    const trackingStartedAt = trackingStartedAtRef.current;
+    if (!trackingStartedAt || !recordedAt) {
+      return true;
+    }
+
+    const trackingTimestamp = new Date(trackingStartedAt).getTime();
+    const locationTimestamp = new Date(recordedAt).getTime();
+
+    if (!Number.isFinite(trackingTimestamp) || !Number.isFinite(locationTimestamp)) {
+      return true;
+    }
+
+    return locationTimestamp >= trackingTimestamp;
+  };
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -154,7 +192,7 @@ const TrackRidePage = () => {
     }
 
     // Fetch latest booking data
-    getBookingById(bookingId).then(({ data }) => {
+    getBookingById(bookingId).then(async ({ data }) => {
       if (data) {
         // If booking is still pending/queued, redirect back to waiting screen
         if (data.status === 'pending' || data.status === 'queued' || !data.driver_id) {
@@ -169,18 +207,40 @@ const TrackRidePage = () => {
         setCurrentBooking(data);
         previousBookingStatusRef.current = data.status;
         previousPaymentStatusRef.current = data.payment_status || null;
+        trackingStartedAtRef.current = data.accepted_at ?? data.created_at ?? null;
         
         // Set initial driver location if available
         // Set initial driver location if available
-        if ((data.driver as any)?.current_latitude && (data.driver as any)?.current_longitude) {
-          console.log('[TRACK-RIDE] Setting initial driver location:', {
-            lat: (data.driver as any).current_latitude,
-            lng: (data.driver as any).current_longitude
+        if (data.driver_id) {
+          const { data: latestLocation } = await getLatestDriverLocation(bookingId, {
+            driverId: data.driver_id,
+            notBefore: trackingStartedAtRef.current,
           });
-          setDriverLocation({
-            latitude: parseFloat((data.driver as any).current_latitude),
-            longitude: parseFloat((data.driver as any).current_longitude),
-          });
+          if (latestLocation) {
+            console.log('[TRACK-RIDE] Setting initial driver location from latest snapshot:', {
+              lat: latestLocation.latitude,
+              lng: latestLocation.longitude,
+              recordedAt: latestLocation.recordedAt,
+            });
+            applyDriverLocationUpdate(latestLocation);
+          } else if (
+            (data.driver as any)?.current_latitude != null &&
+            (data.driver as any)?.current_longitude != null &&
+            isFreshForCurrentBooking((data.driver as any)?.last_location_update)
+          ) {
+            console.log('[TRACK-RIDE] Falling back to joined driver location:', {
+              lat: (data.driver as any).current_latitude,
+              lng: (data.driver as any).current_longitude
+            });
+            applyDriverLocationUpdate({
+              latitude: Number((data.driver as any).current_latitude),
+              longitude: Number((data.driver as any).current_longitude),
+              heading: (data.driver as any)?.current_heading != null ? Number((data.driver as any).current_heading) : undefined,
+              recordedAt: (data.driver as any)?.last_location_update ?? undefined,
+            });
+          } else {
+            console.log('[TRACK-RIDE] No driver location in booking data');
+          }
         } else {
           console.log('[TRACK-RIDE] No driver location in booking data');
         }
@@ -197,6 +257,7 @@ const TrackRidePage = () => {
       setCurrentBooking(updatedBooking);
       previousBookingStatusRef.current = updatedBooking.status;
       previousPaymentStatusRef.current = updatedBooking.payment_status || null;
+      trackingStartedAtRef.current = updatedBooking.accepted_at ?? trackingStartedAtRef.current ?? updatedBooking.created_at ?? null;
 
       if (updatedBooking.status === 'driver_arrived' && previousStatus !== 'driver_arrived') {
         void showDriverArrivedNotification(updatedBooking.id);
@@ -250,21 +311,70 @@ const TrackRidePage = () => {
       return;
     }
 
-    console.log('[TRACK-RIDE] Subscribing to driver location for driver_id:', booking.driver_id);
+    const activeDriverId = booking.driver_id;
+    console.log('[TRACK-RIDE] Subscribing to driver location for driver_id:', activeDriverId);
     
-    const unsubscribeLocation = subscribeToDriverLocation(
-      booking.driver_id,
+    // Listen to driver location updates using the reliable history-based subscription
+    const unsubscribeLocation = subscribeToBookingDriverLocation(
+      booking.id,
+      activeDriverId,
       (location) => {
-        console.log('[TRACK-RIDE] Driver location update received:', location);
-        setDriverLocation(location);
+        const { latitude, longitude, heading: updateHeading } = location;
+        console.log(`[TRACKING-LIVE] Update from history for Driver ${activeDriverId}:`, {
+          lat: latitude.toFixed(6),
+          lng: longitude.toFixed(6),
+          heading: updateHeading,
+          time: new Date().toLocaleTimeString(),
+          recordedAt: location.recordedAt,
+        });
+        applyDriverLocationUpdate(location);
       }
     );
 
+    // Heartbeat: If no history updates for 10s, poll the driver's profile
+    const heartbeatInterval = setInterval(async () => {
+      const timeSinceUpdate = Date.now() - (lastUpdateRef.current || 0);
+      if (timeSinceUpdate > 10000) {
+        console.log('[TRACKING-HEARTBEAT] No live updates for 10s, polling profile...');
+        const { data: latestLocation } = await getLatestDriverLocation(booking.id, {
+          driverId: activeDriverId,
+          notBefore: trackingStartedAtRef.current,
+        });
+        if (latestLocation) {
+          console.log('[TRACKING-HEARTBEAT] Polled latest driver location:', {
+            lat: latestLocation.latitude,
+            lng: latestLocation.longitude,
+            recordedAt: latestLocation.recordedAt,
+          });
+          applyDriverLocationUpdate(latestLocation);
+        } else {
+          const { data } = await getBookingById(bookingId);
+          if (
+            data?.driver &&
+            (data.driver as any).current_latitude != null &&
+            (data.driver as any).current_longitude != null &&
+            isFreshForCurrentBooking((data.driver as any).last_location_update)
+          ) {
+            console.log('[TRACKING-HEARTBEAT] Polled fallback profile location:', {
+              lat: (data.driver as any).current_latitude,
+              lng: (data.driver as any).current_longitude
+            });
+            applyDriverLocationUpdate({
+              latitude: Number((data.driver as any).current_latitude),
+              longitude: Number((data.driver as any).current_longitude),
+              heading: (data.driver as any).current_heading != null ? Number((data.driver as any).current_heading) : undefined,
+              recordedAt: (data.driver as any).last_location_update ?? undefined,
+            });
+          }
+        }
+      }
+    }, 10000);
+
     return () => {
-      console.log('[TRACK-RIDE] Unsubscribing from driver location');
       unsubscribeLocation();
+      clearInterval(heartbeatInterval);
     };
-  }, [booking?.driver_id]);
+  }, [booking?.driver_id, bookingId]);
 
   // Fit map to show driver and destination
   useEffect(() => {

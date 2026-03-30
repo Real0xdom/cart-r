@@ -4,7 +4,7 @@ import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Carter",
+  name: "Cartr",
   slug: "carter-customer",
   version: "1.0.0",
   orientation: "portrait",
@@ -74,7 +74,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Carter needs your location to show nearby drivers and track your deliveries."
+        "locationAlwaysAndWhenInUsePermission": "Cartr needs your location to show nearby drivers and track your deliveries."
       }
     ],
     "expo-notifications"

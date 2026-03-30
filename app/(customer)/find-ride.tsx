@@ -34,6 +34,7 @@ const FindRide = () => {
           initialLocation={destinationAddress}
           containerStyle="bg-neutral-100"
           textInputBackgroundColor="transparent"
+          listPosition="top"
           handlePress={(location) => setDestinationLocation(location)}
         />
       </View>

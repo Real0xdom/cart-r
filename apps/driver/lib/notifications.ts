@@ -18,7 +18,7 @@ import notifee, {
   type TimestampTrigger,
 } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
-import { declineBooking, getBookingById, type Booking } from './bookings';
+import { declineBooking, getBookingById, getDriverSearchRadius, type Booking } from './bookings';
 import { getRideAlertSoundName } from './rideAlertSound';
 
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
@@ -88,6 +88,18 @@ type RideRequestNotificationInput = Partial<
   expires_at_ms?: number | string;
   local_cancel_at_ms?: number | string;
 };
+
+// Haversine distance helper for background task distance gatekeeper
+function bgHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -298,22 +310,11 @@ function buildRideRequestNotification(
             // chronometerDirection: 'down',
             timestamp: options.availableAt,
             // NOTE: No timeoutAfter — the ride request stays until the driver
-            // taps Accept/Reject or the client-cancel timer dismisses it.
+            // opens the app or the client-cancel timer dismisses it.
             style: {
               type: AndroidStyle.BIGTEXT,
               text: detailsBody,
             },
-            // Always show Accept/Reject — driver can accept early if they want
-            actions: [
-                  {
-                    title: '✅ Accept Ride',
-                    pressAction: { id: 'accept_ride', launchActivity: 'default' },
-                  },
-                  {
-                    title: '❌ Reject',
-                    pressAction: { id: 'decline_ride' },
-                  },
-                ],
           }
         : undefined,
   };
@@ -501,6 +502,41 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
       } catch (e) {
         console.warn('[Background] Could not fetch full booking, using payload fallback');
       }
+
+      // ── DISTANCE GATEKEEPER (background) ─────────────────────────────────
+      // Fetch driver's last known coordinates + search radius from Supabase
+      try {
+        const { supabase } = require('./supabase');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: driverRecord } = await supabase
+            .from('drivers')
+            .select('current_latitude, current_longitude, vehicle_type')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (driverRecord?.current_latitude && driverRecord?.current_longitude) {
+            const driverLat = parseFloat(driverRecord.current_latitude);
+            const driverLon = parseFloat(driverRecord.current_longitude);
+            const originLat = Number(displayData.origin_latitude);
+            const originLon = Number(displayData.origin_longitude);
+
+            if (Number.isFinite(originLat) && Number.isFinite(originLon)) {
+              const radiusKm = await getDriverSearchRadius(driverRecord.vehicle_type || '');
+              const dist = bgHaversineDistanceKm(driverLat, driverLon, originLat, originLon);
+              console.log(`[Background GATEKEEPER] distance: ${dist.toFixed(2)} km, radius: ${radiusKm} km`);
+
+              if (dist > radiusKm) {
+                console.log('[Background GATEKEEPER] BLOCKED — booking outside search radius');
+                return;
+              }
+            }
+          }
+        }
+      } catch (gatekeeperErr) {
+        console.warn('[Background GATEKEEPER] Could not perform distance check, allowing through:', gatekeeperErr);
+      }
+      // ──────────────────────────────────────────────────────────────────────
       
       await displayRideRequestWithStackLogic(displayData);
     }
@@ -853,9 +889,9 @@ export async function displayNormalRideRequest(data: RideRequestNotificationInpu
  * Smart ride request display — routes to sticky fullscreen or normal notification
  * based on current active ride count (Porter-style stacking logic).
  *
- * - 0 active rides → sticky fullscreen with Accept/Reject (can't dismiss)
- * - 1 active ride  → sticky fullscreen with Accept/Reject (can't dismiss)
- * - 2 active rides → normal dismissible notification (queue full warning)
+ * - 0 active rides -> sticky fullscreen ride request alert
+ * - 1 active ride -> sticky fullscreen ride request alert
+ * - 2 active rides -> normal dismissible notification (queue full warning)
  */
 export async function displayRideRequestWithStackLogic(data: RideRequestNotificationInput) {
   const isSticky = shouldShowStickyRideRequest();

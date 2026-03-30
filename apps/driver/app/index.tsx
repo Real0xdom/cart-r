@@ -1,25 +1,21 @@
 import { Redirect } from "expo-router";
-import { View, ActivityIndicator } from "react-native";
-import { useEffect } from "react";
+import { View, Image, StyleSheet } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 
 const DriverEntry = () => {
-  const { user, driverProfile, isLoading, refreshProfile } = useAuth();
+  const { user, driverProfile, isLoading } = useAuth();
 
-  // Refresh profile on mount to ensure we have latest data from database
-  useEffect(() => {
-    if (user && !isLoading) {
-      // Always fetch fresh data from database on app launch
-      refreshProfile();
-    }
-  }, [user, isLoading]);
-
-  // Show loading while checking auth state or fetching profile
+  // Show branded splash (logo on dark green bg) while checking auth state
+  // No duplicate refreshProfile() — AuthContext already fetches profile during initializeAuth()
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#22C55E' }}>
-        <ActivityIndicator size="large" color="#ffffff" />
+      <View style={styles.splashContainer}>
+        <Image
+          source={require("../assets/splash-logo.png")}
+          style={styles.splashLogo}
+          resizeMode="contain"
+        />
       </View>
     );
   }
@@ -61,5 +57,18 @@ const DriverEntry = () => {
   console.log('[DriverEntry] Unknown status, defaulting to home');
   return <Redirect href="/(tabs)/home" />;
 };
+
+const styles = StyleSheet.create({
+  splashContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#355A31',
+  },
+  splashLogo: {
+    width: 180,
+    height: 180,
+  },
+});
 
 export default DriverEntry;

@@ -21,12 +21,12 @@ interface LocationData {
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
-const MIN_ACCURACY_THRESHOLD = 50; // Accept fixes up to 50m during sampling, pick the best one
+const MIN_ACCURACY_THRESHOLD = 25;
 const GOOD_ACCURACY_THRESHOLD = 15; // A fix ≤15m is considered "good enough" — stop sampling early
-const MOVEMENT_THRESHOLD = 5; // Skip moves less than 5m to prevent drift
-const LAST_KNOWN_MAX_AGE_MS = 30_000; // Reject lastKnown positions older than 30 seconds
-const GPS_SAMPLE_COUNT = 3; // Number of rapid GPS samples to take
-const GPS_SAMPLE_TIMEOUT_MS = 5_000; // Max time per single GPS sample
+const LAST_KNOWN_MAX_ACCURACY_METERS = 20;
+const LAST_KNOWN_MAX_AGE_MS = 20_000;
+const GPS_SAMPLE_COUNT = 3;
+const GPS_SAMPLE_TIMEOUT_MS = 8_000;
 
 const isLocationUnavailableError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -42,15 +42,18 @@ const isLocationUnavailableError = (error: unknown): boolean => {
 /**
  * Take multiple rapid GPS samples and return the one with the best (lowest) accuracy value.
  */
-const getBestGPSFix = async (sampleCount = GPS_SAMPLE_COUNT): Promise<Location.LocationObject | null> => {
+const getBestGPSFix = async (
+  sampleCount = GPS_SAMPLE_COUNT,
+  accuracy = Location.Accuracy.BestForNavigation
+): Promise<Location.LocationObject | null> => {
   const samples: Location.LocationObject[] = [];
 
   for (let i = 0; i < sampleCount; i++) {
     try {
       const fix = await Promise.race([
         Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Highest, // Uses GPS hardware
-          mayShowUserSettingsDialog: true,      // Prompt user to enable GPS if off
+          accuracy,
+          mayShowUserSettingsDialog: true,
         }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('GPS sample timeout')), GPS_SAMPLE_TIMEOUT_MS)
@@ -60,7 +63,7 @@ const getBestGPSFix = async (sampleCount = GPS_SAMPLE_COUNT): Promise<Location.L
       if (fix?.coords) {
         samples.push(fix);
         console.log(
-          `[Location] GPS sample ${i + 1}/${sampleCount}: ` +
+          `[Location] GPS sample ${i + 1}/${sampleCount} (${accuracy}): ` +
           `accuracy=${fix.coords.accuracy?.toFixed(1)}m, ` +
           `lat=${fix.coords.latitude.toFixed(6)}, lng=${fix.coords.longitude.toFixed(6)}`
         );
@@ -71,13 +74,27 @@ const getBestGPSFix = async (sampleCount = GPS_SAMPLE_COUNT): Promise<Location.L
         }
       }
     } catch (err) {
-      console.log(`[Location] GPS sample ${i + 1} failed:`, (err as Error).message);
+      console.log(`[Location] GPS fix (${accuracy}) failed:`, (err as Error).message);
     }
   }
 
-  if (samples.length === 0) return null;
+  if (samples.length === 0) {
+    // If best-for-navigation fails, try once more with High accuracy (often faster indoors)
+    if (accuracy === Location.Accuracy.BestForNavigation) {
+      console.log('[Location] Retrying with High accuracy fallback...');
+      return getBestGPSFix(1, Location.Accuracy.High);
+    }
+    return null;
+  }
 
-  const best = samples.reduce((a, b) => {
+  const accurateSamples = samples.filter((sample) => {
+    const sampleAccuracy = sample.coords.accuracy ?? Infinity;
+    return sampleAccuracy <= MIN_ACCURACY_THRESHOLD;
+  });
+
+  const candidates = accurateSamples.length > 0 ? accurateSamples : samples;
+
+  const best = candidates.reduce((a, b) => {
     const accA = a.coords.accuracy ?? Infinity;
     const accB = b.coords.accuracy ?? Infinity;
     return accA <= accB ? a : b;
@@ -95,6 +112,11 @@ const getRecentLastKnown = async (): Promise<Location.LocationObject | null> => 
 
   const ageMs = Date.now() - lastKnown.timestamp;
   if (ageMs > LAST_KNOWN_MAX_AGE_MS) {
+    return null;
+  }
+
+  const accuracy = lastKnown.coords.accuracy ?? Infinity;
+  if (accuracy > LAST_KNOWN_MAX_ACCURACY_METERS) {
     return null;
   }
 
@@ -160,7 +182,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const showPermissionDeniedAlert = () => {
     Alert.alert(
       'Location Permission Required',
-      'Carter needs access to your location to show nearby drivers and provide delivery services. Please enable location access in your device settings.',
+      'Cartr needs access to your location to show nearby drivers and provide delivery services. Please enable location access in your device settings.',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -197,22 +219,59 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
+  const showNoFixAlert = () => {
+    Alert.alert(
+      'Unable to get Location',
+      'We could not determine your precise location. Please check your signal or move to an open area.',
+      [{ text: 'OK' }]
+    );
+  };
+
   const fetchAndSetCurrentLocation = async () => {
     try {
       let location: Location.LocationObject | null = null;
+      let quickLocation: Location.LocationObject | null = null;
 
+      // Try lastKnown first (instant) — avoids GPS cold start delay
+      try {
+        quickLocation = await getRecentLastKnown();
+        if (quickLocation) {
+          console.log('[Location] Using cached last-known position (instant)');
+          const quickAddress = await reverseGeocode(
+            quickLocation.coords.latitude,
+            quickLocation.coords.longitude
+          );
+
+          setUserLocation({
+            latitude: quickLocation.coords.latitude,
+            longitude: quickLocation.coords.longitude,
+            address: quickAddress,
+          });
+        }
+      } catch (cacheError) {
+        // Ignore — fall through to GPS
+      }
+
+      // Always try to upgrade to a fresh GPS fix before the user books
       try {
         location = await getBestGPSFix();
-        if (!location) {
-          location = await getRecentLastKnown();
-        }
       } catch (primaryError: any) {
-        location = await getRecentLastKnown();
+        console.warn('[Location] GPS fix failed:', (primaryError as Error).message);
       }
 
       if (!location) {
-        setErrorMessage('Location services are disabled.');
-        showGPSDisabledAlert();
+        location = quickLocation;
+      }
+
+      if (!location) {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          setErrorMessage('Location services are disabled.');
+          showGPSDisabledAlert();
+        } else {
+          setErrorMessage('Could not determine location. Please check your signal.');
+          showNoFixAlert();
+        }
         return;
       }
 
@@ -262,7 +321,12 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (!location) {
-        showGPSDisabledAlert();
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          showGPSDisabledAlert();
+        } else {
+          showNoFixAlert();
+        }
         return null;
       }
 

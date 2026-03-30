@@ -94,9 +94,9 @@ const Documents = () => {
       if (file) {
         await uploadDocument(docId, file);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error picking file:", error);
-      Alert.alert("Error", "Failed to pick file");
+      Alert.alert("Error", error?.message || "Failed to pick file");
     }
   };
 

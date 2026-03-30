@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { 
     Text, 
     View, 
@@ -18,6 +18,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { TermsCheckbox } from "@/components/TermsCheckbox";
 
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
+
 const RegisterScreen = () => {
     const params = useLocalSearchParams<{ phone: string }>();
     const phoneNumber = params.phone || "";
@@ -32,8 +34,21 @@ const RegisterScreen = () => {
     const [otp, setOtp] = useState("");
     const [step, setStep] = useState<'register' | 'otp'>('register');
     const [loading, setLoading] = useState(false);
+    const [resendCountdown, setResendCountdown] = useState(0);
 
     const otpInputRef = useRef<TextInput>(null);
+
+    useEffect(() => {
+        if (resendCountdown <= 0) {
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            setResendCountdown((current) => Math.max(0, current - 1));
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, [resendCountdown]);
 
     const isFormValid = () => {
         return firstName.trim().length > 0 && 
@@ -56,6 +71,8 @@ const RegisterScreen = () => {
             if (error) {
                 Alert.alert("Error", error.message);
             } else {
+                setOtp("");
+                setResendCountdown(OTP_RESEND_COOLDOWN_SECONDS);
                 Alert.alert("OTP Sent", `We've sent a verification code to ${phoneNumber}`);
                 setStep('otp');
             }
@@ -75,15 +92,10 @@ const RegisterScreen = () => {
 
         try {
             // First verify the OTP
-            const { error, data } = await supabase.auth.verifyOtp({
-                phone: phoneNumber,
-                token: otp,
-                type: 'sms',
-            });
+            const { error, data } = await verifyOtp(phoneNumber, otp);
 
             if (error) {
                 Alert.alert("Error", error.message);
-                setLoading(false);
                 return;
             }
 
@@ -134,9 +146,9 @@ const RegisterScreen = () => {
                     const { error: termsError } = await supabase.rpc('record_terms_acceptance', {
                         p_user_id: data.user.id,
                         p_terms_version: 'v1.0',
-                        p_ip_address: null, // IP tracking optional
-                        p_user_agent: null, // User agent optional  
-                        p_device_info: null // Device info optional
+                        p_ip_address: undefined, // IP tracking optional
+                        p_user_agent: undefined, // User agent optional  
+                        p_device_info: undefined // Device info optional
                     });
 
                     if (termsError) {
@@ -246,7 +258,7 @@ const RegisterScreen = () => {
                         )}
                     </View>
                     <Text className="flex-1 text-gray-600 font-JakartaMedium">
-                        Allow CartR to send updates on WhatsApp
+                        Allow Cartr to send updates on WhatsApp
                     </Text>
                 </TouchableOpacity>
 
@@ -347,10 +359,10 @@ const RegisterScreen = () => {
                 </Text>
                 <TouchableOpacity 
                     onPress={onRegisterPress}
-                    disabled={loading}
+                    disabled={loading || resendCountdown > 0}
                 >
-                    <Text className="text-success-500 font-JakartaSemiBold">
-                        Resend OTP
+                    <Text className={`font-JakartaSemiBold ${resendCountdown > 0 ? 'text-gray-400' : 'text-success-500'}`}>
+                        {resendCountdown > 0 ? `Resend OTP (${resendCountdown}s)` : 'Resend OTP'}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -370,4 +382,3 @@ const RegisterScreen = () => {
 };
 
 export default RegisterScreen;
-

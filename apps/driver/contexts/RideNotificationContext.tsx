@@ -5,6 +5,7 @@ import notifee, { EventType } from '@notifee/react-native';
 import * as SecureStore from 'expo-secure-store';
 import { router, useRootNavigationState } from 'expo-router';
 import * as Location from 'expo-location';
+import NetInfo from '@react-native-community/netinfo';
 
 import RideRequestModal from '@/components/RideRequestModal';
 import {
@@ -25,7 +26,8 @@ import {
   displayRideRequestWithStackLogic,
   removeActiveRide,
 } from '@/lib/notifications';
-import { refreshLocationTrackingNotification } from '@/lib/location';
+import { getCurrentLocation, refreshLocationTrackingNotification } from '@/lib/location';
+import { updateDriverLocation as publishDriverLocation } from '@/lib/api';
 import { playRideAlertSound, stopRideAlertSound } from '@/lib/rideAlertSound';
 import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 import { useAuth } from '@/contexts/AuthContext';
@@ -63,6 +65,18 @@ interface RideNotificationContextType {
 
 const RideNotificationContext = createContext<RideNotificationContextType | undefined>(undefined);
 
+// Haversine distance formula — returns distance in km between two lat/lon points
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export function RideNotificationProvider({ children }: { children: ReactNode }) {
   const { driverProfile } = useAuth();
   const navigationState = useRootNavigationState();
@@ -73,6 +87,39 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
   const currentNotificationRef = useRef<Booking | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const surfacedBookingIdsRef = useRef(new Set<string>());
+  // Keep a live ref to the driver's current coordinates so the NetInfo callback has fresh values
+  const driverCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
+  // Keep a ref to the fetch-and-surface function so the NetInfo callback can call it
+  const fetchAndSurfaceRef = useRef<(() => Promise<void>) | null>(null);
+  // Centralized admin-configured search radius — shared across ALL notification paths
+  const searchRadiusRef = useRef<number>(20); // safe default until loaded
+
+  /**
+   * CENTRALIZED DISTANCE GATEKEEPER
+   * Every code path that wants to show a ride notification MUST call this first.
+   * Returns true only if the booking's pickup is within the admin-configured search radius.
+   */
+  const isBookingWithinSearchRadius = (booking: Booking): boolean => {
+    const coords = driverCoordsRef.current;
+    if (!coords) {
+      console.log(`[GATEKEEPER] BLOCKED booking ${booking.id} — driver location unknown`);
+      return false;
+    }
+
+    const originLat = Number(booking.origin_latitude);
+    const originLon = Number(booking.origin_longitude);
+    if (!Number.isFinite(originLat) || !Number.isFinite(originLon)) {
+      console.log(`[GATEKEEPER] ALLOWED booking ${booking.id} — booking has no valid origin coords, cannot filter`);
+      return true;
+    }
+
+    const radiusKm = searchRadiusRef.current;
+    const dist = haversineDistanceKm(coords.lat, coords.lon, originLat, originLon);
+    const allowed = dist <= radiusKm;
+
+    console.log(`[GATEKEEPER] ${allowed ? 'ALLOWED' : 'BLOCKED'} booking ${booking.id} — distance: ${dist.toFixed(2)} km, radius: ${radiusKm} km`);
+    return allowed;
+  };
 
   useEffect(() => {
     currentNotificationRef.current = currentNotification;
@@ -250,6 +297,17 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         return;
       }
 
+      const currentLocation = await getCurrentLocation();
+      if (currentLocation) {
+        void publishDriverLocation(
+          currentLocation.coords.latitude,
+          currentLocation.coords.longitude,
+          currentLocation.coords.heading || undefined,
+          currentLocation.coords.speed || undefined,
+          currentLocation.coords.accuracy || undefined
+        );
+      }
+
       navigateTo(`/ride/${bookingId}`);
     } catch (error) {
       console.error('[RIDE NOTIFICATION] Failed to accept ride:', error);
@@ -282,6 +340,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         isOnline: driverProfile?.is_online,
         vehicleType: driverProfile?.vehicle_type,
       });
+      fetchAndSurfaceRef.current = null;
       return;
     }
 
@@ -298,6 +357,11 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       const { data: fullBooking } = await getBookingById(booking.id);
       const bookingToShow = fullBooking || booking;
 
+      // ── CENTRALIZED GATEKEEPER — every surfaceBooking call is distance-checked ──
+      if (!isBookingWithinSearchRadius(bookingToShow)) {
+        return;
+      }
+
       if (appStateRef.current === 'active') {
         await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
         showNotification(bookingToShow);
@@ -309,25 +373,43 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
     const fetchAndSurfaceAvailableBookings = async () => {
       try {
-        let latitude = Number((driverProfile as any).current_latitude);
-        let longitude = Number((driverProfile as any).current_longitude);
-
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-          console.log('[RIDE NOTIFICATION] Driver profile missing coordinates, requesting foreground location for fallback fetch.');
-          const permission = await Location.getForegroundPermissionsAsync();
-          if (permission.status !== 'granted') {
-            console.log('[RIDE NOTIFICATION] Location permission not granted; skipping fallback fetch.');
-            return;
+        let latitude: number | undefined;
+        let longitude: number | undefined;
+        
+        // Always try to get the freshest location possible without firing up the GPS intensely
+        try {
+          // Attempt to get last known position which is updated by the background tracker
+          const recentLoc = await Location.getLastKnownPositionAsync();
+          if (recentLoc) {
+            latitude = recentLoc.coords.latitude;
+            longitude = recentLoc.coords.longitude;
+          } else {
+             // Fallback to active fetch if last known is somehow null
+             const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+             if (currentLoc) {
+               latitude = currentLoc.coords.latitude;
+               longitude = currentLoc.coords.longitude;
+             }
           }
-
-          const currentLocation = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          latitude = currentLocation.coords.latitude;
-          longitude = currentLocation.coords.longitude;
+        } catch (locErr) {
+          console.warn('[RIDE NOTIFICATION] Failed to get local position, falling back to driverProfile:', locErr);
+          latitude = Number((driverProfile as any).current_latitude);
+          longitude = Number((driverProfile as any).current_longitude);
         }
 
+        if (latitude === undefined || longitude === undefined || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+           console.error('[RIDE NOTIFICATION] Completely failed to get valid moving location.');
+           return;
+        }
+
+        // Update live coords ref so the Gatekeeper and NetInfo reconnect handler ALWAYS have the moving coordinates
+        driverCoordsRef.current = { lat: latitude, lon: longitude };
+
+        // Eagerly load the admin search radius and persist into the shared ref
         const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
+        searchRadiusRef.current = searchRadiusKm;
+        console.log('[RIDE NOTIFICATION] Admin search radius loaded:', searchRadiusKm, 'km for', driverProfile.vehicle_type);
+
         const { data, error } = await getAvailableBookings(
           latitude,
           longitude,
@@ -342,6 +424,18 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
         console.log('[RIDE NOTIFICATION] Fallback fetch found bookings:', data.map((booking) => booking.id));
 
+        const fetchedBookingIds = new Set(data.map((b: any) => b.id));
+
+        // Clean up surfaced bookings that are no longer in the pending list
+        const currentSurfacedIds = Array.from(surfacedBookingIdsRef.current);
+        for (const surfacedId of currentSurfacedIds) {
+          if (!fetchedBookingIds.has(surfacedId)) {
+            console.log('[RIDE NOTIFICATION] Polling detected booking no longer available, removing:', surfacedId);
+            hideNotification(surfacedId);
+            void cancelRideRequestNotification(surfacedId).catch(() => {});
+          }
+        }
+
         for (const booking of data) {
           if (surfacedBookingIdsRef.current.has(booking.id)) {
             continue;
@@ -354,6 +448,9 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       }
     };
 
+    // Store reference so the NetInfo reconnect handler can trigger a fresh fetch
+    fetchAndSurfaceRef.current = fetchAndSurfaceAvailableBookings;
+
     void fetchAndSurfaceAvailableBookings();
     const pollingInterval = setInterval(() => {
       void fetchAndSurfaceAvailableBookings();
@@ -362,6 +459,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     const unsubscribe = subscribeToAvailableBookings(
       driverProfile.vehicle_type,
       async (newBooking) => {
+        // Distance gatekeeper is inside surfaceBooking — no need to duplicate here
         if (driverProfile?.id) {
           const { data: queuedRide } = await getDriverQueuedBooking(driverProfile.id);
           if (queuedRide) {
@@ -382,6 +480,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         void cancelRideRequestNotification(removedBookingId).catch(() => {});
       },
       async (updatedBooking) => {
+        // Distance gatekeeper is inside surfaceBooking — no need to duplicate here
         console.log('[RIDE NOTIFICATION] Booking updated from realtime:', updatedBooking.id);
         await surfaceBooking(updatedBooking);
       }
@@ -389,9 +488,75 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
     return () => {
       clearInterval(pollingInterval);
+      fetchAndSurfaceRef.current = null;
       unsubscribe();
     };
   }, [driverProfile?.id, driverProfile?.is_online, driverProfile?.vehicle_type]);
+
+  // ── Bug Fix: Auto-sync GPS when network reconnects after being offline ────────
+  useEffect(() => {
+    let wasConnected: boolean | null = null;
+
+    const unsubscribeNetInfo = NetInfo.addEventListener(async (state) => {
+      const isNowConnected = state.isConnected ?? false;
+
+      // Detect false → true transition (came back online)
+      if (wasConnected === false && isNowConnected) {
+        console.log('[RIDE NOTIFICATION] Network reconnected — pushing fresh GPS to DB.');
+
+        try {
+          // Only sync if driver is online
+          if (!driverProfile?.is_online) {
+            wasConnected = isNowConnected;
+            return;
+          }
+
+          // Get fresh GPS position
+          const permission = await Location.getForegroundPermissionsAsync();
+          if (permission.status !== 'granted') {
+            wasConnected = isNowConnected;
+            return;
+          }
+
+          const freshLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          const { latitude, longitude } = freshLocation.coords;
+
+          console.log('[RIDE NOTIFICATION] Pushing reconnect location to DB:', latitude, longitude);
+
+          // Update live coords ref immediately
+          driverCoordsRef.current = { lat: latitude, lon: longitude };
+
+          // Push to Supabase drivers table
+          const { supabase } = await import('@/lib/supabase');
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase
+              .from('drivers')
+              .update({
+                current_latitude: latitude,
+                current_longitude: longitude,
+                last_location_update: new Date().toISOString(),
+              })
+              .eq('user_id', user.id);
+            console.log('[RIDE NOTIFICATION] Driver location synced after reconnect ✅');
+          }
+
+          // Re-run the booking fetch with fresh coordinates
+          if (fetchAndSurfaceRef.current) {
+            void fetchAndSurfaceRef.current();
+          }
+        } catch (err) {
+          console.error('[RIDE NOTIFICATION] Failed to sync location on reconnect:', err);
+        }
+      }
+
+      wasConnected = isNowConnected;
+    });
+
+    return () => unsubscribeNetInfo();
+  }, [driverProfile?.id, driverProfile?.is_online]);
 
   useEffect(() => {
     const foregroundSubscription = Notifications.addNotificationReceivedListener(async (notification) => {
@@ -401,6 +566,11 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         await dismissRawRideRequestNotification(notification);
         const { data: booking } = await getBookingById(String(data.booking_id));
         if (booking) {
+          // ── CENTRALIZED GATEKEEPER — push notifications are distance-checked too ──
+          if (!isBookingWithinSearchRadius(booking)) {
+            console.log('[RIDE NOTIFICATION] Foreground push BLOCKED by distance gatekeeper:', booking.id);
+            return;
+          }
           showNotification(booking);
         }
       }
@@ -421,6 +591,11 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
 
       const { data: booking } = await getBookingById(String(bookingId));
       if (booking) {
+        // ── CENTRALIZED GATEKEEPER — tapped notifications are distance-checked too ──
+        if (!isBookingWithinSearchRadius(booking)) {
+          console.log('[RIDE NOTIFICATION] Notification tap BLOCKED by distance gatekeeper:', booking.id);
+          return;
+        }
         showNotification(booking);
       }
     });

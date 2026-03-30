@@ -1,5 +1,4 @@
 import CustomButton from "@/components/CustomButton";
-import RideLayout from "@/components/RideLayout";
 import { AddonSelector } from "@/components/AddonSelector";
 import { AddonService, calculateAddonCharges, getApplicableAddons } from "@/lib/addonUtils";
 import { calculateFares, FareEstimate } from "@/lib/fare";
@@ -24,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 const SelectVehiclePage = () => {
@@ -257,8 +257,16 @@ const SelectVehiclePage = () => {
   );
 
   return (
-    <RideLayout title="Select Vehicle" snapPoints={["50%", "90%"]} useView={false}>
-      <View testID="vehicle.selectVehicle" accessibilityLabel="vehicle.selectVehicle">
+    <SafeAreaView className="flex-1 bg-[#f8fafc]">
+      {/* Header */}
+      <View className="flex-row items-center px-5 py-4 bg-white border-b border-gray-100">
+        <TouchableOpacity onPress={() => router.back()} className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center">
+          <Feather name="arrow-left" size={20} color="#333" />
+        </TouchableOpacity>
+        <Text className="ml-4 text-xl font-JakartaBold text-gray-900">Select Vehicle</Text>
+      </View>
+
+      <View testID="vehicle.selectVehicle" accessibilityLabel="vehicle.selectVehicle" className="flex-1">
         {loading ? (
           <View className="items-center justify-center py-10">
             <ActivityIndicator size="large" color="#FF9800" />
@@ -290,21 +298,13 @@ const SelectVehiclePage = () => {
                 </View>
               ) : null}
 
-              <View className="flex-row gap-3">
-                <TouchableOpacity
-                  onPress={() => router.back()}
-                  className="flex-1 flex-row items-center justify-center rounded-xl bg-gray-100 py-4"
-                >
-                  <Feather name="arrow-left" size={18} color="#333" />
-                  <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
-                </TouchableOpacity>
-
+              <View className="mt-4">
                 <TouchableOpacity
                   onPress={handleReviewBooking}
                   testID="booking.confirmButton"
                   accessibilityLabel="booking.confirmButton"
                   disabled={!selectedVehicle}
-                  className={`flex-[2] flex-row items-center justify-center rounded-xl py-4 ${
+                  className={`w-full flex-row items-center justify-center rounded-xl py-4 ${
                     selectedVehicle ? "bg-brand-500" : "bg-gray-300"
                   }`}
                 >
@@ -370,7 +370,7 @@ const SelectVehiclePage = () => {
           </Pressable>
         </Modal>
       </View>
-    </RideLayout>
+    </SafeAreaView>
   );
 };
 

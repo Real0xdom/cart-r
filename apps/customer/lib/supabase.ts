@@ -5,11 +5,6 @@ import { Platform } from 'react-native';
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-console.log('[Supabase] Initializing with URL:', supabaseUrl);
-if (!supabaseUrl || supabaseUrl.includes('your-project')) {
-  console.warn('[Supabase] WARNING: Using placeholder or empty URL!');
-}
-
 // Custom storage for Supabase auth using SecureStore
 const ExpoSecureStoreAdapter = {
   getItem: async (key: string) => {

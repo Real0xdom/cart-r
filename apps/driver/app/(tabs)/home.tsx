@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useState, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
-import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices } from '@/lib/location';
+import { startLocationTracking, stopLocationTracking, requestLocationPermissions, checkLocationServices, refreshLocationTrackingNotification } from '@/lib/location';
 import { getDriverActiveBookings, getDriverActiveBooking, getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import {
     checkDriverWalletEligibility,
@@ -15,7 +15,6 @@ import {
 } from '@/lib/wallet';
 import WalletBalanceCard from '@/components/WalletBalanceCard';
 import * as Location from 'expo-location';
-import { refreshLocationTrackingNotification } from '@/lib/location';
 
 let lastAutoNavigatedBookingId: string | null = null;
 
@@ -37,42 +36,34 @@ const DriverHome = () => {
         setIsOnline(driverProfile?.is_online || false);
     }, [driverProfile]);
 
-    // Get location on mount
+    // Silently check location services on mount — no alert here to avoid false positives.
+    // The real guard fires when the driver tries to go online (see handleToggleOnline).
     useEffect(() => {
         (async () => {
             try {
-                // Check if services are enabled first
                 const servicesEnabled = await checkLocationServices();
                 if (!servicesEnabled) {
-                    Alert.alert(
-                        t('locationServicesDisabled') || 'Location Services Disabled',
-                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
-                        [{ text: t('ok') }]
-                    );
-                }
-
-                let { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') {
-                    console.log('Location permission not granted');
+                    console.log('[HOME] Location services appear to be disabled (may be a startup timing issue)');
+                    // Do NOT show an alert here — hasServicesEnabledAsync() can briefly
+                    // return false right after app launch before GPS warms up, causing
+                    // false positives. The alert only fires when going online.
                     return;
                 }
-                
-                let currentLocation = await Location.getCurrentPositionAsync({});
+
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    console.log('[HOME] Location permission not granted on mount');
+                    return;
+                }
+
+                const currentLocation = await Location.getCurrentPositionAsync({});
                 setLocation({
                     latitude: currentLocation.coords.latitude,
                     longitude: currentLocation.coords.longitude
                 });
             } catch (error) {
-                console.error('Failed to get location:', error);
-                // If it fails with "Current location is unavailable", it's usually because services are disabled
-                const message = error instanceof Error ? error.message : String(error);
-                if (message.includes('Location services are disabled') || message.includes('Current location is unavailable')) {
-                    Alert.alert(
-                        t('locationServicesDisabled') || 'Location Services Disabled',
-                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
-                        [{ text: t('ok') }]
-                    );
-                }
+                // Silently log — this is a non-critical background check
+                console.log('[HOME] Could not get location on mount (non-critical):', error instanceof Error ? error.message : String(error));
             }
         })();
     }, []);
@@ -272,9 +263,16 @@ const DriverHome = () => {
                 // Get and save current location immediately
                 try {
                     const Location = require('expo-location');
-                    const location = await Location.getCurrentPositionAsync({
-                        accuracy: Location.Accuracy.Balanced,
-                    });
+                    let location = null;
+                    try {
+                        location = await Location.getCurrentPositionAsync({
+                            accuracy: Location.Accuracy.Balanced,
+                        });
+                    } catch (posError) {
+                        console.warn('[HOME] getCurrentPositionAsync failed, trying fallback:', posError);
+                        location = await Location.getLastKnownPositionAsync();
+                    }
+
                     if (location && profile?.id) {
                         const { supabase } = require('@/lib/supabase');
                         await supabase
@@ -285,7 +283,9 @@ const DriverHome = () => {
                                 last_location_update: new Date().toISOString(),
                             })
                             .eq('user_id', profile.id);
-                        console.log('ðŸ“ Initial location set:', location.coords.latitude, location.coords.longitude);
+                        console.log('📍 Initial location set:', location.coords.latitude, location.coords.longitude);
+                    } else if (!location) {
+                        console.warn('[HOME] Could not get any location (neither current nor last known).');
                     }
                 } catch (locError) {
                     console.error('Failed to set initial location:', locError);

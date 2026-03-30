@@ -231,7 +231,7 @@ const Payment = () => {
           amount: value,
           customer_id: user?.id,
           customer_phone: profile?.phone || user?.phone || "9999999999",
-          customer_name: profile?.name || "CartR User",
+          customer_name: profile?.name || "Cartr User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey
@@ -362,7 +362,7 @@ const Payment = () => {
                 <View className="absolute right-0 top-0 w-32 h-32 bg-gray-800 rounded-full -mr-10 -mt-10 opacity-20" />
                 <View className="absolute left-0 bottom-0 w-24 h-24 bg-brand-500 rounded-full -ml-8 -mb-8 opacity-20" />
                 
-                <Text className="text-gray-400 font-JakartaMedium text-sm">CartR Credit Balance</Text>
+                <Text className="text-gray-400 font-JakartaMedium text-sm">Cartr Credit Balance</Text>
                 <Text className="text-white font-JakartaExtraBold text-4xl mt-2">
                     ₹ {balance.toFixed(2)}
                 </Text>
@@ -474,7 +474,7 @@ const Payment = () => {
             ) : (
                 <>
                     <Text className="text-xl font-JakartaBold text-center mb-2">Add Money to Wallet</Text>
-                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your CartR balance</Text>
+                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your Cartr balance</Text>
 
                     <View className="items-center mb-8">
                         <View className="flex-row items-center">

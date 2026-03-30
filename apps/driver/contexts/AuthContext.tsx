@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
 
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/lib/database.types';
+
+const ACTIVE_TRACKING_STATUSES = ['accepted', 'driver_arrived', 'in_progress'] as const;
 
 type UserProfile = Database['public']['Tables']['users']['Row'];
 type DriverProfile = Database['public']['Tables']['drivers']['Row'];
@@ -34,6 +36,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isClearingSessionForPhoneAuthRef = useRef(false);
+
+  const isTransientAuthError = (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    return (
+      message.includes('network request failed') ||
+      message.includes('network error') ||
+      message.includes('failed to fetch') ||
+      message.includes('timed out') ||
+      message.includes('timeout')
+    );
+  };
+
+  const isExpiredOtpError = (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    return (
+      message.includes('token has expired') ||
+      message.includes('expired or is invalid') ||
+      message.includes('otp_expired')
+    );
+  };
+
+  const clearLocalSession = async () => {
+    isClearingSessionForPhoneAuthRef.current = true;
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (error) {
+      console.warn('[AUTH] Failed to clear local session before phone auth:', error);
+    } finally {
+      setTimeout(() => {
+        isClearingSessionForPhoneAuthRef.current = false;
+      }, 0);
+    }
+  };
+
+  const waitBeforeRetry = async (delayMs: number) =>
+    new Promise((resolve) => setTimeout(resolve, delayMs));
 
   // Fetch or create user profile from database
   const fetchProfile = async (authUser: User) => {
@@ -53,11 +92,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const phone = authUser.phone || null;
         const email =
           authUser.email ||
-          (phone ? `${phone.replace('+', '')}@phone.carter.app` : 'unknown@carter.app');
+          (phone ? `${phone.replace('+', '')}@phone.cartr.app` : 'unknown@cartr.app');
         const name =
           authUser.user_metadata?.name ||
           authUser.user_metadata?.full_name ||
-          'Driver Partner';
+          'Cartr Driver';
 
         const { data: newProfile, error: insertError } = await supabase
           .from('users')
@@ -119,33 +158,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Handle invalid refresh token by signing out
         if (error) {
           console.warn('Session error, signing out:', error.message);
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'local' });
           setSession(null);
           setUser(null);
           setIsLoading(false);
           return;
         }
         
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user);
+        if (isMounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            await fetchProfile(session.user);
+          }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
         // Clear any invalid session
-        await supabase.auth.signOut();
-        setSession(null);
-        setUser(null);
+        await supabase.auth.signOut({ scope: 'local' });
+        if (isMounted) {
+          setSession(null);
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
     };
     
-    initializeAuth();
+    let isMounted = true;
+    
+    // Timeout guard: if auth takes >6s (slow network), stop blocking the UI.
+    // The onAuthStateChange listener below will pick up the session when it arrives.
+    const authTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[AUTH] Auth initialization timed out after 6s — unblocking UI');
+        setIsLoading(false);
+      }
+    }, 6000);
+
+    initializeAuth().finally(() => clearTimeout(authTimeout));
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return;
+        
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -190,12 +249,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === 'SIGNED_IN') {
           // Will navigate based on role in the calling component
         } else if (event === 'SIGNED_OUT') {
+          if (isClearingSessionForPhoneAuthRef.current) {
+            return;
+          }
           router.replace('/');
         }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(authTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   // [G4] Realtime sync for driver profile — keeps is_online and verification_status
@@ -275,11 +341,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with phone (OTP)
   const signInWithPhone = async (phone: string) => {
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone,
-      });
+      const normalizedPhone = phone.trim();
 
-      if (error) throw error;
+      await clearLocalSession();
+
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { error } = await supabase.auth.signInWithOtp({
+          phone: normalizedPhone,
+        });
+
+        if (!error) {
+          return { error: null };
+        }
+
+        lastError = error;
+        if (!isTransientAuthError(error) || attempt === 1) {
+          throw error;
+        }
+
+        await waitBeforeRetry(1200);
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
       return { error: null };
     } catch (error) {
       return { error: error as Error };
@@ -289,14 +376,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Verify OTP
   const verifyOtp = async (phone: string, token: string) => {
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone,
-        token,
-        type: 'sms',
-      });
+      const normalizedPhone = phone.trim();
+      const sanitizedToken = token.replace(/\D/g, '');
+      let lastError: Error | null = null;
 
-      if (error) throw error;
-      return { error: null, data };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data, error } = await supabase.auth.verifyOtp({
+          phone: normalizedPhone,
+          token: sanitizedToken,
+          type: 'sms',
+        });
+
+        if (!error) {
+          return { error: null, data };
+        }
+
+        lastError = error;
+        if (!isTransientAuthError(error) || attempt === 1) {
+          break;
+        }
+
+        await waitBeforeRetry(1200);
+      }
+
+      if (lastError && isExpiredOtpError(lastError)) {
+        return {
+          error: new Error('This OTP expired or was replaced. Please request a new code and use the latest OTP.'),
+        };
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
+      return { error: new Error('Failed to verify OTP. Please try again.') };
     } catch (error) {
       return { error: error as Error };
     }
@@ -330,8 +443,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!existingProfile) {
           await supabase.from('users').insert({
             id: data.user.id,
-            email: data.user.email || `${phone}@phone.carter.app`,
-            name: 'Cartr User',
+            email: data.user.email || `${phone}@phone.cartr.app`,
+            name: 'Cartr Driver',
             phone,
             role: targetRole as 'customer' | 'driver',
           });
@@ -399,25 +512,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .update({
           current_latitude: latitude,
           current_longitude: longitude,
+          current_heading: null,
           last_location_update: new Date().toISOString(),
         })
         .eq('id', driverProfile.id);
 
       if (error) throw error;
 
-      const { data: activeBooking } = await supabase
+      const { data: activeBookings } = await supabase
         .from('bookings')
-        .select('id')
+        .select('id, status, accepted_at, driver_arrived_at, started_at, updated_at, created_at')
         .eq('driver_id', driverProfile.id)
-        .eq('status', 'in_progress')
-        .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .in('status', [...ACTIVE_TRACKING_STATUSES])
+        .limit(10);
+
+      const trackedBooking = [...(activeBookings || [])].sort((left: any, right: any) => {
+        const leftPriority = left.status === 'in_progress' ? 0 : left.status === 'driver_arrived' ? 1 : 2;
+        const rightPriority = right.status === 'in_progress' ? 0 : right.status === 'driver_arrived' ? 1 : 2;
+        if (leftPriority !== rightPriority) {
+          return leftPriority - rightPriority;
+        }
+
+        const leftTimestamp = new Date(left.started_at || left.driver_arrived_at || left.accepted_at || left.updated_at || left.created_at || 0).getTime();
+        const rightTimestamp = new Date(right.started_at || right.driver_arrived_at || right.accepted_at || right.updated_at || right.created_at || 0).getTime();
+        return rightTimestamp - leftTimestamp;
+      })[0];
 
       // Also log to driver_locations table for history
       await supabase.from('driver_locations').insert({
         driver_id: driverProfile.id,
-        booking_id: activeBooking?.id ?? null,
+        booking_id: trackedBooking?.id ?? null,
         latitude,
         longitude,
       });

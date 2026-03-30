@@ -118,6 +118,7 @@ const RideLayout = ({
               contentContainerStyle={{
                 paddingBottom: 100,
               }}
+              keyboardShouldPersistTaps="handled"
             >
               {children}
             </BottomSheetScrollView>

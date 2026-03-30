@@ -28,6 +28,14 @@ interface CreateBookingAddonParam {
   quantity?: number;
 }
 
+export interface DriverLocationSnapshot {
+  bookingId?: string | null;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  recordedAt?: string;
+}
+
 // Generate unique booking number with nanosecond precision and randomness
 // Format: CARTR-{timestamp}-{nano}-{random} = ~30 characters
 function generateBookingNumber(): string {
@@ -148,6 +156,8 @@ export async function getBookingById(bookingId: string): Promise<{
           rating,
           current_latitude,
           current_longitude,
+          current_heading,
+          last_location_update,
           user:users!drivers_user_id_fkey(id, name, phone, avatar_url)
         ),
         booking_addons(
@@ -251,8 +261,31 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
+  let lastStateString = '';
+
+  const pollLatest = async () => {
+    try {
+      const { data } = await getBookingById(bookingId);
+      if (data) {
+        const stateString = JSON.stringify(data);
+        if (stateString !== lastStateString) {
+          lastStateString = stateString;
+          onUpdate(data);
+        }
+      }
+    } catch (e) {
+      console.warn('[subscribeToBooking] Polling failed:', e);
+    }
+  };
+
+  // Fallback polling every 3 seconds (reduced from 5s for faster detection)
+  const pollInterval = setInterval(pollLatest, 3000);
+
+  // Unique channel name to prevent Supabase Realtime collisions on re-mount
+  const channelName = `customer-booking-${bookingId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
   const subscription = supabase
-    .channel(`customer-booking-${bookingId}`)
+    .channel(channelName)
     .on(
       'postgres_changes',
       {
@@ -267,26 +300,154 @@ export function subscribeToBooking(
         // Re-hydrate the booking so screens receive the latest relational data
         // together with the status change. This avoids stale UI state on track pages.
         const { data } = await getBookingById(bookingId);
-        onUpdate(data ?? updatedBooking);
+        const bookingToUpdate = data ?? updatedBooking;
+        
+        lastStateString = JSON.stringify(bookingToUpdate);
+        onUpdate(bookingToUpdate);
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      console.log(`[subscribeToBooking] Channel ${channelName} status:`, status);
+      // Immediately poll when connected to catch any updates missed during setup
+      if (status === 'SUBSCRIBED') {
+        void pollLatest();
+      }
+    });
+
+  return () => {
+    clearInterval(pollInterval);
+    subscription.unsubscribe();
+  };
+}
+
+/**
+ * Subscribe to driver location updates (using history table for reliability)
+ * This is better because driver_locations is already enabled for Realtime
+ */
+export function subscribeToBookingDriverLocation(
+  bookingId: string,
+  driverId: string,
+  onLocationUpdate: (location: DriverLocationSnapshot) => void
+) {
+  const subscription = supabase
+    .channel(`reli-driver-location-${bookingId}-${driverId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'driver_locations',
+        filter: `booking_id=eq.${bookingId}`,
+      },
+      (payload) => {
+        console.log(`[REALTIME-LOCATION] New position for driver ${driverId}:`, payload.new);
+        const { booking_id, latitude, longitude, heading, recorded_at } = payload.new;
+        if (latitude != null && longitude != null) {
+          onLocationUpdate({
+            bookingId: booking_id ?? null,
+            latitude: Number(latitude),
+            longitude: Number(longitude),
+            heading: heading != null ? Number(heading) : undefined,
+            recordedAt: recorded_at ?? undefined,
+          });
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log(`[REALTIME-LOCATION] Subscription status for ${driverId}:`, status);
+    });
 
   return () => {
     subscription.unsubscribe();
   };
 }
 
+export async function getLatestDriverLocation(
+  bookingId: string,
+  options?: {
+    driverId?: string | null;
+    notBefore?: string | null;
+  }
+): Promise<{ data: DriverLocationSnapshot | null; error: string | null }> {
+  try {
+    const notBeforeTimestamp = options?.notBefore ? new Date(options.notBefore).getTime() : 0;
+    const { data: historyRow, error: historyError } = await supabase
+      .from('driver_locations')
+      .select('latitude, longitude, heading, recorded_at')
+      .eq('booking_id', bookingId)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (historyError) {
+      console.warn('[getLatestDriverLocation] History lookup failed, falling back to drivers table:', historyError.message);
+    }
+
+    if (historyRow?.latitude != null && historyRow?.longitude != null) {
+      const recordedAtTimestamp = historyRow.recorded_at ? new Date(historyRow.recorded_at).getTime() : 0;
+      if (notBeforeTimestamp && recordedAtTimestamp && recordedAtTimestamp < notBeforeTimestamp) {
+        return { data: null, error: null };
+      }
+
+      return {
+        data: {
+          bookingId,
+          latitude: Number(historyRow.latitude),
+          longitude: Number(historyRow.longitude),
+          heading: historyRow.heading != null ? Number(historyRow.heading) : undefined,
+          recordedAt: historyRow.recorded_at ?? undefined,
+        },
+        error: null,
+      };
+    }
+
+    if (!options?.driverId) {
+      return { data: null, error: null };
+    }
+
+    const { data: driverRow, error: driverError } = await supabase
+      .from('drivers')
+      .select('current_latitude, current_longitude, current_heading, last_location_update')
+      .eq('id', options.driverId)
+      .maybeSingle();
+
+    if (driverError) {
+      return { data: null, error: driverError.message };
+    }
+
+    if (driverRow?.current_latitude == null || driverRow?.current_longitude == null) {
+      return { data: null, error: null };
+    }
+
+    const lastUpdateTimestamp = driverRow.last_location_update ? new Date(driverRow.last_location_update).getTime() : 0;
+    if (notBeforeTimestamp && lastUpdateTimestamp && lastUpdateTimestamp < notBeforeTimestamp) {
+      return { data: null, error: null };
+    }
+
+    return {
+      data: {
+        bookingId,
+        latitude: Number(driverRow.current_latitude),
+        longitude: Number(driverRow.current_longitude),
+        heading: (driverRow as any).current_heading != null ? Number((driverRow as any).current_heading) : undefined,
+        recordedAt: driverRow.last_location_update ?? undefined,
+      },
+      error: null,
+    };
+  } catch (err: any) {
+    return { data: null, error: err.message ?? 'Failed to fetch latest driver location' };
+  }
+}
+
 /**
- * Subscribe to driver location updates
- * Used during trip tracking
+ * Subscribe to driver profile updates (legacy/fallback)
  */
 export function subscribeToDriverLocation(
   driverId: string,
   onLocationUpdate: (location: { latitude: number; longitude: number; heading?: number }) => void
 ) {
   const subscription = supabase
-    .channel(`driver-location-${driverId}`)
+    .channel(`driver-profile-${driverId}`)
     .on(
       'postgres_changes',
       {
@@ -296,11 +457,12 @@ export function subscribeToDriverLocation(
         filter: `id=eq.${driverId}`,
       },
       (payload) => {
-        const { current_latitude, current_longitude } = payload.new;
+        const { current_latitude, current_longitude, current_heading } = payload.new;
         if (current_latitude && current_longitude) {
           onLocationUpdate({
             latitude: parseFloat(current_latitude),
             longitude: parseFloat(current_longitude),
+            heading: current_heading ? parseFloat(current_heading) : undefined,
           });
         }
       }

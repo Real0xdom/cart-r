@@ -296,11 +296,42 @@ const WaitingForDriverPage = () => {
       }
     });
 
+    // ── RAPID INITIAL POLLING BURST ─────────────────────────────────────────
+    // For the first 15 seconds, poll every 2 seconds to catch fast acceptances
+    // that may slip through while the Realtime channel is still handshaking.
+    let burstStopped = false;
+    const burstInterval = setInterval(async () => {
+      if (burstStopped) return;
+      try {
+        const { data } = await getBookingById(bookingId);
+        if (data && hasAssignedDriver(data)) {
+          console.log('[WAITING] Rapid-burst detected driver acceptance!');
+          setBooking(data);
+          setCurrentBooking(data);
+          setDriverAccepted(true);
+          burstStopped = true;
+          clearInterval(burstInterval);
+        }
+      } catch (e) {
+        // Non-critical — subscribeToBooking polling will also catch it
+      }
+    }, 2000);
+
+    const burstTimeout = setTimeout(() => {
+      burstStopped = true;
+      clearInterval(burstInterval);
+      console.log('[WAITING] Rapid-burst phase ended (15s)');
+    }, 15000);
+    // ────────────────────────────────────────────────────────────────────────
+
     return () => {
       console.log('[WAITING] Unsubscribing from booking updates');
       // Navigation away from this screen must not cancel the booking.
       // Cancellation is only allowed from explicit user action.
       unsubscribe();
+      burstStopped = true;
+      clearInterval(burstInterval);
+      clearTimeout(burstTimeout);
     };
   }, [bookingId]);
 

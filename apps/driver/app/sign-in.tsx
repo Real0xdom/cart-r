@@ -1,6 +1,6 @@
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const DRIVER_PRIMARY = "#355A31";
 const DRIVER_PRIMARY_SOFT = "#E8F0E6";
 const DRIVER_PRIMARY_MUTED = "#CFE0CB";
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
 
 const DriverSignIn = () => {
   const { signInWithPhone, verifyOtp, refreshProfile } = useAuth();
@@ -38,11 +39,25 @@ const DriverSignIn = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formattedPhoneNumber, setFormattedPhoneNumber] = useState("");
+  const [resendCountdown, setResendCountdown] = useState(0);
 
   const phoneInputRef = useRef<TextInput>(null);
   const otpInputRef = useRef<TextInput>(null);
 
   const canRequestOtp = termsAccepted && phone.length >= 10;
+  const canResendOtp = resendCountdown === 0 && !loading;
+
+  useEffect(() => {
+    if (resendCountdown <= 0) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setResendCountdown((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [resendCountdown]);
 
   const formatPhone = (phoneNumber: string) => {
     const cleaned = phoneNumber.replace(/\s+/g, "").replace(/[^0-9]/g, "");
@@ -73,8 +88,10 @@ const DriverSignIn = () => {
         return;
       }
 
-      Alert.alert(t("otpSent"), `${t("otpSentTo")} ${formattedPhone}`);
+      setOtp("");
+      setResendCountdown(OTP_RESEND_COOLDOWN_SECONDS);
       setStep("otp");
+      Alert.alert(t("otpSent"), `${t("otpSentTo")} ${formattedPhone}`);
     } catch (err: any) {
       Alert.alert(t("error"), err.message || t("sendingOtp"));
     } finally {
@@ -358,12 +375,12 @@ const DriverSignIn = () => {
         <Text className="font-Jakarta text-gray-500">
           {t("didntReceiveCode")}{" "}
         </Text>
-        <TouchableOpacity onPress={onSendOtpPress} disabled={loading}>
+        <TouchableOpacity onPress={onSendOtpPress} disabled={!canResendOtp}>
           <Text
             className="font-JakartaSemiBold"
-            style={{ color: DRIVER_PRIMARY }}
+            style={{ color: canResendOtp ? DRIVER_PRIMARY : "#9CA3AF" }}
           >
-            {t("resendOtp")}
+            {canResendOtp ? t("resendOtp") : `${t("resendOtp")} (${resendCountdown}s)`}
           </Text>
         </TouchableOpacity>
       </View>

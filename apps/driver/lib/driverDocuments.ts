@@ -101,9 +101,18 @@ export async function pickDriverDocumentFromDevice() {
 
   try {
     documentPickerModule = await import("expo-document-picker");
-  } catch {
+  } catch (error) {
+    const details =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown error";
+
     throw new Error(
-      "Choosing files from the device needs a rebuilt app. Camera photos can still work in this build, but PDF/gallery picking will work after you rebuild the app."
+      "Failed to load the document picker in this driver app build. " +
+        "If you just added the native module, uninstall the app, reinstall the latest driver build, and restart Metro with a cleared cache. " +
+        `Original error: ${details}`
     );
   }
 

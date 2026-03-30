@@ -406,6 +406,24 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
+  let lastStateString = '';
+
+  // Fallback polling every 5 seconds
+  const pollInterval = setInterval(async () => {
+    try {
+      const { data } = await getBookingById(bookingId);
+      if (data) {
+        const stateString = JSON.stringify(data);
+        if (stateString !== lastStateString) {
+          lastStateString = stateString;
+          onUpdate(data);
+        }
+      }
+    } catch (e) {
+      console.warn('[subscribeToBooking] Polling strictly failed:', e);
+    }
+  }, 5000);
+
   const channelName = `booking-${bookingId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   const subscription = supabase
     .channel(channelName)
@@ -420,12 +438,16 @@ export function subscribeToBooking(
       async (payload) => {
         const fallbackBooking = payload.new as Booking;
         const { data } = await getBookingById(bookingId);
-        onUpdate(data ?? fallbackBooking);
+        
+        const bookingToUpdate = data ?? fallbackBooking;
+        lastStateString = JSON.stringify(bookingToUpdate);
+        onUpdate(bookingToUpdate);
       }
     )
     .subscribe();
   
   return () => {
+    clearInterval(pollInterval);
     subscription.unsubscribe();
   };
 }
@@ -967,6 +989,22 @@ export function subscribeToDriverQueuedBooking(
   driverId: string,
   onUpdate: (booking: Booking | null) => void
 ) {
+  let lastStateString = '';
+
+  // Fallback polling every 5 seconds
+  const pollInterval = setInterval(async () => {
+    try {
+      const { data } = await getDriverQueuedBooking(driverId);
+      const stateString = JSON.stringify(data);
+      if (stateString !== lastStateString) {
+        lastStateString = stateString;
+        onUpdate(data);
+      }
+    } catch (e) {
+      console.warn('[subscribeToDriverQueuedBooking] Polling strictly failed:', e);
+    }
+  }, 5000);
+
   const channelName = `driver-queued-booking-${driverId}-${Date.now()}`;
   const subscription = supabase
     .channel(channelName)
@@ -980,12 +1018,14 @@ export function subscribeToDriverQueuedBooking(
       },
       async () => {
         const { data } = await getDriverQueuedBooking(driverId);
+        lastStateString = JSON.stringify(data);
         onUpdate(data);
       }
     )
     .subscribe();
 
   return () => {
+    clearInterval(pollInterval);
     subscription.unsubscribe();
   };
 }

@@ -3,6 +3,93 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { supabase } from './supabase';
 import { getLocationWithFallback, isLocationUnavailableError } from './locationFallback';
+import * as SecureStore from 'expo-secure-store';
+import { PublishedLocationState, shouldPublishLocation } from './locationQuality';
+
+// Cache for background task
+let cachedDriverId: string | null = null;
+let cachedIsOnline: boolean = false;
+let cachedActiveBookingId: string | null = null;
+let lastCacheRefreshAt = 0;
+
+export const ACTIVE_TRACKING_STATUSES = ['accepted', 'driver_arrived', 'in_progress'] as const;
+const DRIVER_STATUS_CACHE_TTL_MS = 15000;
+
+type ActiveTrackingStatus = (typeof ACTIVE_TRACKING_STATUSES)[number];
+
+type TrackingBookingCandidate = {
+  id: string;
+  status: ActiveTrackingStatus;
+  accepted_at?: string | null;
+  driver_arrived_at?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
+function getTrackingBookingPriority(status: ActiveTrackingStatus): number {
+  switch (status) {
+    case 'in_progress':
+      return 0;
+    case 'driver_arrived':
+      return 1;
+    case 'accepted':
+    default:
+      return 2;
+  }
+}
+
+function getTrackingBookingSortTimestamp(booking: TrackingBookingCandidate): number {
+  const rawTimestamp =
+    booking.started_at ||
+    booking.driver_arrived_at ||
+    booking.accepted_at ||
+    booking.updated_at ||
+    booking.created_at;
+
+  const parsed = rawTimestamp ? new Date(rawTimestamp).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function selectTrackedBooking(bookings: TrackingBookingCandidate[] | null | undefined): TrackingBookingCandidate | null {
+  if (!bookings?.length) {
+    return null;
+  }
+
+  const sorted = [...bookings].sort((left, right) => {
+    const priorityDelta = getTrackingBookingPriority(left.status) - getTrackingBookingPriority(right.status);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return getTrackingBookingSortTimestamp(right) - getTrackingBookingSortTimestamp(left);
+  });
+
+  return sorted[0] ?? null;
+}
+
+async function resolveTrackedBookingId(driverId: string): Promise<string | null> {
+  const { data: activeBookings, error } = await supabase
+    .from('bookings')
+    .select('id, status, accepted_at, driver_arrived_at, started_at, updated_at, created_at')
+    .eq('driver_id', driverId)
+    .in('status', [...ACTIVE_TRACKING_STATUSES])
+    .limit(10);
+
+  if (error) {
+    console.warn('[LOCATION-CACHE] Failed to resolve tracked booking:', error.message);
+    return null;
+  }
+
+  return selectTrackedBooking(activeBookings as TrackingBookingCandidate[] | null)?.id ?? null;
+}
+
+export function invalidateLocationTrackingCache(): void {
+  cachedDriverId = null;
+  cachedIsOnline = false;
+  cachedActiveBookingId = null;
+  lastCacheRefreshAt = 0;
+}
 
 async function getForegroundServiceBody(): Promise<string> {
   try {
@@ -24,16 +111,9 @@ async function getForegroundServiceBody(): Promise<string> {
       return 'Tracking your location while you are online';
     }
 
-    const { data: activeRide } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('driver_id', driver.id)
-      .in('status', ['accepted', 'driver_arrived', 'in_progress'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const activeRideId = await resolveTrackedBookingId(driver.id);
 
-    if (activeRide) {
+    if (activeRideId) {
       return 'Trip in progress - Tap to open Cartr';
     }
 
@@ -73,7 +153,8 @@ async function getLocationTaskOptions() {
 }
 
 const LOCATION_TASK_NAME = 'cartr-driver-location';
-const LOCATION_UPDATE_INTERVAL = 10000; // 10 seconds
+const LOCATION_UPDATE_INTERVAL = 3000; // 3 seconds (was 10s)
+let lastPublishedBackgroundLocation: PublishedLocationState | null = null;
 const MIN_ACCURACY_THRESHOLD = 50; // meters — skip positions less accurate than this
 
 // Define the background task
@@ -99,6 +180,33 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   }
 });
 
+/**
+ * Pre-cache driver status to make background tracking lightweight
+ */
+export async function cacheDriverStatus(): Promise<void> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('id, is_online')
+      .eq('user_id', user.id)
+      .single();
+
+    if (driver) {
+      cachedDriverId = driver.id;
+      cachedIsOnline = !!driver.is_online;
+      
+      cachedActiveBookingId = await resolveTrackedBookingId(driver.id);
+      lastCacheRefreshAt = Date.now();
+      console.log(`[LOCATION-CACHE] Cached Driver: ${cachedDriverId}, Online: ${cachedIsOnline}, Booking: ${cachedActiveBookingId}`);
+    }
+  } catch (error) {
+    console.warn('[LOCATION-CACHE] Failed to cache driver status:', error);
+  }
+}
+
 // Update driver location in Supabase
 async function updateDriverLocation(
   latitude: number,
@@ -108,56 +216,71 @@ async function updateDriverLocation(
   accuracy?: number
 ): Promise<void> {
   try {
-    // Skip low-accuracy positions to prevent misleading ETA/location data
+    // Skip low-accuracy positions
     if (accuracy !== undefined && accuracy > MIN_ACCURACY_THRESHOLD) {
-      console.log(`⚠️ Skipping low-accuracy position: ${accuracy.toFixed(0)}m (threshold: ${MIN_ACCURACY_THRESHOLD}m)`);
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const timestamp = Date.now();
+    const nextLocation = { latitude, longitude, heading, speed, accuracy, timestamp };
+    if (!shouldPublishLocation(lastPublishedBackgroundLocation, nextLocation)) {
+      return;
+    }
 
-    // Get driver ID
-    const { data: driver } = await supabase
-      .from('drivers')
-      .select('id, is_online')
-      .eq('user_id', user.id)
-      .single();
+    // Use cached values if available to avoid database roundtrips
+    if (!cachedDriverId || (Date.now() - lastCacheRefreshAt) > DRIVER_STATUS_CACHE_TTL_MS) {
+      await cacheDriverStatus();
+    }
 
-    if (!driver || !driver.is_online) return;
+    if (!cachedDriverId || !cachedIsOnline) {
+      console.log('[LOCATION-UPDATE] Driver offline or not found, skipping update');
+      return;
+    }
 
-    // Update current location in drivers table
-    await supabase
+    const isoTimestamp = new Date(timestamp).toISOString();
+
+    // 1. Update current location in drivers table (Fire and forget, but tracked)
+    const driverUpdate = supabase
       .from('drivers')
       .update({
         current_latitude: latitude,
         current_longitude: longitude,
-        last_location_update: new Date().toISOString(),
+        current_heading: heading,
+        last_location_update: isoTimestamp,
       })
-      .eq('id', driver.id);
+      .eq('id', cachedDriverId);
 
-    const { data: activeBooking } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('driver_id', driver.id)
-      .eq('status', 'in_progress')
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    // Insert into location history for tracking during rides
-    await supabase.from('driver_locations').insert({
-      driver_id: driver.id,
-      booking_id: activeBooking?.id ?? null,
+    // 2. Insert into location history
+    const historyInsert = supabase.from('driver_locations').insert({
+      driver_id: cachedDriverId,
+      booking_id: cachedActiveBookingId,
       latitude,
       longitude,
       heading,
       speed,
+      accuracy,
     });
 
-    console.log(`📍 Location updated: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+    // Run both in parallel to ensure speed in background
+    const [updateResult, insertResult] = await Promise.all([driverUpdate, historyInsert]);
+
+    if (updateResult.error) {
+      console.error('[LOCATION-UPDATE] Drivers table update failed:', updateResult.error.message);
+      // Force cache refresh on next run
+      invalidateLocationTrackingCache();
+    }
+
+    if (insertResult.error) {
+      console.error('[LOCATION-UPDATE] History insert failed:', insertResult.error.message);
+    }
+
+    if (!updateResult.error && !insertResult.error) {
+      lastPublishedBackgroundLocation = nextLocation;
+    }
+
+    console.log(`📍 Location updated: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (Booking: ${cachedActiveBookingId || 'None'})`);
   } catch (error) {
-    console.error('Failed to update location:', error);
+    console.error('CRITICAL: Background location update error:', error);
   }
 }
 
@@ -220,6 +343,7 @@ export async function stopLocationTracking(): Promise<void> {
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
       console.log('🛑 Location tracking stopped');
     }
+    invalidateLocationTrackingCache();
   } catch (error) {
     console.error('Failed to stop location tracking:', error);
   }
@@ -227,6 +351,8 @@ export async function stopLocationTracking(): Promise<void> {
 
 export async function refreshLocationTrackingNotification(): Promise<void> {
   try {
+    invalidateLocationTrackingCache();
+    await cacheDriverStatus();
     const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
     if (!isRegistered) {
       return;
