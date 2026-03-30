@@ -1,33 +1,62 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, Shield, UserCog } from 'lucide-react';
 
-import { loginWithEmail } from './actions';
+
+type ProfileType = 'admin' | 'manager';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('Signing in...');
+  const [selectedProfile, setSelectedProfile] = useState<ProfileType>('admin');
 
   const handleAction = async (formData: FormData) => {
+    console.log('[handleAction] Start');
     setError('');
     setLoading(true);
+    setLoadingText('Signing in...');
 
     try {
-      const result = await loginWithEmail(formData);
-      if (result?.error) {
-        setError(result.error);
+      console.log('[handleAction] Calling API /api/auth/login');
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.get('email'),
+          password: formData.get('password'),
+        }),
+      });
+
+      const result = await response.json();
+      console.log('[handleAction] Result:', result);
+      
+      if (!response.ok || result?.error) {
+        console.log('[handleAction] Error:', result?.error || 'Unknown error');
+        setError(result?.error || 'Login failed');
         setLoading(false);
+      } else if (result?.success) {
+        console.log('[handleAction] Success, redirecting...');
+        setLoadingText('Loading Dashboard... (up to 30s)');
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 100);
+        console.log('[handleAction] Redirect triggered');
       }
     } catch (err) {
+      console.error('[handleAction] Exception:', err);
       setError('Network error. Please try again.');
       setLoading(false);
     }
   };
+
+  const profiles: { key: ProfileType; label: string; icon: any; description: string }[] = [
+    { key: 'admin', label: 'Admin', icon: Shield, description: 'Full access to all features' },
+    { key: 'manager', label: 'Manager', icon: UserCog, description: 'Operations & support access' },
+  ];
 
   return (
     <div className="min-h-screen bg-[#F0F2F5] flex items-center justify-center p-4 relative overflow-hidden">
@@ -52,11 +81,58 @@ export default function LoginPage() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">
             Welcome Back
           </h2>
-          <p className="text-center text-gray-500 mb-8 text-sm">
-            Enter your credentials to access the dashboard
+          <p className="text-center text-gray-500 mb-6 text-sm">
+            Select your profile and sign in
           </p>
 
-          <form action={handleAction} className="space-y-5">
+          {/* Profile Selector */}
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            {profiles.map((profile) => {
+              const Icon = profile.icon;
+              const isActive = selectedProfile === profile.key;
+              return (
+                <button
+                  key={profile.key}
+                  type="button"
+                  onClick={() => setSelectedProfile(profile.key)}
+                  className={`relative flex flex-col items-center gap-2 rounded-2xl border-2 px-4 py-4 transition-all duration-200 ${
+                    isActive
+                      ? profile.key === 'admin'
+                        ? 'border-orange-500 bg-orange-50 shadow-md shadow-orange-500/10'
+                        : 'border-blue-500 bg-blue-50 shadow-md shadow-blue-500/10'
+                      : 'border-gray-200 bg-gray-50/50 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                    isActive
+                      ? profile.key === 'admin'
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    <Icon size={20} />
+                  </div>
+                  <div className="text-center">
+                    <p className={`text-sm font-bold ${isActive ? 'text-gray-900' : 'text-gray-600'}`}>
+                      {profile.label}
+                    </p>
+                    <p className="text-[10px] text-gray-400 leading-tight mt-0.5">
+                      {profile.description}
+                    </p>
+                  </div>
+                  {isActive && (
+                    <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs ${
+                      profile.key === 'admin' ? 'bg-orange-500' : 'bg-blue-500'
+                    }`}>
+                      ✓
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <form onSubmit={(e) => { e.preventDefault(); handleAction(new FormData(e.currentTarget)); }} className="space-y-5">
             {/* Email */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -67,7 +143,7 @@ export default function LoginPage() {
                 name="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@cartr.in"
+                placeholder={selectedProfile === 'admin' ? 'email' : 'email'}
                 required
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white focus:border-transparent transition-all"
               />
@@ -110,9 +186,13 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white text-lg font-semibold py-4 rounded-xl shadow-lg shadow-orange-500/30 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              className={`w-full text-white text-lg font-semibold py-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
+                selectedProfile === 'admin'
+                  ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'
+                  : 'bg-blue-500 hover:bg-blue-600 shadow-blue-500/30'
+              }`}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? loadingText : `Sign In as ${selectedProfile === 'admin' ? 'Admin' : 'Manager'}`}
             </button>
           </form>
         </div>

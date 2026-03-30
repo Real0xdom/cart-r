@@ -136,7 +136,7 @@ const mapWalletLedgerEntry = (transaction: WalletTransaction): TransactionHistor
 
     let title = 'Wallet activity';
     let subtitle = transaction.description || 'Driver wallet updated';
-    let amountLabel = `₹${Number(transaction.amount || 0).toLocaleString()}`;
+    let amountLabel = `₹${Math.round(Number(transaction.amount || 0)).toLocaleString()}`;
     let amountColor = transaction.direction === 'debit' ? 'text-red-600' : 'text-green-600';
     let icon: keyof typeof Ionicons.glyphMap = 'wallet-outline';
     let iconColor = '#16a34a';
@@ -236,7 +236,7 @@ const mapWithdrawalEntry = (withdrawal: WithdrawalRequest): TransactionHistoryEn
         title,
         subtitle: detail,
         amount: withdrawal.amount,
-        amountLabel: `₹${Number(withdrawal.amount || 0).toLocaleString()}`,
+        amountLabel: `₹${Math.round(Number(withdrawal.amount || 0)).toLocaleString()}`,
         amountColor: statusKey === 'failed' || statusKey === 'reversed' || statusKey === 'rejected' ? 'text-red-600' : 'text-orange-600',
         icon: statusKey === 'success' ? 'checkmark-done-circle-outline' : 'card-outline',
         iconColor: statusKey === 'success' ? '#16a34a' : '#2563eb',
@@ -265,7 +265,7 @@ const mapRechargeAttemptEntry = (transaction: WalletPaymentTransaction): Transac
         title: transaction.status === 'failed' ? 'Wallet recharge payment failed' : 'Wallet recharge payment pending',
         subtitle: transaction.description || 'Recharge payment attempt for your driver wallet.',
         amount: transaction.amount,
-        amountLabel: `₹${Number(transaction.amount || 0).toLocaleString()}`,
+        amountLabel: `₹${Math.round(Number(transaction.amount || 0)).toLocaleString()}`,
         amountColor: transaction.status === 'failed' ? 'text-red-600' : 'text-amber-600',
         icon: transaction.status === 'failed' ? 'close-circle-outline' : 'time-outline',
         iconColor: transaction.status === 'failed' ? '#dc2626' : '#d97706',
@@ -379,7 +379,7 @@ const WalletSkeleton = () => (
 );
 
 const DriverEarnings = () => {
-    const { openRecharge } = useLocalSearchParams<{ openRecharge?: string }>();
+    const { openRecharge, openWithdraw } = useLocalSearchParams<{ openRecharge?: string; openWithdraw?: string }>();
     const { driverProfile, user, profile } = useAuth();
     const { t } = useLanguage();
     const driverId = driverProfile?.id ?? null;
@@ -430,6 +430,43 @@ const DriverEarnings = () => {
         setShowAddMoneyModal(true);
         router.replace('/(tabs)/earnings');
     }, [openRecharge]);
+
+    useEffect(() => {
+        if (openWithdraw !== '1' || !wallet) {
+            return;
+        }
+
+        if (wallet.available_balance <= 0) {
+            Alert.alert('No Balance', 'You have no available balance to withdraw.');
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        if ((wallet.pending_withdrawals || 0) > 0) {
+            Alert.alert(
+                'Pending Withdrawal',
+                'You already have a pending withdrawal request. Please wait for it to be processed before requesting another.'
+            );
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        if (!wallet.bank_details || !wallet.bank_details.account_number) {
+            Alert.alert(
+                'Bank Account Required',
+                'Please add your bank account details first to enable withdrawals.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Add Bank', onPress: () => router.push('/profile/bank') }
+                ]
+            );
+            router.replace('/(tabs)/earnings');
+            return;
+        }
+
+        setShowWithdrawModal(true);
+        router.replace('/(tabs)/earnings');
+    }, [openWithdraw, wallet]);
 
     const handleWalletUpdate = useCallback((newBalance: number | null | undefined, oldBalance: number | null | undefined) => {
         if (typeof newBalance !== 'number' || typeof oldBalance !== 'number') return;
@@ -667,7 +704,7 @@ const DriverEarnings = () => {
         await loadWalletInfo();
 
         setStatusType('success');
-        setStatusMessage(`Rs ${finalAmount.toFixed(2)} added to your driver wallet.`);
+        setStatusMessage(`Rs ${Math.round(finalAmount)} added to your driver wallet.`);
         setShowStatusModal(true);
     };
 
@@ -829,7 +866,7 @@ const DriverEarnings = () => {
             const tripDate = new Date(trip.completed_at || trip.created_at);
             if (tripDate >= weekStart) {
                 const dayIndex = tripDate.getDay();
-                weekData[dayIndex].amount += (trip.driver_payout || trip.total_fare);
+                weekData[dayIndex].amount += getTripEarning(trip);
                 weekData[dayIndex].trips += 1;
             }
         });
@@ -846,8 +883,21 @@ const DriverEarnings = () => {
 
     const filteredTrips = getFilteredTrips();
 
-    // FIX: Calculate periodEarnings from filteredTrips instead of hardcoding 0
-    const periodEarnings = filteredTrips.reduce((sum, trip) => sum + (trip.driver_payout || trip.total_fare || 0), 0);
+    const getTripEarning = (trip: Booking) => {
+        // Find corresponding transaction from backend wallet transactions
+        const earningTx = walletTransactions.find(t => t.booking_id === trip.id && t.type === 'earning');
+        if (earningTx && earningTx.amount !== undefined) {
+            return Math.round(Number(earningTx.amount));
+        }
+        // If not found, fallback to driver_payout if it's strictly less than total_fare
+        if (trip.driver_payout && trip.driver_payout < trip.total_fare) {
+            return Math.round(Number(trip.driver_payout));
+        }
+        // Last fallback: estimate 15% commission
+        return Math.round(trip.total_fare * 0.85);
+    };
+
+    const periodEarnings = filteredTrips.reduce((sum, trip) => sum + getTripEarning(trip), 0);
 
     const tripsCount = filteredTrips.length;
     const avgPerTrip = tripsCount > 0 ? Math.round(periodEarnings / tripsCount) : 0;
@@ -896,7 +946,7 @@ const DriverEarnings = () => {
                 <View className="p-5 flex-row justify-between items-center bg-green-500 rounded-b-3xl mb-6">
                     <View className="flex-1 pr-4" style={styles.balanceInfo}>
                         <Text className={`text-3xl font-JakartaBold mb-1 ${wallet?.has_negative_balance ? 'text-red-100' : 'text-white'}`}>
-                            ₹{(wallet?.available_balance || 0).toLocaleString()}
+                            ₹{Math.round(wallet?.available_balance || 0).toLocaleString()}
                         </Text>
                         {balanceChangeIndicator?.show && (
                             <View style={[
@@ -907,19 +957,14 @@ const DriverEarnings = () => {
                             ]}>
                                 <Text style={styles.indicatorText}>
                                     {balanceChangeIndicator.type === 'credit' ? '+' : '-'}
-                                    ₹{balanceChangeIndicator.amount.toFixed(2)}
+                                    ₹{Math.round(balanceChangeIndicator.amount)}
                                 </Text>
                             </View>
                         )}
                         <Text className="text-green-100 text-sm font-JakartaMedium">{t('availableBalance') || 'Withdrawable Balance'}</Text>
-                        {(wallet?.pending_balance || 0) > 0 && (
-                            <Text className="text-green-50 text-xs mt-1">
-                                + ₹{wallet?.pending_balance.toLocaleString()} {t('pendingBalance') || 'pending'}
-                            </Text>
-                        )}
                         {!!wallet?.has_negative_balance && (
                             <Text className="text-red-100 text-xs mt-1">
-                                Commission debt tracked: Rs {Number(wallet?.total_commission_owed || Math.abs(wallet?.available_balance || 0)).toLocaleString()}
+                                Commission debt tracked: Rs {Math.round(Number(wallet?.total_commission_owed || Math.abs(wallet?.available_balance || 0))).toLocaleString()}
                             </Text>
                         )}
                     </View>
@@ -991,7 +1036,7 @@ const DriverEarnings = () => {
                 {/* Total Earnings Card */}
                 <View className="mx-5 bg-green-50 border border-green-200 rounded-2xl p-6 mb-6">
                     <Text className="text-green-700 text-sm mb-1">{t('totalEarningsPeriod') || 'Earnings'} ({t(period) || period})</Text>
-                    <Text className="text-gray-900 text-4xl font-JakartaBold">₹{periodEarnings.toLocaleString()}</Text>
+                    <Text className="text-gray-900 text-4xl font-JakartaBold">₹{Math.round(periodEarnings).toLocaleString()}</Text>
                     <View className="flex-row mt-4 justify-between">
                         <View>
                             <Text className="text-gray-500 text-xs">{t('trips') || 'Trips'}</Text>
@@ -999,7 +1044,7 @@ const DriverEarnings = () => {
                         </View>
                         <View>
                             <Text className="text-gray-500 text-xs">{t('lifetimeEarnings') || 'Lifetime'}</Text>
-                            <Text className="text-gray-900 font-JakartaSemiBold">₹{(wallet?.total_earned || driverProfile?.total_earnings || 0).toLocaleString()}</Text>
+                            <Text className="text-gray-900 font-JakartaSemiBold">₹{Math.round(wallet?.total_earned || driverProfile?.total_earnings || 0).toLocaleString()}</Text>
                         </View>
                         <View>
                             <Text className="text-gray-500 text-xs">{t('avgPerTrip') || 'Avg/Trip'}</Text>
@@ -1055,7 +1100,7 @@ const DriverEarnings = () => {
                                             </Text>
                                         </View>
                                         <Text className="text-gray-900 font-JakartaBold text-lg">
-                                            ₹{trip.driver_payout || trip.total_fare}
+                                            ₹{getTripEarning(trip)}
                                         </Text>
                                     </View>
 
@@ -1149,7 +1194,7 @@ const DriverEarnings = () => {
 
                         <Text className="text-gray-500 mb-2">Available Balance</Text>
                         <Text className="text-3xl font-JakartaBold text-green-600 mb-6">
-                            ₹{(wallet?.available_balance || 0).toLocaleString()}
+                            ₹{Math.round(wallet?.available_balance || 0).toLocaleString()}
                         </Text>
 
                         <Text className="text-gray-900 font-JakartaSemiBold mb-2">Enter Amount</Text>
@@ -1166,7 +1211,7 @@ const DriverEarnings = () => {
                         <View className="flex-row justify-between mb-8">
                             <Text className="text-xs text-gray-500">Min: ₹{payoutSettings?.min_withdrawal || 100}</Text>
                             <TouchableOpacity onPress={() => setWithdrawAmount(String(wallet?.available_balance || 0))}>
-                                <Text className="text-xs text-green-600 font-JakartaBold">Max: ₹{wallet?.available_balance || 0}</Text>
+                                <Text className="text-xs text-green-600 font-JakartaBold">Max: ₹{Math.round(wallet?.available_balance || 0)}</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -1290,7 +1335,7 @@ const DriverEarnings = () => {
                         <View className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6 w-full">
                             <Text className="text-gray-600 text-sm text-center mb-1">Withdrawal Amount</Text>
                             <Text className="text-3xl font-JakartaBold text-green-600 text-center">
-                                ₹{Number(withdrawAmount).toLocaleString()}
+                                ₹{Math.round(Number(withdrawAmount)).toLocaleString()}
                             </Text>
                         </View>
 

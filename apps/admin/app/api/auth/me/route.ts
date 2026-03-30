@@ -1,34 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { supabaseAdmin } from '@/lib/supabase-server';
+import { NextResponse } from 'next/server';
+import { getCurrentAdminState } from '@/lib/current-admin';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const supabase = await createClient();
-    
-    // Get the current user session from Supabase
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const adminState = await getCurrentAdminState();
 
-    if (authError || !user || !user.email) {
+    if (!adminState.isAuthenticated) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Extra Security Check: Ensure this user is actually an admin in the `admins` table
-    const { data: adminRecord, error: adminError } = await supabaseAdmin
-      .from('admins')
-      .select('id, role')
-      .eq('email', user.email.toLowerCase().trim())
-      .single();
-
-    if (adminError || !adminRecord) {
+    if (!adminState.isAuthorized || !adminState.role || !adminState.id) {
       // Return 403 as the user is authenticated but not an admin
       return NextResponse.json({ error: 'Unauthorized access. Admins only.' }, { status: 403 });
     }
 
     return NextResponse.json({
-      email: user.email,
-      role: adminRecord.role,
-      id: adminRecord.id,
+      email: adminState.email,
+      role: adminState.role,
+      id: adminState.id,
     });
   } catch (error) {
     console.error('Auth check error:', error);

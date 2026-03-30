@@ -4,7 +4,7 @@ import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Carter Driver",
+  name: "Cartr Driver",
   slug: "carter-driver",
   version: "1.0.0",
   orientation: "portrait",
@@ -14,11 +14,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   splash: {
     image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#31502d"
+    backgroundColor: "#355A31"
   },
   notification: {
     icon: "./assets/images/notification-icon.png",
-    color: "#22C55E"
+    color: "#355A31"
   },
   ios: {
     supportsTablet: false,
@@ -32,15 +32,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         "location",
         "fetch"
       ],
-      NSLocationAlwaysAndWhenInUseUsageDescription: "Carter Driver needs your location to receive ride requests and navigate to pickups.",
-      NSLocationWhenInUseUsageDescription: "Carter Driver needs your location to receive ride requests."
+      NSLocationAlwaysAndWhenInUseUsageDescription: "Cartr Driver needs your location to receive ride requests and navigate to pickups.",
+      NSLocationWhenInUseUsageDescription: "Cartr Driver needs your location to receive ride requests."
     }
   },
   android: {
     jsEngine: "hermes",
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#22C55E"
+      backgroundColor: "#355A31"
     },
     package: "com.carter.driver",
     config: {
@@ -64,10 +64,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "android.permission.WAKE_LOCK",
       "android.permission.USE_FULL_SCREEN_INTENT"
     ],
-    // Only add google-services.json if it exists to avoid build errors
-    ...(fs.existsSync(path.join(__dirname, "google-services.json"))
-      ? { googleServicesFile: "./google-services.json" }
-      : {}),
+    // Resolve google-services.json — check project root first, then android/app fallback
+    ...(() => {
+      const rootPath = path.join(__dirname, "google-services.json");
+      const androidAppPath = path.join(__dirname, "android", "app", "google-services.json");
+      if (fs.existsSync(rootPath)) {
+        return { googleServicesFile: "./google-services.json" };
+      } else if (fs.existsSync(androidAppPath)) {
+        return { googleServicesFile: "./android/app/google-services.json" };
+      }
+      return {};
+    })(),
   },
   web: {
     bundler: "metro",
@@ -85,12 +92,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Carter Driver needs your location to receive ride requests and navigate to pickups.",
+        "locationAlwaysAndWhenInUsePermission": "Cartr Driver needs your location to receive ride requests and navigate to pickups.",
         "isAndroidBackgroundLocationEnabled": true
       }
     ],
     "expo-font",
-    "expo-secure-store"
+    "expo-secure-store",
+    "expo-document-picker"
   ],
   experiments: {
     typedRoutes: true
@@ -100,8 +108,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://driver.cart-r.com/"
     },
     eas: {
-      "projectId": "11cd06f0-40e0-4bd3-8166-f913e65dd2d6"
+      "projectId": "d9c33966-9cb1-4343-a119-4f50819eaec1"
     }
   },
-  owner: "amycarter192"
+  owner: "nanofi1189"
 });

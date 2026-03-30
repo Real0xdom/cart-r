@@ -4,7 +4,7 @@ import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Carter",
+  name: "Cartr",
   slug: "carter-customer",
   version: "1.0.0",
   orientation: "portrait",
@@ -12,13 +12,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "carter",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#31502d"
+    backgroundColor: "#21461E"
   },
   notification: {
     icon: "./assets/images/notification-icon.png",
-    color: "#4CAF50"
+    color: "#21461E"
   },
   ios: {
     supportsTablet: true,
@@ -41,7 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#21461E"
     },
     package: "com.carter.customer",
     config: {
@@ -75,7 +74,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Carter needs your location to show nearby drivers and track your deliveries."
+        "locationAlwaysAndWhenInUsePermission": "Cartr needs your location to show nearby drivers and track your deliveries."
       }
     ],
     "expo-notifications"
@@ -88,8 +87,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "b9192aff-c534-4495-aac5-d2fe15a2a92f"
+      "projectId": "b57fca69-bf0c-441e-bd55-6b0933d76b7d"
     }
   },
-  owner: "amycarter192"
+  owner: "nanofi1189"
 });

@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { 
     Image, 
     ScrollView, 
@@ -24,6 +24,7 @@ import { supabase } from "@/lib/supabase";
 import { TermsCheckbox } from "@/components/TermsCheckbox";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
 
 const CustomerSignIn = () => {
     const { signInWithPhone, verifyOtp } = useAuth();
@@ -39,9 +40,22 @@ const CustomerSignIn = () => {
     const [showTermsModal, setShowTermsModal] = useState(false);
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
+    const [resendCountdown, setResendCountdown] = useState(0);
 
     const phoneInputRef = useRef<TextInput>(null);
     const otpInputRef = useRef<TextInput>(null);
+
+    useEffect(() => {
+        if (resendCountdown <= 0) {
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            setResendCountdown((current) => Math.max(0, current - 1));
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, [resendCountdown]);
 
     const formatPhone = (phoneNumber: string) => {
         const cleaned = phoneNumber.replace(/\s+/g, '').replace(/[^0-9]/g, '');
@@ -104,8 +118,10 @@ const CustomerSignIn = () => {
                 if (error) {
                     Alert.alert(t("error"), error.message);
                 } else {
-                    Alert.alert(t("otpSent"), `${t("otpSentTo")} ${formatted}`);
+                    setOtp("");
+                    setResendCountdown(OTP_RESEND_COOLDOWN_SECONDS);
                     setStep('otp');
+                    Alert.alert(t("otpSent"), `${t("otpSentTo")} ${formatted}`);
                 }
             } else {
                 // New user - go to registration screen
@@ -402,14 +418,18 @@ const CustomerSignIn = () => {
                         signInWithPhone(formattedPhoneNumber)
                             .then(({ error }) => {
                                 if (error) Alert.alert(t("error"), error.message);
-                                else Alert.alert(t("otpSent"), t("newCodeSent"));
+                                else {
+                                    setOtp("");
+                                    setResendCountdown(OTP_RESEND_COOLDOWN_SECONDS);
+                                    Alert.alert(t("otpSent"), t("newCodeSent"));
+                                }
                             })
                             .finally(() => setLoading(false));
                     }}
-                    disabled={loading}
+                    disabled={loading || resendCountdown > 0}
                 >
-                    <Text className="text-success-500 font-JakartaSemiBold">
-                        {t("resendOtp")}
+                    <Text className={`font-JakartaSemiBold ${resendCountdown > 0 ? 'text-gray-400' : 'text-success-500'}`}>
+                        {resendCountdown > 0 ? `${t("resendOtp")} (${resendCountdown}s)` : t("resendOtp")}
                     </Text>
                 </TouchableOpacity>
             </View>

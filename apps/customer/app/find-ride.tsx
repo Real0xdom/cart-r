@@ -1,14 +1,15 @@
 import CustomButton from "@/components/CustomButton";
 import GoogleTextInput from "@/components/GoogleTextInput";
-import RideLayout from "@/components/RideLayout";
+import Map from "@/components/Map";
 import { icons } from "@/constants";
 import { useLocation } from "@/contexts/LocationContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocationStore } from "@/store";
 import { router } from "expo-router";
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Text, View, TouchableOpacity, ActivityIndicator, Animated, ScrollView, TouchableWithoutFeedback, Keyboard } from "react-native";
-import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
+import { Text, View, TouchableOpacity, ActivityIndicator, Animated, ScrollView, Image, KeyboardAvoidingView, Platform } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { isLocationSupported, getActiveServiceAreas, ServiceArea, haversineDistance } from "@/lib/serviceArea";
 
 import { getSavedAddresses, saveAddress, SavedAddress, getPlaceIoniconName } from "@/lib/savedPlaces";
@@ -22,9 +23,15 @@ const FindRide = () => {
   const [loadingSaved, setLoadingSaved] = useState(false);
   const {
     userAddress,
+    userLatitude,
+    userLongitude,
     destinationAddress,
+    destinationLatitude,
+    destinationLongitude,
     setDestinationLocation,
     setUserLocation,
+    clearUserLocation,
+    clearDestination,
   } = useLocationStore();
 
   const { getCurrentLocation, isLoadingLocation } = useLocation();
@@ -47,6 +54,7 @@ const FindRide = () => {
 
   // Track active field for z-index management
   const [activeField, setActiveField] = useState<'pickup' | 'drop' | null>(null);
+  const [isSuggestionListOpen, setIsSuggestionListOpen] = useState(false);
 
   // Load service areas and saved addresses on mount
   useEffect(() => {
@@ -164,43 +172,48 @@ const FindRide = () => {
   // Handle pickup selection
   const handlePickupSelected = useCallback((location: { latitude: number; longitude: number; address: string }) => {
     setUserLocation(location);
-    if (location.latitude && location.longitude) {
-      validatePickup(location.latitude, location.longitude);
-    }
-  }, [setUserLocation, validatePickup]);
+  }, [setUserLocation]);
 
   // Handle drop selection
   const handleDropSelected = useCallback((location: { latitude: number; longitude: number; address: string }) => {
     setDestinationLocation(location);
-    if (location.latitude && location.longitude) {
-      validateDrop(location.latitude, location.longitude);
-    }
-  }, [setDestinationLocation, validateDrop]);
+  }, [setDestinationLocation]);
 
   useEffect(() => {
-    const { userLatitude, userLongitude } = useLocationStore.getState();
-    if (userLatitude && userLongitude && userAddress) {
+    if (userLatitude && userLongitude) {
       validatePickup(userLatitude, userLongitude);
     } else {
       setPickupStatus('idle');
+      setPickupError(null);
     }
-  }, [userAddress, validatePickup]);
+  }, [userLatitude, userLongitude, validatePickup]);
 
-  // Also validate when destination address changes (e.g. from map selection or saved addresses)
   useEffect(() => {
-    const { destinationLatitude, destinationLongitude } = useLocationStore.getState();
-    if (destinationLatitude && destinationLongitude && destinationAddress) {
+    if (destinationLatitude && destinationLongitude) {
       validateDrop(destinationLatitude, destinationLongitude);
     } else {
       setDropStatus('idle');
+      setDropError(null);
     }
-  }, [destinationAddress, validateDrop]);
+  }, [destinationLatitude, destinationLongitude, validateDrop]);
 
   const handleNext = () => {
     if (canProceed) {
       router.push("/receiver-details");
     }
   };
+
+  const handleClearPickup = useCallback(() => {
+    clearUserLocation();
+    setPickupStatus('idle');
+    setPickupError(null);
+  }, [clearUserLocation]);
+
+  const handleClearDrop = useCallback(() => {
+    clearDestination();
+    setDropStatus('idle');
+    setDropError(null);
+  }, [clearDestination]);
 
   const isLoading = isLoadingLocation || fetchingLocation;
 
@@ -243,273 +256,266 @@ const FindRide = () => {
     };
   })();
 
+  const isPickupSaved = !!userAddress && savedAddresses.some((sa) => sa.address === userAddress);
+  const isDropSaved = !!destinationAddress && savedAddresses.some((sa) => sa.address === destinationAddress);
+
   return (
-    <RideLayout
-      title={t("selectLocations")}
-      snapPoints={["15%", "50%", "85%"]}
-      mapSelectionMode={selectingOnMap}
-      onMapLocationSelected={handleMapLocationSelected}
-      useView={false}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View 
-        testID="ride.findRide" 
-        accessibilityLabel="ride.findRide"
-        style={{ overflow: 'visible' }}
-      >
-        {/* Pickup Field Section */}
-        <View 
-          className="my-3" 
-          style={{ 
-            zIndex: activeField === 'pickup' ? 1000 : 1,
-            elevation: activeField === 'pickup' ? 20 : 0,
-            overflow: 'visible'
-          }}
-        >
-          <View className="flex-row items-center justify-between mb-3">
-            <View className="flex-row items-center">
-              <View className={`w-6 h-6 rounded-full items-center justify-center mr-2 ${
-                pickupStatus === 'valid' ? 'bg-green-500' :
-                pickupStatus === 'invalid' ? 'bg-red-500' : 'bg-green-500'
-              }`}>
-                <Text className="text-white text-xs font-JakartaBold">1</Text>
+    <GestureHandlerRootView className="flex-1">
+      <View className="flex-1 bg-white">
+        {/* Map Section (Top 50%) */}
+        <View className="h-1/2 w-full">
+          <View className="absolute z-10 top-12 left-5 flex-row items-center w-full pr-10">
+            <TouchableOpacity onPress={() => router.back()}>
+              <View className="w-10 h-10 bg-white rounded-full items-center justify-center shadow-md">
+                <Image
+                  source={icons.backArrow}
+                  resizeMode="contain"
+                  className="w-6 h-6"
+                />
               </View>
-              <Text className="text-lg font-JakartaSemiBold">{t("pickupLocation")}</Text>
+            </TouchableOpacity>
+            <View className="bg-white/95 px-5 py-2 rounded-full shadow-md ml-4 flex-shrink">
+              <Text className="text-lg font-JakartaSemiBold text-black" numberOfLines={1}>
+                {t("selectLocations")}
+              </Text>
             </View>
-            {(isLoading || pickupStatus === 'checking') && (
-              <ActivityIndicator size="small" color="#FF9800" />
-            )}
-            {pickupStatus === 'valid' && (
-              <View className="flex-row items-center">
-                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                <Text className="text-green-600 text-xs font-JakartaMedium ml-1">{t("inServiceArea")}</Text>
-              </View>
-            )}
           </View>
 
-          <Animated.View 
-            style={{ 
-              transform: [{ translateX: pickupShake }],
-              zIndex: activeField === 'pickup' ? 1000 : 1,
-            }}
-          >
-            <GoogleTextInput
-              icon={icons.target}
-              initialLocation={userAddress ?? undefined}
-              containerStyle={`bg-neutral-100 ${pickupStatus === 'invalid' ? 'border border-red-300' : ''}`}
-              textInputBackgroundColor="#f5f5f5"
-              handlePress={handlePickupSelected}
-              testID="ride.pickupInput"
-              locationBias={locationBias}
-              showAction={!!userAddress && pickupStatus === 'valid'}
-              onActionPress={() => handleSavePlace('pickup')}
-              actionIcon={savedAddresses.some(sa => sa.address === userAddress) ? "bookmark" : "bookmark-outline"}
-              onFocus={() => setActiveField('pickup')}
-              onBlur={() => setActiveField(null)}
-            />
-          </Animated.View>
-
-          {/* Quick selection of saved addresses */}
-          {savedAddresses.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2 pl-2">
-              {savedAddresses.map((place) => (
-                <TouchableOpacity
-                  key={place.id}
-                  onPress={() => handlePickupSelected({
-                    latitude: Number(place.latitude),
-                    longitude: Number(place.longitude),
-                    address: place.address
-                  })}
-                  className="flex-row items-center bg-gray-50 border border-gray-100 rounded-full px-3 py-1.5 mr-2"
-                >
-                  <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={14} color="#FF9800" />
-                  <Text className="ml-1.5 text-xs font-JakartaMedium text-gray-700">{place.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-
-          {/* Pickup error banner */}
-          {pickupStatus === 'invalid' && pickupError && (
-              <View className="mt-2 mx-5 bg-red-50 border border-red-200 rounded-xl p-3 flex-row items-start">
-              <MaterialIcons name="location-off" size={16} color="#EF4444" />
-              <View className="flex-1 ml-2">
-                <Text className="text-red-700 text-xs font-JakartaBold mb-0.5">{t("outsideServiceArea")}</Text>
-                <Text className="text-red-600 text-xs font-JakartaMedium">{pickupError}</Text>
-              </View>
+          {selectingOnMap && (
+            <View className="absolute z-10 top-28 left-5 right-5 bg-blue-600 p-3 rounded-xl shadow-lg">
+              <Text className="text-white text-center font-JakartaSemiBold">
+                Tap on the map to select your {selectingOnMap === 'from' ? 'pickup' : 'destination'} location
+              </Text>
             </View>
           )}
 
-          <View className="flex-row items-center justify-between mt-2 px-2">
-            <TouchableOpacity
-              onPress={handleUseCurrentLocation}
-              className="flex-row items-center py-2"
-              disabled={isLoading}
-            >
-              <Feather name="navigation" size={16} color="#FF9800" />
-              <Text className="ml-2 text-sm font-JakartaMedium text-blue-500">
-                {t("useCurrentLocation")}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => handleSelectOnMap('from')}
-              className={`flex-row items-center py-2 px-3 rounded-lg ${selectingOnMap === 'from' ? 'bg-blue-500' : 'bg-gray-100'}`}
-            >
-              <Feather name="map-pin" size={16} color={selectingOnMap === 'from' ? '#fff' : '#777'} />
-              <Text className={`ml-2 text-sm font-JakartaMedium ${selectingOnMap === 'from' ? 'text-white' : 'text-gray-600'}`}>
-                {selectingOnMap === 'from' ? t("selecting") : t("selectOnMap")}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <Map
+            selectionMode={selectingOnMap}
+            onLocationSelected={handleMapLocationSelected}
+            interactionEnabled={!!selectingOnMap || !isSuggestionListOpen}
+          />
         </View>
 
-        {/* Drop Field Section */}
-        <View 
-          className="my-3" 
-          style={{ 
-            zIndex: activeField === 'drop' ? 1000 : 1,
-            elevation: activeField === 'drop' ? 20 : 0,
-            overflow: 'visible'
-          }}
+        {/* Input Form Section (Bottom 50%) */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
+          className="flex-1"
+          style={{ overflow: "visible" }}
         >
-          <View className="flex-row items-center justify-between mb-3">
-            <View className="flex-row items-center">
-              <View className={`w-6 h-6 rounded-full items-center justify-center mr-2 ${
-                dropStatus === 'valid' ? 'bg-green-500' :
-                dropStatus === 'invalid' ? 'bg-red-500' : 'bg-red-500'
-              }`}>
-                <Text className="text-white text-xs font-JakartaBold">2</Text>
-              </View>
-              <Text className="text-lg font-JakartaSemiBold">{t("dropLocation")}</Text>
-            </View>
-            {dropStatus === 'checking' && (
-              <ActivityIndicator size="small" color="#FF9800" />
-            )}
-            {dropStatus === 'valid' && (
-              <View className="flex-row items-center">
-                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                <Text className="text-green-600 text-xs font-JakartaMedium ml-1">{t("inServiceArea")}</Text>
-              </View>
-            )}
-          </View>
-
-          <Animated.View 
-            style={{ 
-              transform: [{ translateX: dropShake }],
-              zIndex: activeField === 'drop' ? 1000 : 1,
-            }}
+          <View
+            className="bg-gray-50 flex-1"
+            style={{ borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -20, zIndex: 10, elevation: 20, overflow: 'visible' }}
           >
-            <GoogleTextInput
-              icon={icons.target}
-              initialLocation={destinationAddress ?? undefined}
-              containerStyle={`bg-neutral-100 ${dropStatus === 'invalid' ? 'border border-red-300' : ''}`}
-              textInputBackgroundColor="transparent"
-              handlePress={handleDropSelected}
-              testID="ride.dropInput"
-              locationBias={locationBias}
-              showAction={!!destinationAddress && dropOk}
-              onActionPress={() => handleSavePlace('drop')}
-              actionIcon={savedAddresses.some(sa => sa.address === destinationAddress) ? "bookmark" : "bookmark-outline"}
-              onFocus={() => setActiveField('drop')}
-              onBlur={() => setActiveField(null)}
-            />
-          </Animated.View>
-
-          {/* Quick selection of saved addresses for drop */}
-          {savedAddresses.length > 0 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2 pl-2">
-              {savedAddresses.map((place) => (
-                <TouchableOpacity
-                  key={place.id}
-                  onPress={() => handleDropSelected({
-                    latitude: Number(place.latitude),
-                    longitude: Number(place.longitude),
-                    address: place.address
-                  })}
-                  className="flex-row items-center bg-gray-50 border border-gray-100 rounded-full px-3 py-1.5 mr-2"
-                >
-                  <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={14} color="#FF9800" />
-                  <Text className="ml-1.5 text-xs font-JakartaMedium text-gray-700">{place.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-
-          {/* Drop error banner */}
-          {dropStatus === 'invalid' && dropError && (
-            <View className="mt-2 mx-5 bg-red-50 border border-red-200 rounded-xl p-3 flex-row items-start">
-              <MaterialIcons name="location-off" size={16} color="#EF4444" />
-              <View className="flex-1 ml-2">
-                <Text className="text-red-700 text-xs font-JakartaBold mb-0.5">{t("outsideServiceArea")}</Text>
-                <Text className="text-red-600 text-xs font-JakartaMedium">{dropError}</Text>
+            <View className="flex-1 px-5 pt-6 pb-6 justify-between">
+              <View>
+            {/* Pickup Field Section */}
+            <View style={{ zIndex: activeField === 'pickup' ? 50 : 1 }}>
+              <View className="flex-row items-center justify-between mb-2 ml-1">
+                <Text className="text-xs font-JakartaSemiBold text-gray-500">
+                  Enter pickup location
+                </Text>
+                {!!userAddress && pickupStatus === 'valid' && (
+                  <TouchableOpacity
+                    onPress={() => handleSavePlace('pickup')}
+                    disabled={isPickupSaved || loadingSaved}
+                    className="flex-row items-center bg-white border border-gray-200 rounded-full px-2.5 py-1"
+                  >
+                    <Ionicons
+                      name={isPickupSaved ? "checkmark" : "create-outline"}
+                      size={12}
+                      color={isPickupSaved ? "#16a34a" : "#6b7280"}
+                    />
+                    <Text className={`ml-1 text-[10px] font-JakartaMedium ${
+                      isPickupSaved ? 'text-green-600' : 'text-gray-600'
+                    }`}>
+                      {isPickupSaved ? 'Saved' : 'Save address'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            </View>
-          )}
+              <GoogleTextInput
+                initialLocation={userAddress ?? undefined}
+                containerStyle={`bg-white rounded-2xl border ${pickupStatus === 'invalid' ? 'border-red-300' : 'border-gray-100'} shadow-sm`}
+                textInputBackgroundColor="transparent"
+                handlePress={handlePickupSelected}
+                testID="ride.pickupInput"
+                locationBias={locationBias}
+                showMapAction={true}
+                onMapActionPress={() => handleSelectOnMap('from')}
+                onClear={handleClearPickup}
+                onFocus={() => setActiveField('pickup')}
+                onBlur={() => setActiveField(null)}
+                onListVisibilityChange={setIsSuggestionListOpen}
+              />
 
-          <View className="flex-row items-center justify-end mt-2 px-2">
-            <TouchableOpacity
-              onPress={() => handleSelectOnMap('to')}
-              className={`flex-row items-center py-2 px-3 rounded-lg ${selectingOnMap === 'to' ? 'bg-blue-500' : 'bg-gray-100'}`}
-            >
-              <Feather name="map-pin" size={16} color={selectingOnMap === 'to' ? '#fff' : '#777'} />
-              <Text className={`ml-2 text-sm font-JakartaMedium ${selectingOnMap === 'to' ? 'text-white' : 'text-gray-600'}`}>
-                {selectingOnMap === 'to' ? t("selecting") : t("selectOnMap")}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+              {/* Compact Current Location & Saved Places */}
+              {!isSuggestionListOpen && (
+              <View className="flex-row items-center justify-between mt-2 px-1">
+                <TouchableOpacity
+                  onPress={handleUseCurrentLocation}
+                  className="flex-row items-center"
+                  disabled={isLoading}
+                >
+                  <Ionicons name="navigate-outline" size={14} color="#3b82f6" />
+                  <Text className="ml-1 text-xs font-JakartaMedium text-blue-500">
+                    {t("useCurrentLocation")}
+                  </Text>
+                </TouchableOpacity>
 
-        {/* Map selection hint */}
-        {selectingOnMap && (
-          <View className="bg-blue-100 p-4 rounded-xl mb-4 flex-row items-center">
-            <Feather name="info" size={18} color="#FF9800" />
-            <Text className="ml-3 text-sm font-JakartaMedium text-blue-700 flex-1">
-              {selectingOnMap === 'from' ? t("mapHintPickup") : t("mapHintDrop")}
-            </Text>
-            <TouchableOpacity onPress={() => setSelectingOnMap(null)} className="bg-blue-500 rounded-full p-1">
-              <Feather name="x" size={16} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        )}
+                {savedAddresses.length > 0 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-1 ml-4">
+                    {savedAddresses.map((place) => (
+                      <TouchableOpacity
+                        key={place.id}
+                        onPress={() => handlePickupSelected({
+                          latitude: Number(place.latitude),
+                          longitude: Number(place.longitude),
+                          address: place.address
+                        })}
+                        className="flex-row items-center bg-white border border-gray-100 rounded-full px-2 py-1 mr-2 shadow-sm"
+                      >
+                        <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={12} color="#FF9800" />
+                        <Text className="ml-1 text-[10px] font-JakartaMedium text-gray-700">{place.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+              )}
 
-        {/* Service area hint when both invalid */}
-        {(pickupStatus === 'invalid' || dropStatus === 'invalid') && serviceAreas.length > 0 && (
-          <View className="mx-0 mb-3 bg-orange-50 border border-orange-200 rounded-xl p-4">
-            <View className="flex-row items-center mb-2">
-              <MaterialIcons name="place" size={16} color="#F97316" />
-              <Text className="ml-2 text-sm font-JakartaBold text-orange-800">{t("availableServiceAreas")}</Text>
-            </View>
-            <View className="flex-row flex-wrap gap-2">
-              {serviceAreas.slice(0, 5).map(area => (
-                <View key={area.id} className="bg-orange-100 px-3 py-1 rounded-full">
-                  <Text className="text-orange-700 text-xs font-JakartaMedium">{area.city}, {area.state}</Text>
+              {/* Pickup error banner */}
+              {!isSuggestionListOpen && pickupStatus === 'invalid' && pickupError && (
+                  <View className="mt-2 bg-red-50 border border-red-200 rounded-xl p-3 flex-row items-start">
+                  <MaterialIcons name="location-off" size={16} color="#EF4444" />
+                  <View className="flex-1 ml-2">
+                    <Text className="text-red-700 text-xs font-JakartaBold mb-0.5">{t("outsideServiceArea")}</Text>
+                    <Text className="text-red-600 text-xs font-JakartaMedium">{pickupError}</Text>
+                  </View>
                 </View>
-              ))}
+              )}
+            </View>
+
+            <View className="h-5 w-px bg-gray-300 ml-10 my-1" />
+
+            {/* Drop Field Section */}
+            <View style={{ zIndex: activeField === 'drop' ? 50 : 1 }}>
+              <View className="flex-row items-center justify-between mb-2 ml-1">
+                <Text className="text-xs font-JakartaSemiBold text-gray-500">
+                  Enter drop location
+                </Text>
+                {!!destinationAddress && dropOk && (
+                  <TouchableOpacity
+                    onPress={() => handleSavePlace('drop')}
+                    disabled={isDropSaved || loadingSaved}
+                    className="flex-row items-center bg-white border border-gray-200 rounded-full px-2.5 py-1"
+                  >
+                    <Ionicons
+                      name={isDropSaved ? "checkmark" : "create-outline"}
+                      size={12}
+                      color={isDropSaved ? "#16a34a" : "#6b7280"}
+                    />
+                    <Text className={`ml-1 text-[10px] font-JakartaMedium ${
+                      isDropSaved ? 'text-green-600' : 'text-gray-600'
+                    }`}>
+                      {isDropSaved ? 'Saved' : 'Save address'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <GoogleTextInput
+                initialLocation={destinationAddress ?? undefined}
+                containerStyle={`bg-white rounded-2xl border ${dropStatus === 'invalid' ? 'border-red-300' : 'border-gray-100'} shadow-sm`}
+                textInputBackgroundColor="transparent"
+                listPosition="top"
+                handlePress={handleDropSelected}
+                testID="ride.dropInput"
+                locationBias={locationBias}
+                showMapAction={true}
+                onMapActionPress={() => handleSelectOnMap('to')}
+                onClear={handleClearDrop}
+                onFocus={() => setActiveField('drop')}
+                onBlur={() => setActiveField(null)}
+                onListVisibilityChange={setIsSuggestionListOpen}
+              />
+
+              {/* Saved Places for Drop */}
+              {!isSuggestionListOpen && savedAddresses.length > 0 && (
+                <View className="mt-2 px-1">
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {savedAddresses.map((place) => (
+                      <TouchableOpacity
+                        key={place.id}
+                        onPress={() => handleDropSelected({
+                          latitude: Number(place.latitude),
+                          longitude: Number(place.longitude),
+                          address: place.address
+                        })}
+                        className="flex-row items-center bg-white border border-gray-100 rounded-full px-2 py-1 mr-2 shadow-sm"
+                      >
+                        <Ionicons name={getPlaceIoniconName(place.icon_type) as any} size={12} color="#FF9800" />
+                        <Text className="ml-1 text-[10px] font-JakartaMedium text-gray-700">{place.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* Drop error banner */}
+              {!isSuggestionListOpen && dropStatus === 'invalid' && dropError && (
+                <View className="mt-2 bg-red-50 border border-red-200 rounded-xl p-3 flex-row items-start">
+                  <MaterialIcons name="location-off" size={16} color="#EF4444" />
+                  <View className="flex-1 ml-2">
+                    <Text className="text-red-700 text-xs font-JakartaBold mb-0.5">{t("outsideServiceArea")}</Text>
+                    <Text className="text-red-600 text-xs font-JakartaMedium">{dropError}</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Service area hint when both invalid */}
+            {!isSuggestionListOpen && (pickupStatus === 'invalid' || dropStatus === 'invalid') && serviceAreas.length > 0 && (
+              <View className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
+                <View className="flex-row items-center mb-2">
+                  <MaterialIcons name="place" size={16} color="#F97316" />
+                  <Text className="ml-2 text-sm font-JakartaBold text-orange-800">{t("availableServiceAreas")}</Text>
+                </View>
+                <View className="flex-row flex-wrap gap-2">
+                  {serviceAreas.slice(0, 5).map(area => (
+                    <View key={area.id} className="bg-orange-100 px-3 py-1 rounded-full">
+                      <Text className="text-orange-700 text-xs font-JakartaMedium">{area.city}, {area.state}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+              </View>
+
+            {!isSuggestionListOpen && (
+            <View className="mt-6">
+               {/* Next button with contextual message */}
+               <CustomButton
+                 title={
+                   !userAddress ? t("enterPickupLocation") :
+                   !destinationAddress ? t("enterDropLocation") :
+                   pickupStatus === 'checking' || dropStatus === 'checking' ? t("validatingLocations") :
+                   pickupStatus === 'invalid' ? t("changePickupSupported") :
+                   dropStatus === 'invalid' ? t("changeDropSupported") :
+                   t("nextReceiverDetails")
+                 }
+                 onPress={handleNext}
+                 testID="ride.nextToReceiverDetails"
+                 accessibilityLabel="ride.nextToReceiverDetails"
+                 bgVariant={canProceed ? "primary" : "secondary"}
+                 disabled={!canProceed}
+               />
+            </View>
+            )}
             </View>
           </View>
-        )}
-
-        {/* Next button with contextual message */}
-        <CustomButton
-          title={
-            !userAddress ? t("enterPickupLocation") :
-            !destinationAddress ? t("enterDropLocation") :
-            pickupStatus === 'checking' || dropStatus === 'checking' ? t("validatingLocations") :
-            pickupStatus === 'invalid' ? t("changePickupSupported") :
-            dropStatus === 'invalid' ? t("changeDropSupported") :
-            t("nextReceiverDetails")
-          }
-          onPress={handleNext}
-          testID="ride.nextToReceiverDetails"
-          accessibilityLabel="ride.nextToReceiverDetails"
-          className="mt-4"
-          bgVariant={canProceed ? "primary" : "secondary"}
-          disabled={!canProceed}
-        />
+        </KeyboardAvoidingView>
       </View>
-      </TouchableWithoutFeedback>
-    </RideLayout>
+    </GestureHandlerRootView>
   );
 };
 

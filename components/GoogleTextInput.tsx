@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect } from "react";
 import { 
   View, 
   Image, 
-  TouchableOpacity, 
+  TouchableOpacity,
   TextInput, 
-  FlatList, 
   Text,
   ActivityIndicator,
-  Keyboard
+  Keyboard,
+  ScrollView
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -32,6 +32,7 @@ const GoogleTextInput = ({
   initialLocation,
   containerStyle,
   textInputBackgroundColor,
+  listPosition = "bottom",
   handlePress,
 }: GoogleInputProps) => {
   const [query, setQuery] = useState("");
@@ -100,8 +101,40 @@ const GoogleTextInput = ({
     }
   };
 
+  const renderAutocompleteList = () => (
+    <View
+      className={`mx-5 rounded-xl shadow-md overflow-hidden ${
+        listPosition === "top" ? "mb-3" : "absolute top-14 z-[999]"
+      }`}
+      style={{ backgroundColor: textInputBackgroundColor || "white", maxHeight: 250 }}
+    >
+      {loading && predictions.length === 0 ? (
+        <View className="p-4 items-center justify-center">
+          <ActivityIndicator size="small" color="#FF9800" />
+        </View>
+      ) : (
+        <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+          {predictions.map((item) => (
+            <TouchableOpacity
+              key={item.place_id}
+              onPress={() => handleSelect(item)}
+              className="px-4 py-3 border-b border-gray-100 flex-row items-center"
+            >
+              <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />
+              <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={2}>
+                {item.description}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+
   return (
     <View className={`relative z-50 ${containerStyle}`}>
+      {showList && query.length > 0 && listPosition === "top" && renderAutocompleteList()}
+
       <View
         className="flex flex-row items-center justify-center rounded-2xl mx-5 shadow-sm"
         style={{ backgroundColor: textInputBackgroundColor || "white" }}
@@ -125,35 +158,7 @@ const GoogleTextInput = ({
       </View>
 
       {/* Autocomplete List */}
-      {showList && (query.length > 0) && (
-        <View 
-          className="absolute top-14 left-5 right-5 rounded-xl shadow-md z-50 overflow-hidden"
-          style={{ backgroundColor: textInputBackgroundColor || "white", maxHeight: 250 }}
-        >
-          {loading && predictions.length === 0 ? (
-            <View className="p-4 items-center justify-center">
-              <ActivityIndicator size="small" color="#FF9800" />
-            </View>
-          ) : (
-            <FlatList
-              data={predictions}
-              keyExtractor={(item) => item.place_id}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  onPress={() => handleSelect(item)}
-                  className="px-4 py-3 border-b border-gray-100 flex-row items-center"
-                >
-                  <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />
-                  <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={2}>
-                    {item.description}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-        </View>
-      )}
+      {showList && query.length > 0 && listPosition === "bottom" && renderAutocompleteList()}
     </View>
   );
 };

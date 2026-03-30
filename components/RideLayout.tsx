@@ -47,6 +47,9 @@ const RideLayout = ({
           ref={bottomSheetRef}
           snapPoints={snapPoints || ["40%", "85%"]}
           index={0}
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
+          android_keyboardInputMode="adjustResize"
         >
           {title === "Choose a Rider" ? (
             <BottomSheetView
@@ -63,6 +66,7 @@ const RideLayout = ({
                 flex: 1,
                 padding: 20,
               }}
+              keyboardShouldPersistTaps="handled"
             >
               {children}
             </BottomSheetScrollView>

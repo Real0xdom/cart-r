@@ -102,8 +102,8 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ invoice }) => 
           <Text style={styles.sectionTitle}>Charges Breakdown</Text>
           
           <View style={styles.chargeRow}>
-            <Text style={styles.chargeLabel}>Base Fare</Text>
-            <Text style={styles.chargeValue}>{formatCurrency(invoice.base_fare)}</Text>
+            <Text style={styles.chargeLabel}>Trip Fare (Gross)</Text>
+            <Text style={styles.chargeValue}>{formatCurrency(invoice.total_amount - (invoice.waiting_charges || 0) - (invoice.addon_charges || 0) - (invoice.tip_amount || 0))}</Text>
           </View>
 
           {invoice.tip_amount > 0 && (
@@ -139,11 +139,21 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ invoice }) => 
             </View>
           )}
 
+          <View style={styles.chargeRow}>
+            <Text style={[styles.chargeLabel, { fontWeight: '600' }]}>Gross Total</Text>
+            <Text style={[styles.chargeValue, { fontWeight: '600' }]}>{formatCurrency(invoice.total_amount)}</Text>
+          </View>
+
+          <View style={styles.chargeRow}>
+            <Text style={styles.chargeLabel}>Commission Deduction</Text>
+            <Text style={styles.chargeValue}>- {formatCurrency(invoice.platform_fee)}</Text>
+          </View>
+
           <View style={styles.totalDivider} />
 
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Amount</Text>
-            <Text style={styles.totalValue}>{formatCurrency(invoice.total_amount)}</Text>
+            <Text style={styles.totalLabel}>Driver Payout</Text>
+            <Text style={styles.totalValue}>{formatCurrency(invoice.driver_payout)}</Text>
           </View>
         </View>
 

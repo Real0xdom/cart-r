@@ -23,6 +23,19 @@ export interface CreateBookingParams {
   fareMultiplier?: number;
 }
 
+interface CreateBookingAddonParam {
+  code: string;
+  quantity?: number;
+}
+
+export interface DriverLocationSnapshot {
+  bookingId?: string | null;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  recordedAt?: string;
+}
+
 // Generate unique booking number with nanosecond precision and randomness
 // Format: CARTR-{timestamp}-{nano}-{random} = ~30 characters
 function generateBookingNumber(): string {
@@ -92,8 +105,8 @@ export async function createBooking(params: CreateBookingParams): Promise<{
       status: 'pending',
       payment_status: 'pending',
       payment_method: 'cash', // Default to cash, can be changed later
-      // Booking expires in 10 minutes if no driver accepts (increased from 3 to give drivers enough time)
-      expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      // Booking expires in 3 minutes if no driver accepts to cleanly align with UI timeout
+      expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
     };
 
     console.log('[createBooking] Data to insert (NO booking_number):', JSON.stringify(bookingData, null, 2));
@@ -143,6 +156,8 @@ export async function getBookingById(bookingId: string): Promise<{
           rating,
           current_latitude,
           current_longitude,
+          current_heading,
+          last_location_update,
           user:users!drivers_user_id_fkey(id, name, phone, avatar_url)
         ),
         booking_addons(
@@ -246,8 +261,31 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
+  let lastStateString = '';
+
+  const pollLatest = async () => {
+    try {
+      const { data } = await getBookingById(bookingId);
+      if (data) {
+        const stateString = JSON.stringify(data);
+        if (stateString !== lastStateString) {
+          lastStateString = stateString;
+          onUpdate(data);
+        }
+      }
+    } catch (e) {
+      console.warn('[subscribeToBooking] Polling failed:', e);
+    }
+  };
+
+  // Fallback polling every 3 seconds (reduced from 5s for faster detection)
+  const pollInterval = setInterval(pollLatest, 3000);
+
+  // Unique channel name to prevent Supabase Realtime collisions on re-mount
+  const channelName = `customer-booking-${bookingId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
   const subscription = supabase
-    .channel(`customer-booking-${bookingId}`)
+    .channel(channelName)
     .on(
       'postgres_changes',
       {
@@ -262,26 +300,154 @@ export function subscribeToBooking(
         // Re-hydrate the booking so screens receive the latest relational data
         // together with the status change. This avoids stale UI state on track pages.
         const { data } = await getBookingById(bookingId);
-        onUpdate(data ?? updatedBooking);
+        const bookingToUpdate = data ?? updatedBooking;
+        
+        lastStateString = JSON.stringify(bookingToUpdate);
+        onUpdate(bookingToUpdate);
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      console.log(`[subscribeToBooking] Channel ${channelName} status:`, status);
+      // Immediately poll when connected to catch any updates missed during setup
+      if (status === 'SUBSCRIBED') {
+        void pollLatest();
+      }
+    });
+
+  return () => {
+    clearInterval(pollInterval);
+    subscription.unsubscribe();
+  };
+}
+
+/**
+ * Subscribe to driver location updates (using history table for reliability)
+ * This is better because driver_locations is already enabled for Realtime
+ */
+export function subscribeToBookingDriverLocation(
+  bookingId: string,
+  driverId: string,
+  onLocationUpdate: (location: DriverLocationSnapshot) => void
+) {
+  const subscription = supabase
+    .channel(`reli-driver-location-${bookingId}-${driverId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'driver_locations',
+        filter: `booking_id=eq.${bookingId}`,
+      },
+      (payload) => {
+        console.log(`[REALTIME-LOCATION] New position for driver ${driverId}:`, payload.new);
+        const { booking_id, latitude, longitude, heading, recorded_at } = payload.new;
+        if (latitude != null && longitude != null) {
+          onLocationUpdate({
+            bookingId: booking_id ?? null,
+            latitude: Number(latitude),
+            longitude: Number(longitude),
+            heading: heading != null ? Number(heading) : undefined,
+            recordedAt: recorded_at ?? undefined,
+          });
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log(`[REALTIME-LOCATION] Subscription status for ${driverId}:`, status);
+    });
 
   return () => {
     subscription.unsubscribe();
   };
 }
 
+export async function getLatestDriverLocation(
+  bookingId: string,
+  options?: {
+    driverId?: string | null;
+    notBefore?: string | null;
+  }
+): Promise<{ data: DriverLocationSnapshot | null; error: string | null }> {
+  try {
+    const notBeforeTimestamp = options?.notBefore ? new Date(options.notBefore).getTime() : 0;
+    const { data: historyRow, error: historyError } = await supabase
+      .from('driver_locations')
+      .select('latitude, longitude, heading, recorded_at')
+      .eq('booking_id', bookingId)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (historyError) {
+      console.warn('[getLatestDriverLocation] History lookup failed, falling back to drivers table:', historyError.message);
+    }
+
+    if (historyRow?.latitude != null && historyRow?.longitude != null) {
+      const recordedAtTimestamp = historyRow.recorded_at ? new Date(historyRow.recorded_at).getTime() : 0;
+      if (notBeforeTimestamp && recordedAtTimestamp && recordedAtTimestamp < notBeforeTimestamp) {
+        return { data: null, error: null };
+      }
+
+      return {
+        data: {
+          bookingId,
+          latitude: Number(historyRow.latitude),
+          longitude: Number(historyRow.longitude),
+          heading: historyRow.heading != null ? Number(historyRow.heading) : undefined,
+          recordedAt: historyRow.recorded_at ?? undefined,
+        },
+        error: null,
+      };
+    }
+
+    if (!options?.driverId) {
+      return { data: null, error: null };
+    }
+
+    const { data: driverRow, error: driverError } = await supabase
+      .from('drivers')
+      .select('current_latitude, current_longitude, current_heading, last_location_update')
+      .eq('id', options.driverId)
+      .maybeSingle();
+
+    if (driverError) {
+      return { data: null, error: driverError.message };
+    }
+
+    if (driverRow?.current_latitude == null || driverRow?.current_longitude == null) {
+      return { data: null, error: null };
+    }
+
+    const lastUpdateTimestamp = driverRow.last_location_update ? new Date(driverRow.last_location_update).getTime() : 0;
+    if (notBeforeTimestamp && lastUpdateTimestamp && lastUpdateTimestamp < notBeforeTimestamp) {
+      return { data: null, error: null };
+    }
+
+    return {
+      data: {
+        bookingId,
+        latitude: Number(driverRow.current_latitude),
+        longitude: Number(driverRow.current_longitude),
+        heading: (driverRow as any).current_heading != null ? Number((driverRow as any).current_heading) : undefined,
+        recordedAt: driverRow.last_location_update ?? undefined,
+      },
+      error: null,
+    };
+  } catch (err: any) {
+    return { data: null, error: err.message ?? 'Failed to fetch latest driver location' };
+  }
+}
+
 /**
- * Subscribe to driver location updates
- * Used during trip tracking
+ * Subscribe to driver profile updates (legacy/fallback)
  */
 export function subscribeToDriverLocation(
   driverId: string,
   onLocationUpdate: (location: { latitude: number; longitude: number; heading?: number }) => void
 ) {
   const subscription = supabase
-    .channel(`driver-location-${driverId}`)
+    .channel(`driver-profile-${driverId}`)
     .on(
       'postgres_changes',
       {
@@ -291,11 +457,12 @@ export function subscribeToDriverLocation(
         filter: `id=eq.${driverId}`,
       },
       (payload) => {
-        const { current_latitude, current_longitude } = payload.new;
+        const { current_latitude, current_longitude, current_heading } = payload.new;
         if (current_latitude && current_longitude) {
           onLocationUpdate({
             latitude: parseFloat(current_latitude),
             longitude: parseFloat(current_longitude),
+            heading: current_heading ? parseFloat(current_heading) : undefined,
           });
         }
       }
@@ -347,40 +514,129 @@ export async function cancelBooking(
  */
 export async function retryBookingWithIncreasedPrice(
   bookingId: string,
+  customerId: string,
   newTipAmount: number,
   newFareMultiplier: number
 ): Promise<{ success: boolean; error: string | null }> {
   try {
-    // First get the current booking to calculate new payout (include addon_charges)
-    const { data: booking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('total_fare, addon_charges')
-      .eq('id', bookingId)
-      .single();
-
-    if (fetchError || !booking) {
-      return { success: false, error: 'Booking not found' };
-    }
-
-    const baseTotal = (booking.total_fare || 0) + (booking.addon_charges || 0);
-    const newDriverPayout = (baseTotal * newFareMultiplier) + newTipAmount;
-
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        tip_amount: newTipAmount,
-        fare_multiplier: newFareMultiplier,
-        driver_payout: newDriverPayout,
-        status: 'pending',
-        // Extend expiration by 10 more minutes - drivers will see this ride again
-        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .in('status', ['pending']); // Only update if still pending (not accepted/cancelled)
+    const { data, error } = await supabase.rpc('retry_booking_with_tip_and_wallet_sync' as any, {
+      p_booking_id: bookingId,
+      p_customer_id: customerId,
+      p_new_tip_amount: newTipAmount,
+      p_new_fare_multiplier: newFareMultiplier,
+    });
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Failed to update booking' };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Create a new booking together with any selected add-ons in one DB-side flow.
+ * This avoids a race where drivers see the booking before booking_addons exists.
+ */
+export async function createBookingWithAddons(
+  params: CreateBookingParams,
+  addons: CreateBookingAddonParam[] = []
+): Promise<{
+  data: Booking | null;
+  error: string | null;
+}> {
+  try {
+    const {
+      customerId,
+      vehicle,
+      receiverDetails,
+      goodsDescription,
+      tipAmount = 0,
+      fareMultiplier = 1.0,
+    } = params;
+
+    const driverPayout = (vehicle.total_fare * fareMultiplier) + tipAmount;
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString();
+
+    const addonPayload = addons
+      .filter((addon) => typeof addon.code === 'string' && addon.code.trim().length > 0)
+      .map((addon) => ({
+        code: addon.code.trim(),
+        quantity: addon.quantity && addon.quantity > 0 ? addon.quantity : 1,
+      }));
+
+    const { data: createdBooking, error } = await supabase.rpc('create_booking_with_addons' as any, {
+      p_customer_id: customerId,
+      p_origin_address: params.originAddress,
+      p_origin_latitude: params.originLatitude,
+      p_origin_longitude: params.originLongitude,
+      p_destination_address: params.destinationAddress,
+      p_destination_latitude: params.destinationLatitude,
+      p_destination_longitude: params.destinationLongitude,
+      p_vehicle_type: vehicle.vehicle_type,
+      p_estimated_distance: vehicle.distance_km,
+      p_estimated_duration: vehicle.duration_minutes,
+      p_base_fare: vehicle.base_fare,
+      p_distance_fare: vehicle.distance_fare,
+      p_time_fare: vehicle.time_fare,
+      p_surge_multiplier: vehicle.surge_multiplier,
+      p_total_fare: vehicle.total_fare,
+      p_tip_amount: tipAmount,
+      p_fare_multiplier: fareMultiplier,
+      p_driver_payout: driverPayout,
+      p_pickup_otp: generateOTP(),
+      p_receiver_name: receiverDetails.name,
+      p_receiver_phone: receiverDetails.phone,
+      p_goods_description: goodsDescription || null,
+      p_payment_status: 'pending',
+      p_payment_method: 'cash',
+      p_expires_at: expiresAt,
+      p_addons: addonPayload,
+    });
+
+    if (error || !createdBooking?.id) {
+      return { data: null, error: error?.message || 'Failed to create booking' };
+    }
+
+    const { data: hydratedBooking, error: fetchError } = await getBookingById(createdBooking.id);
+    if (fetchError) {
+      return {
+        data: createdBooking as unknown as Booking,
+        error: null,
+      };
+    }
+
+    return { data: hydratedBooking, error: null };
+  } catch (err: any) {
+    console.error('[createBookingWithAddons] Exception:', err);
+    return { data: null, error: err.message || 'Failed to create booking with add-ons' };
+  }
+}
+
+export async function expireBookingSearch(
+  bookingId: string,
+  customerId: string
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const { data, error } = await supabase.rpc('expire_booking_search' as any, {
+      p_booking_id: bookingId,
+      p_customer_id: customerId,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    const result = data as any;
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'Failed to expire booking search' };
     }
 
     return { success: true, error: null };

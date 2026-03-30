@@ -2,7 +2,12 @@
   "name": "carter-project",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["apps/*"],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
   "description": "Carter - Pune's Logistics App",
   "scripts": {
     "customer": "cd apps/customer && npx expo start",
@@ -37,8 +42,12 @@
     }
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
     "@playwright/test": "^1.55.0",
+    "@types/chai": "^5.2.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.18.0",
+    "ajv": "^8.18.0",
+    "ajv-keywords": "^5.1.0",
     "allure-commandline": "^2.34.0",
     "allure-mocha": "^3.0.0",
     "allure-playwright": "^3.0.0",
@@ -47,12 +56,11 @@
     "dotenv": "^16.6.0",
     "mocha": "^11.7.0",
     "rimraf": "^5.0.1",
+    "tailwindcss": "3.3.2",
     "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4",
     "webdriverio": "^9.20.0",
-    "zod": "^4.3.6",
-    "@types/node": "^22.18.0",
-    "@types/mocha": "^10.0.10",
-    "@types/chai": "^5.2.2"
+    "zod": "^4.3.6"
   }
 }

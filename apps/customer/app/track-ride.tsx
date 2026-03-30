@@ -19,13 +19,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
-import { subscribeToBooking, subscribeToDriverLocation, getBookingById, cancelBooking } from "@/lib/bookings";
+import { subscribeToBooking, subscribeToBookingDriverLocation, getBookingById, cancelBooking, getLatestDriverLocation } from "@/lib/bookings";
 import {
   showDriverArrivedNotification,
   showPaymentSuccessNotification,
   showTripCompletedCustomerNotification,
   showTripStartedNotification,
 } from "@/lib/notifications";
+import {
+  getOutstandingCustomerAmount,
+  isCustomerPaymentFullySettled,
+  usesWalletFunds,
+} from "@/lib/bookingPayment";
 import PaymentConfirmationModal from "@/components/PaymentConfirmationModal";
 import CancelRideModal from "@/components/CancelRideModal";
 import { WaitingTimer } from "@/components/WaitingTimer";
@@ -38,10 +43,7 @@ import { icons, images } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
-const usesWalletFunds = (booking: Booking | null | undefined) =>
-  booking?.payment_method === "wallet" ||
-  booking?.payment_method === "partial_wallet" ||
-  booking?.payment_method === "wallet_plus_online";
+const formatCurrency = (amount: number | null | undefined) => `Rs. ${Number(amount || 0).toFixed(2)}`;
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -51,11 +53,10 @@ const TrackRidePage = () => {
   const [booking, setBooking] = useState<Booking | null>(
     currentBooking?.id === bookingId ? currentBooking : null
   );
-  const [driverLocation, setDriverLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number; heading?: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const lastUpdateRef = useRef<number>(Date.now());
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false);
   const [completedBookingAmount, setCompletedBookingAmount] = useState(0);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -67,8 +68,47 @@ const TrackRidePage = () => {
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const previousBookingStatusRef = useRef<Booking["status"] | null>(currentBooking?.status ?? null);
   const previousPaymentStatusRef = useRef<string | null>(currentBooking?.payment_status ?? null);
+  const latestDriverLocationTimestampRef = useRef<number>(0);
+  const trackingStartedAtRef = useRef<string | null>(currentBooking?.accepted_at ?? currentBooking?.created_at ?? null);
 
   const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
+
+  const applyDriverLocationUpdate = (location: { latitude: number; longitude: number; heading?: number; recordedAt?: string }) => {
+    const parsedTimestamp = location.recordedAt ? new Date(location.recordedAt).getTime() : Date.now();
+    const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+
+    if (nextTimestamp < latestDriverLocationTimestampRef.current) {
+      console.log('[TRACK-RIDE] Ignoring stale driver location update', {
+        incoming: location.recordedAt,
+        latest: new Date(latestDriverLocationTimestampRef.current).toISOString(),
+      });
+      return;
+    }
+
+    latestDriverLocationTimestampRef.current = nextTimestamp;
+    setDriverLocation({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      heading: location.heading,
+    });
+    lastUpdateRef.current = Date.now();
+  };
+
+  const isFreshForCurrentBooking = (recordedAt?: string | null) => {
+    const trackingStartedAt = trackingStartedAtRef.current;
+    if (!trackingStartedAt || !recordedAt) {
+      return true;
+    }
+
+    const trackingTimestamp = new Date(trackingStartedAt).getTime();
+    const locationTimestamp = new Date(recordedAt).getTime();
+
+    if (!Number.isFinite(trackingTimestamp) || !Number.isFinite(locationTimestamp)) {
+      return true;
+    }
+
+    return locationTimestamp >= trackingTimestamp;
+  };
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -152,7 +192,7 @@ const TrackRidePage = () => {
     }
 
     // Fetch latest booking data
-    getBookingById(bookingId).then(({ data }) => {
+    getBookingById(bookingId).then(async ({ data }) => {
       if (data) {
         // If booking is still pending/queued, redirect back to waiting screen
         if (data.status === 'pending' || data.status === 'queued' || !data.driver_id) {
@@ -167,18 +207,40 @@ const TrackRidePage = () => {
         setCurrentBooking(data);
         previousBookingStatusRef.current = data.status;
         previousPaymentStatusRef.current = data.payment_status || null;
+        trackingStartedAtRef.current = data.accepted_at ?? data.created_at ?? null;
         
         // Set initial driver location if available
         // Set initial driver location if available
-        if ((data.driver as any)?.current_latitude && (data.driver as any)?.current_longitude) {
-          console.log('[TRACK-RIDE] Setting initial driver location:', {
-            lat: (data.driver as any).current_latitude,
-            lng: (data.driver as any).current_longitude
+        if (data.driver_id) {
+          const { data: latestLocation } = await getLatestDriverLocation(bookingId, {
+            driverId: data.driver_id,
+            notBefore: trackingStartedAtRef.current,
           });
-          setDriverLocation({
-            latitude: parseFloat((data.driver as any).current_latitude),
-            longitude: parseFloat((data.driver as any).current_longitude),
-          });
+          if (latestLocation) {
+            console.log('[TRACK-RIDE] Setting initial driver location from latest snapshot:', {
+              lat: latestLocation.latitude,
+              lng: latestLocation.longitude,
+              recordedAt: latestLocation.recordedAt,
+            });
+            applyDriverLocationUpdate(latestLocation);
+          } else if (
+            (data.driver as any)?.current_latitude != null &&
+            (data.driver as any)?.current_longitude != null &&
+            isFreshForCurrentBooking((data.driver as any)?.last_location_update)
+          ) {
+            console.log('[TRACK-RIDE] Falling back to joined driver location:', {
+              lat: (data.driver as any).current_latitude,
+              lng: (data.driver as any).current_longitude
+            });
+            applyDriverLocationUpdate({
+              latitude: Number((data.driver as any).current_latitude),
+              longitude: Number((data.driver as any).current_longitude),
+              heading: (data.driver as any)?.current_heading != null ? Number((data.driver as any).current_heading) : undefined,
+              recordedAt: (data.driver as any)?.last_location_update ?? undefined,
+            });
+          } else {
+            console.log('[TRACK-RIDE] No driver location in booking data');
+          }
         } else {
           console.log('[TRACK-RIDE] No driver location in booking data');
         }
@@ -195,6 +257,7 @@ const TrackRidePage = () => {
       setCurrentBooking(updatedBooking);
       previousBookingStatusRef.current = updatedBooking.status;
       previousPaymentStatusRef.current = updatedBooking.payment_status || null;
+      trackingStartedAtRef.current = updatedBooking.accepted_at ?? trackingStartedAtRef.current ?? updatedBooking.created_at ?? null;
 
       if (updatedBooking.status === 'driver_arrived' && previousStatus !== 'driver_arrived') {
         void showDriverArrivedNotification(updatedBooking.id);
@@ -214,7 +277,7 @@ const TrackRidePage = () => {
 
       // If completed, show payment confirmation modal first
       if (updatedBooking.status === 'completed') {
-        setCompletedBookingAmount(updatedBooking.driver_payout || updatedBooking.total_fare);
+        setCompletedBookingAmount(updatedBooking.total_fare);
         setShowPaymentConfirmation(true);
       } else if (updatedBooking.status === 'pending' || updatedBooking.status === 'queued') {
         // Driver cancelled - redirect back to waiting screen to find new driver
@@ -248,21 +311,70 @@ const TrackRidePage = () => {
       return;
     }
 
-    console.log('[TRACK-RIDE] Subscribing to driver location for driver_id:', booking.driver_id);
+    const activeDriverId = booking.driver_id;
+    console.log('[TRACK-RIDE] Subscribing to driver location for driver_id:', activeDriverId);
     
-    const unsubscribeLocation = subscribeToDriverLocation(
-      booking.driver_id,
+    // Listen to driver location updates using the reliable history-based subscription
+    const unsubscribeLocation = subscribeToBookingDriverLocation(
+      booking.id,
+      activeDriverId,
       (location) => {
-        console.log('[TRACK-RIDE] Driver location update received:', location);
-        setDriverLocation(location);
+        const { latitude, longitude, heading: updateHeading } = location;
+        console.log(`[TRACKING-LIVE] Update from history for Driver ${activeDriverId}:`, {
+          lat: latitude.toFixed(6),
+          lng: longitude.toFixed(6),
+          heading: updateHeading,
+          time: new Date().toLocaleTimeString(),
+          recordedAt: location.recordedAt,
+        });
+        applyDriverLocationUpdate(location);
       }
     );
 
+    // Heartbeat: If no history updates for 10s, poll the driver's profile
+    const heartbeatInterval = setInterval(async () => {
+      const timeSinceUpdate = Date.now() - (lastUpdateRef.current || 0);
+      if (timeSinceUpdate > 10000) {
+        console.log('[TRACKING-HEARTBEAT] No live updates for 10s, polling profile...');
+        const { data: latestLocation } = await getLatestDriverLocation(booking.id, {
+          driverId: activeDriverId,
+          notBefore: trackingStartedAtRef.current,
+        });
+        if (latestLocation) {
+          console.log('[TRACKING-HEARTBEAT] Polled latest driver location:', {
+            lat: latestLocation.latitude,
+            lng: latestLocation.longitude,
+            recordedAt: latestLocation.recordedAt,
+          });
+          applyDriverLocationUpdate(latestLocation);
+        } else {
+          const { data } = await getBookingById(bookingId);
+          if (
+            data?.driver &&
+            (data.driver as any).current_latitude != null &&
+            (data.driver as any).current_longitude != null &&
+            isFreshForCurrentBooking((data.driver as any).last_location_update)
+          ) {
+            console.log('[TRACKING-HEARTBEAT] Polled fallback profile location:', {
+              lat: (data.driver as any).current_latitude,
+              lng: (data.driver as any).current_longitude
+            });
+            applyDriverLocationUpdate({
+              latitude: Number((data.driver as any).current_latitude),
+              longitude: Number((data.driver as any).current_longitude),
+              heading: (data.driver as any).current_heading != null ? Number((data.driver as any).current_heading) : undefined,
+              recordedAt: (data.driver as any).last_location_update ?? undefined,
+            });
+          }
+        }
+      }
+    }, 10000);
+
     return () => {
-      console.log('[TRACK-RIDE] Unsubscribing from driver location');
       unsubscribeLocation();
+      clearInterval(heartbeatInterval);
     };
-  }, [booking?.driver_id]);
+  }, [booking?.driver_id, bookingId]);
 
   // Fit map to show driver and destination
   useEffect(() => {
@@ -344,6 +456,10 @@ const TrackRidePage = () => {
 
   const status = getStatusMessage();
   const isInProgress = booking?.status === 'in_progress';
+  const outstandingAmount = getOutstandingCustomerAmount(booking);
+  const isFullySettled = isCustomerPaymentFullySettled(booking);
+  const isCashCollectionBooking =
+    booking?.payment_method === "cash" || booking?.payment_method === "wallet_plus_cash";
 
   if (isLoading) {
     return (
@@ -552,11 +668,14 @@ const TrackRidePage = () => {
           )}
 
           {/* Waiting Timer - show when driver has arrived */}
-          {booking?.status === 'driver_arrived' && booking?.driver_arrived_at && (
+          {booking?.status === 'driver_arrived'
+            && booking?.driver_arrived_at
+            && booking?.free_waiting_time_minutes != null
+            && booking?.waiting_charge_per_minute != null && (
             <WaitingTimer
               driverArrivedAt={booking.driver_arrived_at}
-              freeWaitingMinutes={booking.free_waiting_time_minutes || 5}
-              waitingChargePerMinute={booking.waiting_charge_per_minute || 2}
+              freeWaitingMinutes={booking.free_waiting_time_minutes}
+              waitingChargePerMinute={booking.waiting_charge_per_minute}
             />
           )}
 
@@ -600,7 +719,7 @@ const TrackRidePage = () => {
                 <View className="items-center flex-1">
                   <Text className="text-xs text-gray-500">Delivery OTP</Text>
                   <Text testID="booking.deliveryOtpValue" accessibilityLabel="booking.deliveryOtpValue" className="text-lg font-JakartaBold text-orange-600">{booking?.delivery_otp || "------"}</Text>
-                  <Text className="text-[10px] text-gray-400 mt-1">Share with Driver to Receive</Text>
+                  <Text className="text-[10px] text-gray-400 mt-1">Also sent via SMS to receiver</Text>
                 </View>
               ) : (
                 <View className="items-center flex-1">
@@ -613,7 +732,7 @@ const TrackRidePage = () => {
               <View className="items-center flex-1">
                 <Text className="text-xs text-gray-500">Fare</Text>
                 <Text className="text-sm font-JakartaBold text-green-600">
-                  ₹{booking?.driver_payout || booking?.total_fare}
+                  {formatCurrency(booking?.total_fare)}
                 </Text>
               </View>
             </View>
@@ -622,7 +741,7 @@ const TrackRidePage = () => {
             {/* Note: In a real app we'd add a 'payment_requested_at' field or similar logic. 
                 For now we rely on status='in_progress' and user check manually via push notification, 
                 or we can add a persistent button here if not paid. */}
-            {booking?.status === 'in_progress' && booking?.payment_status !== 'paid' && (
+            {booking?.status === 'in_progress' && outstandingAmount > 0 && !isCashCollectionBooking && (
                 <TouchableOpacity
                   testID="booking.payOnlineButton"
                   accessibilityLabel="booking.payOnlineButton"
@@ -636,12 +755,16 @@ const TrackRidePage = () => {
                   disabled={isNavigating}
                   className={`mt-4 w-full py-4 rounded-xl flex-row items-center justify-center shadow-md shadow-primary-300 ${isNavigating ? 'bg-gray-400' : 'bg-primary-500'}`}
                >
-                  <Text className="text-white font-JakartaBold text-lg mr-2">Pay Now</Text>
+                  <Text className="text-white font-JakartaBold text-lg mr-2">
+                    {booking?.payment_status === 'paid'
+                      ? `Pay Extra ${formatCurrency(outstandingAmount)}`
+                      : 'Pay Now'}
+                  </Text>
                   <Feather name="arrow-right" size={20} color="white" />
                </TouchableOpacity>
             )}
 
-            {booking?.payment_status === 'paid' && (
+            {isFullySettled && (
                <View className="mt-4 bg-green-100 p-2 rounded-lg items-center">
                   <Text className="text-green-700 font-JakartaBold text-xs">PAYMENT COMPLETE</Text>
                </View>
@@ -715,3 +838,4 @@ const TrackRidePage = () => {
 };
 
 export default TrackRidePage;
+

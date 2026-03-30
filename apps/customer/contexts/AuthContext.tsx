@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
 
@@ -17,7 +17,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithPhone: (phone: string) => Promise<{ error: Error | null }>;
   signInWithWhatsApp: (phone: string) => Promise<{ error: Error | null }>;
-  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null }>;
+  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null; data?: { user: User | null; session: Session | null } }>;
   verifyWhatsAppOtp: (phone: string, token: string, targetRole: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -33,6 +33,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isClearingSessionForPhoneAuthRef = useRef(false);
+
+  const isTransientAuthError = (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    return (
+      message.includes('network request failed') ||
+      message.includes('network error') ||
+      message.includes('failed to fetch') ||
+      message.includes('timed out') ||
+      message.includes('timeout')
+    );
+  };
+
+  const isExpiredOtpError = (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    return (
+      message.includes('token has expired') ||
+      message.includes('expired or is invalid') ||
+      message.includes('otp_expired')
+    );
+  };
+
+  const clearLocalSession = async () => {
+    isClearingSessionForPhoneAuthRef.current = true;
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (error) {
+      console.warn('[AUTH] Failed to clear local session before phone auth:', error);
+    } finally {
+      setTimeout(() => {
+        isClearingSessionForPhoneAuthRef.current = false;
+      }, 0);
+    }
+  };
+
+  const waitBeforeRetry = async (delayMs: number) =>
+    new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  const registerPushTokenWithRetry = async (userId: string) => {
+    import('@/lib/notifications').then(async ({ registerPushToken }) => {
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          const success = await registerPushToken(userId);
+          if (success) {
+            console.log('Push token registered after attempt', attempts + 1);
+            break;
+          }
+        } catch (err: any) {
+          // If Firebase isn't configured, don't retry because it will never work.
+          if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
+            console.log('Push notifications disabled (Firebase not configured). Skipping retries.');
+            break;
+          }
+          console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          await new Promise(resolve =>
+            setTimeout(resolve, attempts === 1 ? 2000 : 5000)
+          );
+          console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
+        }
+      }
+
+      if (attempts === maxAttempts) {
+        console.error('Failed to register push token after 3 attempts');
+      }
+    });
+  };
 
   // Fetch or create user profile from database
   const fetchProfile = async (authUser: User) => {
@@ -53,8 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!data) {
         console.log('Creating new profile for user:', authUser.id);
         const phone = authUser.phone || null;
-        const email = authUser.email || (phone ? `${phone.replace('+', '')}@phone.carter.app` : 'unknown@carter.app');
-        const name = authUser.user_metadata?.name || 'Carter User';
+        const email = authUser.email || (phone ? `${phone.replace('+', '')}@phone.cartr.app` : 'unknown@cartr.app');
+        const name = authUser.user_metadata?.name || 'Cartr User';
 
         const { data: newProfile, error: insertError } = await supabase
           .from('users')
@@ -111,76 +184,91 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const applySession = async (nextSession: Session | null) => {
+    setSession(nextSession);
+    setUser(nextSession?.user ?? null);
+
+    if (nextSession?.user) {
+      await fetchProfile(nextSession.user);
+      void registerPushTokenWithRetry(nextSession.user.id);
+      return;
+    }
+
+    setProfile(null);
+    setDriverProfile(null);
+  };
+
   // Initialize auth state
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user);
+    let isMounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error) {
+          throw error;
+        }
+
+        if (isMounted) {
+          await applySession(data.session);
+        }
+      } catch (error: any) {
+        console.error('Error restoring auth session:', error);
+
+        const message = error?.message?.toLowerCase?.() ?? '';
+        if (message.includes('refresh token')) {
+          // Clear only the local device session if the cached refresh token is stale.
+          await supabase.auth.signOut({ scope: 'local' });
+          if (isMounted) {
+            await applySession(null);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
-    });
+    };
+
+    // Timeout guard: if auth takes >6s (slow network), stop blocking the UI.
+    // The onAuthStateChange listener below will pick up the session when it arrives.
+    const authTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[AUTH] Auth initialization timed out after 6s — unblocking UI');
+        setIsLoading(false);
+      }
+    }, 6000);
+
+    void initializeAuth().finally(() => clearTimeout(authTimeout));
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user);
-          // Register push token with retries
-          import('@/lib/notifications').then(async ({ registerPushToken }) => {
-            let attempts = 0;
-            const maxAttempts = 3;
-            
-            while (attempts < maxAttempts) {
-              try {
-                const success = await registerPushToken(session.user.id);
-                if (success) {
-                  console.log('âœ… Push token registered after attempt', attempts + 1);
-                  break;
-                }
-              } catch (err: any) {
-                // If Firebase isn't configured, don't retry â€” it will never work
-                if (err?.message === 'FIREBASE_NOT_CONFIGURED') {
-                  console.log('âš ï¸ Push notifications disabled (Firebase not configured). Skipping retries.');
-                  break;
-                }
-                console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
-              }
-              
-              attempts++;
-              if (attempts < maxAttempts) {
-                // Wait before retrying (2 seconds, then 5 seconds)
-                await new Promise(resolve => 
-                  setTimeout(resolve, attempts === 1 ? 2000 : 5000)
-                );
-                console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
-              }
-            }
-            
-            if (attempts === maxAttempts) {
-              console.error('âŒ Failed to register push token after 3 attempts');
-            }
-          });
-        } else {
-          setProfile(null);
-          setDriverProfile(null);
+        if (!isMounted) {
+          return;
         }
+
+        await applySession(session);
+        setIsLoading(false);
 
         // Handle navigation based on auth state
         if (event === 'SIGNED_IN') {
           // Will navigate based on role in the calling component
         } else if (event === 'SIGNED_OUT') {
+          if (isClearingSessionForPhoneAuthRef.current) {
+            return;
+          }
           router.replace('/');
         }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(authTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Sign up with email/password
@@ -233,11 +321,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with phone (OTP)
   const signInWithPhone = async (phone: string) => {
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone,
-      });
+      const normalizedPhone = phone.trim();
 
-      if (error) throw error;
+      await clearLocalSession();
+
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { error } = await supabase.auth.signInWithOtp({
+          phone: normalizedPhone,
+        });
+
+        if (!error) {
+          return { error: null };
+        }
+
+        lastError = error;
+        if (!isTransientAuthError(error) || attempt === 1) {
+          throw error;
+        }
+
+        await waitBeforeRetry(1200);
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
       return { error: null };
     } catch (error) {
       return { error: error as Error };
@@ -247,14 +356,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Verify OTP
   const verifyOtp = async (phone: string, token: string) => {
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone,
-        token,
-        type: 'sms',
-      });
+      const normalizedPhone = phone.trim();
+      const sanitizedToken = token.replace(/\D/g, '');
+      let lastError: Error | null = null;
 
-      if (error) throw error;
-      return { error: null };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data, error } = await supabase.auth.verifyOtp({
+          phone: normalizedPhone,
+          token: sanitizedToken,
+          type: 'sms',
+        });
+
+        if (!error) {
+          return { error: null, data };
+        }
+
+        lastError = error;
+        if (!isTransientAuthError(error) || attempt === 1) {
+          break;
+        }
+
+        await waitBeforeRetry(1200);
+      }
+
+      if (lastError && isExpiredOtpError(lastError)) {
+        return {
+          error: new Error('This OTP expired or was replaced. Please request a new code and use the latest OTP.'),
+        };
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
+      return { error: new Error('Failed to verify OTP. Please try again.') };
     } catch (error) {
       return { error: error as Error };
     }
@@ -288,8 +423,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!existingProfile) {
           await supabase.from('users').insert({
             id: data.user.id,
-            email: data.user.email || `${phone}@phone.carter.app`,
-            name: 'Carter User',
+            email: data.user.email || `${phone}@phone.cartr.app`,
+            name: 'Cartr User',
             phone,
             role: targetRole as 'customer' | 'driver',
           });

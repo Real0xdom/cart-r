@@ -3,10 +3,10 @@ import * as Location from 'expo-location';
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 export const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {
-  // Helper: try Expo's built-in reverse geocoding with a 3s timeout
+  // Helper: try Expo's built-in reverse geocoding with a 1.5s timeout (reduced from 3s)
   const expoReverseGeocode = async (): Promise<string | null> => {
     const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('reverseGeocodeAsync timed out')), 3000)
+      setTimeout(() => reject(new Error('reverseGeocodeAsync timed out')), 1500)
     );
     const geocode = Location.reverseGeocodeAsync({ latitude, longitude }).then(([result]) => {
       if (!result) return null;
@@ -24,32 +24,43 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
   // Helper: fall back to Ola Maps Reverse Geocoding API
   const olaReverseGeocode = async (): Promise<string | null> => {
     if (!olaMapsApiKey) return null;
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => controller?.abort(), 1500);
+
     try {
       const response = await fetch(
-        `https://api.olamaps.io/places/v1/reverse-geocode?latlng=${latitude},${longitude}&api_key=${olaMapsApiKey}`
+        `https://api.olamaps.io/places/v1/reverse-geocode?latlng=${latitude},${longitude}&api_key=${olaMapsApiKey}`,
+        controller ? { signal: controller.signal } : undefined
       );
       const data = await response.json();
       if (data.results && data.results.length > 0) {
         return data.results[0].formatted_address;
       }
     } catch (err) {
-      console.warn('Ola reverse geocode failed:', err);
+      if ((err as Error).name !== 'AbortError') {
+        console.warn('Ola reverse geocode failed:', err);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
     return null;
   };
 
+  // Run both geocoding methods in parallel and return the first non-empty result.
+  // This avoids the timeout delay when one provider is slow but the other succeeds quickly.
   try {
-    const expoResult = await expoReverseGeocode();
-    if (expoResult) return expoResult;
+    return await Promise.any(
+      [expoReverseGeocode(), olaReverseGeocode()].map(async (lookup) => {
+        const address = await lookup;
+        if (!address) {
+          throw new Error('Reverse geocode returned no address');
+        }
+        return address;
+      })
+    );
   } catch (err) {
-    console.warn('⚠️ Expo reverseGeocodeAsync failed/timed out, trying Ola Maps API:', (err as Error).message);
-  }
-
-  try {
-    const olaResult = await olaReverseGeocode();
-    if (olaResult) return olaResult;
-  } catch (err) {
-    console.warn('Ola reverse geocoding failed:', err);
+    console.warn('All geocoding methods failed:', (err as Error).message);
   }
 
   return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;

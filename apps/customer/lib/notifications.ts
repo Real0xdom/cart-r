@@ -2,6 +2,7 @@
 // Handles push notification registration, listeners, and local customer ride updates.
 
 import { Platform, Alert, Linking } from 'react-native';
+import Constants from 'expo-constants';
 import { supabase } from './supabase';
 
 export const CUSTOMER_DRIVER_UPDATES_CHANNEL = 'customer_driver_updates';
@@ -259,8 +260,15 @@ export async function getExpoPushToken(): Promise<string | null> {
     }
 
     console.log('Getting Expo push token...');
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      console.warn('Missing EAS projectId in Expo config');
+      return null;
+    }
+
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: undefined,
+      projectId,
     });
 
     if (!tokenData?.data) {

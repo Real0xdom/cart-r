@@ -66,12 +66,32 @@ export const useLocationStore = create<LocationStore>((set) => ({
     if (selectedVehicle) clearSelectedVehicle();
   },
 
+  clearUserLocation: () => {
+    set(() => ({
+      userLatitude: null,
+      userLongitude: null,
+      userAddress: null,
+    }));
+
+    const { selectedDriver, clearSelectedDriver } = useDriverStore.getState();
+    if (selectedDriver) clearSelectedDriver();
+
+    const { selectedVehicle, clearSelectedVehicle } = useRideStore.getState();
+    if (selectedVehicle) clearSelectedVehicle();
+  },
+
   clearDestination: () => {
     set(() => ({
       destinationLatitude: null,
       destinationLongitude: null,
       destinationAddress: null,
     }));
+
+    const { selectedDriver, clearSelectedDriver } = useDriverStore.getState();
+    if (selectedDriver) clearSelectedDriver();
+
+    const { selectedVehicle, clearSelectedVehicle } = useRideStore.getState();
+    if (selectedVehicle) clearSelectedVehicle();
   },
 }));
 

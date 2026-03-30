@@ -9,6 +9,7 @@ import { images } from '@/constants';
 import { hasUserRated } from '@/lib/ratingUtils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { getCustomerPaymentMethodLabel } from '@/lib/bookingPayment';
 import type { Booking } from '@/types/type';
 
 const RideDetails = () => {
@@ -139,10 +140,10 @@ const RideDetails = () => {
                     </View>
                     
                     <Text className="text-3xl font-JakartaBold text-gray-800 mb-1">
-                        ₹{booking.driver_payout || booking.total_fare}
+                        ₹{booking.total_fare}
                     </Text>
                      <Text className="text-gray-400 text-xs font-JakartaMedium mb-4">
-                        {booking.payment_method === 'online' ? 'Paid Online' : 'Cash Payment'}
+                        {getCustomerPaymentMethodLabel(booking.payment_method)}
                     </Text>
                     
                     <View className="bg-gray-50 p-3 rounded-xl flex-row items-center">

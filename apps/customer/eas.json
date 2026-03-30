@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "node": "20.19.0",
       "ios": {
         "simulator": true
       },
@@ -19,6 +20,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "node": "20.19.0",
       "android": {
         "buildType": "apk"
       },
@@ -28,6 +30,7 @@
     },
     "production": {
       "distribution": "store",
+      "node": "20.19.0",
       "ios": {
         "resourceClass": "m-medium"
       },

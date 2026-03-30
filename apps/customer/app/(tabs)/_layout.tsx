@@ -58,6 +58,14 @@ const Layout = () => {
                 tabBarActiveTintColor: "white",
                 tabBarInactiveTintColor: "white",
                 tabBarShowLabel: false,
+                tabBarItemStyle: {
+                    flex: 1,
+                },
+                tabBarIconStyle: {
+                    width: "100%",
+                    alignItems: "center",
+                    justifyContent: "center",
+                },
                 tabBarStyle: {
                     backgroundColor: "#333333",
                     borderRadius: 50,
@@ -66,10 +74,6 @@ const Layout = () => {
                     marginHorizontal: 20,
                     marginBottom: 20,
                     height: 78,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexDirection: "row",
                     position: "absolute",
                 },
             }}

@@ -1,36 +1,34 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Alert,
   Animated,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import RideRequestCard from '@/components/RideRequestCard';
+import type { Booking } from '@/lib/bookings';
 import { checkDriverWalletEligibility, getDriverWalletRechargeNavigationTarget } from '@/lib/wallet';
 
 const COUNTDOWN_SECONDS = 10;
-const TOTAL_TIMEOUT_SECONDS = 30;
 
 interface RideRequestModalProps {
   visible: boolean;
+  bookingId: string;
+  request: Booking;
   driverId?: string;
-  pickupAddress: string;
-  dropAddress: string;
-  fare: number | null | undefined;
-  distance: number | null | undefined;
-  estimatedDuration: number | null | undefined;
   onAccept: () => void;
   onReject: () => void;
-  onTimeout: () => void;
 }
 
 function formatCurrency(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? `₹${Math.round(value)}` : 'Fare pending';
+  return typeof value === 'number' && Number.isFinite(value) ? `Rs ${Math.round(value)}` : 'Fare pending';
 }
 
 function formatDistance(value: number | null | undefined) {
@@ -43,23 +41,20 @@ function formatDuration(value: number | null | undefined) {
 
 export default function RideRequestModal({
   visible,
+  bookingId,
+  request,
   driverId,
-  pickupAddress,
-  dropAddress,
-  fare,
-  distance,
-  estimatedDuration,
   onAccept,
   onReject,
-  onTimeout,
 }: RideRequestModalProps) {
   const insets = useSafeAreaInsets();
+  const bottomSheetRef = useRef<BottomSheet>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [buttonsEnabled, setButtonsEnabled] = useState(false);
   const [isCheckingWallet, setIsCheckingWallet] = useState(false);
-
-  const statsLabel = `${formatCurrency(fare)} • ${formatDistance(distance)} • ${formatDuration(estimatedDuration)}`;
+  const snapPoints = useMemo(() => ['78%'], []);
+  const statsLabel = `${formatCurrency(request.total_fare)} • ${formatDistance(request.estimated_distance)} • ${formatDuration(request.estimated_duration)}`;
 
   useEffect(() => {
     if (!visible) {
@@ -67,6 +62,7 @@ export default function RideRequestModal({
       setButtonsEnabled(false);
       progress.stopAnimation();
       progress.setValue(0);
+      bottomSheetRef.current?.close();
       return;
     }
 
@@ -96,16 +92,15 @@ export default function RideRequestModal({
       });
     }, 1000);
 
-    const timeoutTimer = setTimeout(() => {
-      onTimeout();
-    }, TOTAL_TIMEOUT_SECONDS * 1000);
+    requestAnimationFrame(() => {
+      bottomSheetRef.current?.snapToIndex(0);
+    });
 
     return () => {
       clearInterval(countdownTimer);
-      clearTimeout(timeoutTimer);
       progress.stopAnimation();
     };
-  }, [onTimeout, progress, visible]);
+  }, [progress, visible]);
 
   if (!visible) {
     return null;
@@ -124,12 +119,11 @@ export default function RideRequestModal({
     try {
       setIsCheckingWallet(true);
       const eligibility = await checkDriverWalletEligibility(driverId);
-      console.log('[RIDE REQUEST MODAL] Wallet eligibility:', eligibility);
 
       if (!eligibility.canAcceptRides) {
         Alert.alert(
           'Cannot Accept Ride',
-          `Your wallet balance is \u20b9${eligibility.currentBalance.toFixed(2)}.\n\nRecharge \u20b9${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
+          `Your wallet balance is Rs ${eligibility.currentBalance.toFixed(2)}.\n\nRecharge Rs ${(eligibility.requiredRecharge || 0).toFixed(0)} to accept new ride requests again.`,
           [
             { text: 'Dismiss', onPress: onReject },
             {
@@ -154,48 +148,42 @@ export default function RideRequestModal({
   };
 
   return (
-    <Modal
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      transparent
-      visible={visible}
-      onRequestClose={() => {}}
-    >
-      <View style={styles.overlay}>
-        <View style={[styles.card, { marginTop: Math.max(insets.top + 12, 24) }]} accessibilityRole="alert">
+    <View style={styles.overlay} pointerEvents="box-none">
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={0}
+        snapPoints={snapPoints}
+        enablePanDownToClose={false}
+        handleIndicatorStyle={styles.handleIndicator}
+        backgroundStyle={styles.sheetBackground}
+        backdropComponent={(props) => (
+          <BottomSheetBackdrop
+            {...props}
+            appearsOnIndex={0}
+            disappearsOnIndex={-1}
+            opacity={0.5}
+            pressBehavior="none"
+          />
+        )}
+      >
+        <BottomSheetScrollView
+          contentContainerStyle={[styles.contentContainer, { paddingBottom: Math.max(insets.bottom + 24, 32) }]}
+          accessibilityRole="alert"
+        >
           <View style={styles.header}>
-            <Text style={styles.headerIcon}>🚚</Text>
-            <Text style={styles.headerText} maxFontSizeMultiplier={1.2}>
-              NEW RIDE REQUEST
-            </Text>
-          </View>
-
-          <View style={styles.detailsSection}>
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>📍</Text>
-              <View style={styles.locationCopy}>
-                <Text style={styles.locationLabel}>Pickup</Text>
-                <Text style={styles.locationAddress} numberOfLines={2}>
-                  {pickupAddress || 'Pickup location unavailable'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>📍</Text>
-              <View style={styles.locationCopy}>
-                <Text style={styles.locationLabel}>Drop</Text>
-                <Text style={styles.locationAddress} numberOfLines={2}>
-                  {dropAddress || 'Drop location unavailable'}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.statsText} numberOfLines={1}>
+            <Text style={styles.headerText}>New ride request</Text>
+            <Text style={styles.subHeaderText} numberOfLines={1}>
               {statsLabel}
             </Text>
           </View>
+
+          <RideRequestCard
+            key={bookingId}
+            request={request}
+            onAccept={() => {}}
+            onReject={() => {}}
+            showActions={false}
+          />
 
           <View style={styles.progressSection}>
             <View style={styles.progressTrack}>
@@ -217,7 +205,7 @@ export default function RideRequestModal({
                 buttonsEnabled ? 'You can now respond to this ride request.' : `${countdown} seconds remaining before you can respond.`
               }
             >
-              {buttonsEnabled ? 'You can now respond' : `Please wait ${countdown}s before responding`}
+              {buttonsEnabled ? 'You can now accept or reject this ride' : `Buttons unlock in ${countdown}s`}
             </Text>
           </View>
 
@@ -256,88 +244,52 @@ export default function RideRequestModal({
               </Text>
             </Pressable>
           </View>
-        </View>
-      </View>
-    </Modal>
+        </BottomSheetScrollView>
+      </BottomSheet>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
-    paddingHorizontal: 16,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
   },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 10,
-    minHeight: 188,
+  sheetBackground: {
+    backgroundColor: '#F8FAFC',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  handleIndicator: {
+    backgroundColor: '#CBD5E1',
+    width: 48,
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomColor: '#E5E7EB',
-    borderBottomWidth: 1,
-    paddingBottom: 12,
-  },
-  headerIcon: {
-    fontSize: 22,
-    marginRight: 8,
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
   headerText: {
-    color: '#111827',
-    fontFamily: 'Jakarta-Bold',
-    fontSize: 18,
-    flexShrink: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
   },
-  detailsSection: {
-    paddingVertical: 14,
-    borderBottomColor: '#E5E7EB',
-    borderBottomWidth: 1,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  locationIcon: {
-    fontSize: 16,
-    marginRight: 8,
-    marginTop: 2,
-  },
-  locationCopy: {
-    flex: 1,
-  },
-  locationLabel: {
-    color: '#6B7280',
-    fontFamily: 'Jakarta-Medium',
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  locationAddress: {
-    color: '#111827',
-    fontFamily: 'Jakarta-SemiBold',
-    fontSize: 14,
-  },
-  statsText: {
-    color: '#0F9F6E',
-    fontFamily: 'Jakarta-Bold',
-    fontSize: 15,
-    marginTop: 2,
+  subHeaderText: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#475569',
   },
   progressSection: {
-    paddingVertical: 14,
+    marginTop: 12,
+    marginBottom: 18,
   },
   progressTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
     overflow: 'hidden',
   },
   progressFill: {
@@ -346,18 +298,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   progressCountdownText: {
-    color: '#B45309',
-    fontFamily: 'Jakarta-SemiBold',
-    fontSize: 13,
     marginTop: 10,
+    fontSize: 14,
     textAlign: 'center',
+    color: '#B45309',
+    fontWeight: '700',
   },
   progressReadyText: {
-    color: '#047857',
-    fontFamily: 'Jakarta-SemiBold',
-    fontSize: 13,
     marginTop: 10,
+    fontSize: 14,
     textAlign: 'center',
+    color: '#047857',
+    fontWeight: '700',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -365,9 +317,9 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 14,
     flex: 1,
-    height: 52,
+    height: 54,
     justifyContent: 'center',
     minHeight: 48,
     paddingHorizontal: 12,
@@ -384,7 +336,7 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   buttonPressed: {
-    opacity: 0.85,
+    opacity: 0.88,
   },
   rejectButtonText: {
     color: '#DC2626',

@@ -70,7 +70,7 @@ export default function PayoutsPage() {
       const all = data || [];
       const pending = all.filter((w: Withdrawal) => w.status === 'pending');
       const approved = all.filter((w: Withdrawal) => w.status === 'approved');
-      const paid = all.filter((w: Withdrawal) => w.payout_status === 'SUCCESS' || w.payout_status === 'RECEIVED' || w.payout_status === 'PENDING');
+      const paid = all.filter((w: Withdrawal) => w.payout_status === 'SUCCESS' || w.status === 'paid');
       
       setStats({
         pendingCount: pending.length,
@@ -307,7 +307,7 @@ export default function PayoutsPage() {
           <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center"><CheckCircle size={20} className="text-green-600" /></div>
-              <span className="text-sm font-medium text-gray-500">Paid Out</span>
+              <span className="text-sm font-medium text-gray-500">Successful Payouts</span>
             </div>
             <p className="text-2xl font-bold text-gray-900">{fmt(stats.paidAmount)}</p>
             <p className="text-xs text-gray-400 mt-1">{stats.paidCount} transfers</p>

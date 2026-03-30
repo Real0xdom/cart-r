@@ -1,5 +1,4 @@
 import CustomButton from "@/components/CustomButton";
-import RideLayout from "@/components/RideLayout";
 import { AddonSelector } from "@/components/AddonSelector";
 import { AddonService, calculateAddonCharges, getApplicableAddons } from "@/lib/addonUtils";
 import { calculateFares, FareEstimate } from "@/lib/fare";
@@ -13,7 +12,7 @@ import {
 } from "@/lib/vehicleTypes";
 import { useBookingStore, useLocationStore, useRideStore } from "@/store";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -24,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 const SelectVehiclePage = () => {
@@ -49,6 +49,8 @@ const SelectVehiclePage = () => {
   const [availableAddons, setAvailableAddons] = useState<AddonService[]>([]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>(storedAddonIds);
   const [showAddonModal, setShowAddonModal] = useState(false);
+  const pendingAddonModalVehicleTypeRef = useRef<string | null>(null);
+  const addonFetchRequestIdRef = useRef(0);
 
   const activeVehicleTypes = new Set(vehicleSpecs.map((vehicle) => vehicle.vehicle_type));
   const visibleFares = fares.filter((fare) => activeVehicleTypes.has(fare.vehicle_type));
@@ -109,27 +111,40 @@ const SelectVehiclePage = () => {
         setAvailableAddons([]);
         setSelectedAddonIds([]);
         setStoredAddonIds([]);
+        pendingAddonModalVehicleTypeRef.current = null;
+        setShowAddonModal(false);
         return;
       }
 
-      const { data, error: addonError } = await getApplicableAddons(selectedVehicle.vehicle_type);
+      const requestId = ++addonFetchRequestIdRef.current;
+      const vehicleType = selectedVehicle.vehicle_type;
+      const { data, error: addonError } = await getApplicableAddons(vehicleType);
+
+      // Ignore stale responses from older vehicle selections.
+      if (requestId !== addonFetchRequestIdRef.current) {
+        return;
+      }
+
       if (data && !addonError) {
         setAvailableAddons(data);
+
+        if (pendingAddonModalVehicleTypeRef.current === vehicleType) {
+          pendingAddonModalVehicleTypeRef.current = null;
+          setShowAddonModal(data.length > 0);
+        }
+
         return;
       }
 
       console.error("[SELECT VEHICLE] Failed to load add-ons:", addonError);
       setAvailableAddons([]);
+      if (pendingAddonModalVehicleTypeRef.current === vehicleType) {
+        pendingAddonModalVehicleTypeRef.current = null;
+      }
     };
 
     fetchAddonsForVehicle();
   }, [selectedVehicle, setStoredAddonIds]);
-
-  useEffect(() => {
-    if (selectedVehicle && availableAddons.length > 0) {
-      setShowAddonModal(true);
-    }
-  }, [availableAddons.length, selectedVehicle]);
 
   useEffect(() => {
     if (selectedVehicle && !activeVehicleTypes.has(selectedVehicle.vehicle_type)) {
@@ -143,6 +158,17 @@ const SelectVehiclePage = () => {
   const totalFare = selectedVehicle ? selectedVehicle.total_fare + addonChargesForIds(selectedAddonIds) : 0;
 
   const handleSelectVehicle = (vehicle: FareEstimate) => {
+    if (
+      selectedVehicle?.vehicle_type === vehicle.vehicle_type &&
+      !showAddonModal &&
+      availableAddons.length > 0
+    ) {
+      setShowAddonModal(true);
+      return;
+    }
+
+    setShowAddonModal(false);
+    pendingAddonModalVehicleTypeRef.current = vehicle.vehicle_type;
     setSelectedVehicle(vehicle);
     setSelectedAddonIds([]);
     setStoredAddonIds([]);
@@ -231,8 +257,16 @@ const SelectVehiclePage = () => {
   );
 
   return (
-    <RideLayout title="Select Vehicle" snapPoints={["50%", "90%"]} useView={false}>
-      <View testID="vehicle.selectVehicle" accessibilityLabel="vehicle.selectVehicle">
+    <SafeAreaView className="flex-1 bg-[#f8fafc]">
+      {/* Header */}
+      <View className="flex-row items-center px-5 py-4 bg-white border-b border-gray-100">
+        <TouchableOpacity onPress={() => router.back()} className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center">
+          <Feather name="arrow-left" size={20} color="#333" />
+        </TouchableOpacity>
+        <Text className="ml-4 text-xl font-JakartaBold text-gray-900">Select Vehicle</Text>
+      </View>
+
+      <View testID="vehicle.selectVehicle" accessibilityLabel="vehicle.selectVehicle" className="flex-1">
         {loading ? (
           <View className="items-center justify-center py-10">
             <ActivityIndicator size="large" color="#FF9800" />
@@ -264,21 +298,13 @@ const SelectVehiclePage = () => {
                 </View>
               ) : null}
 
-              <View className="flex-row gap-3">
-                <TouchableOpacity
-                  onPress={() => router.back()}
-                  className="flex-1 flex-row items-center justify-center rounded-xl bg-gray-100 py-4"
-                >
-                  <Feather name="arrow-left" size={18} color="#333" />
-                  <Text className="ml-2 font-JakartaSemiBold text-gray-700">Back</Text>
-                </TouchableOpacity>
-
+              <View className="mt-4">
                 <TouchableOpacity
                   onPress={handleReviewBooking}
                   testID="booking.confirmButton"
                   accessibilityLabel="booking.confirmButton"
                   disabled={!selectedVehicle}
-                  className={`flex-[2] flex-row items-center justify-center rounded-xl py-4 ${
+                  className={`w-full flex-row items-center justify-center rounded-xl py-4 ${
                     selectedVehicle ? "bg-brand-500" : "bg-gray-300"
                   }`}
                 >
@@ -344,7 +370,7 @@ const SelectVehiclePage = () => {
           </Pressable>
         </Modal>
       </View>
-    </RideLayout>
+    </SafeAreaView>
   );
 };
 

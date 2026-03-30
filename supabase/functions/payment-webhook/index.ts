@@ -224,7 +224,7 @@ serve(async (req) => {
       // Find booking by payment_id (handles both regular online payments and UPI QR payments)
       const { data: booking, error: findError } = await supabase
         .from('bookings')
-        .select('id, customer_id, driver_id, total_fare, payment_status')
+        .select('id, customer_id, driver_id, total_fare, quoted_total_fare, payment_status, payment_method')
         .eq('payment_id', orderId)
         .single()
 
@@ -237,7 +237,12 @@ serve(async (req) => {
       }
 
       // Skip if already paid (idempotency)
-      if (booking.payment_status === 'paid') {
+      const outstandingAdditional = Math.max(
+        Number(booking.total_fare ?? 0) - Number(booking.quoted_total_fare ?? booking.total_fare ?? 0),
+        0
+      )
+
+      if (booking.payment_status === 'paid' && outstandingAdditional <= 0) {
         console.log('Booking already paid, skipping:', booking.id)
         return new Response(
           JSON.stringify({ success: true, message: 'Already processed' }),
@@ -247,14 +252,11 @@ serve(async (req) => {
 
       // Update booking payment status
       // NOTE: This UPDATE triggers on_booking_payment_received which auto-credits the driver wallet
-      const { error: updateError } = await supabase
-        .from('bookings')
-        .update({
-          payment_status: 'paid',
-          payment_method: 'online', // UPI is an online payment method
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', booking.id)
+      const { error: updateError } = await supabase.rpc('apply_booking_online_payment', {
+        p_booking_id: booking.id,
+        p_amount: payload.data.payment.payment_amount,
+        p_payment_order_id: orderId,
+      })
 
       if (updateError) {
         console.error('Failed to update booking:', updateError)

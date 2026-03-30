@@ -268,7 +268,6 @@ const ReviewBookingPage = () => {
         : "Select payment method";
   const isConfirmDisabled =
     isCreatingBooking ||
-    !goodsType ||
     !paymentMethod ||
     (paymentMethod === "wallet" && !canUseWallet);
 
@@ -386,7 +385,7 @@ const ReviewBookingPage = () => {
           amount: value,
           customer_id: userId,
           customer_phone: profile?.phone || user?.phone || "9999999999",
-          customer_name: profile?.name || "CartR User",
+          customer_name: profile?.name || "Cartr User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey,
@@ -416,12 +415,7 @@ const ReviewBookingPage = () => {
     const trimmedDescription = goodsDescription.trim();
     let hasError = false;
 
-    if (!goodsType) {
-      setGoodsTypeError("Please select a goods type.");
-      hasError = true;
-    } else {
-      setGoodsTypeError(null);
-    }
+    setGoodsTypeError(null);
 
     if (!paymentMethod) {
       setPaymentMethodError("Please select a payment method.");
@@ -765,7 +759,7 @@ const ReviewBookingPage = () => {
               </View>
 
               <Text className="mt-4 text-sm font-JakartaSemiBold text-gray-700">
-                Goods type <Text className="text-red-500">*</Text>
+                Goods type
               </Text>
               <View className="mt-3 flex-row flex-wrap gap-2">
                 {GOODS_TYPES.map((option) => {

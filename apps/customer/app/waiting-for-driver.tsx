@@ -21,7 +21,8 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { TextInput } from "react-native";
-import { subscribeToBooking, cancelBooking, getBookingById, retryBookingWithIncreasedPrice } from "@/lib/bookings";
+import { subscribeToBooking, cancelBooking, expireBookingSearch, getBookingById, retryBookingWithIncreasedPrice } from "@/lib/bookings";
+import { usesWalletFunds } from "@/lib/bookingPayment";
 import { showDriverAssignedNotification } from "@/lib/notifications";
 import type { Booking } from "@/types/type";
 
@@ -32,11 +33,6 @@ const QUEUED_BOOKING_STATUS: Booking["status"] = "queued";
 
 const hasAssignedDriver = (booking: Booking | null | undefined) =>
   !!booking?.driver_id && ASSIGNED_BOOKING_STATUSES.includes(booking.status);
-
-const usesWalletFunds = (booking: Booking | null | undefined) =>
-  booking?.payment_method === "wallet" ||
-  booking?.payment_method === "partial_wallet" ||
-  booking?.payment_method === "wallet_plus_online";
 
 const WaitingForDriverPage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -57,6 +53,7 @@ const WaitingForDriverPage = () => {
   const [customTipInput, setCustomTipInput] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
   const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+  const timeoutExpiryRequestedRef = useRef(false);
 
   // Animation for pulsing effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -138,6 +135,7 @@ const WaitingForDriverPage = () => {
           console.log('[TIMER] Timeout reached! Showing timeout screen');
           clearInterval(timer);
           setShowTimeout(true);
+          timeoutExpiryRequestedRef.current = false;
           return 0;
         }
         return newValue;
@@ -149,6 +147,30 @@ const WaitingForDriverPage = () => {
       clearInterval(timer);
     };
   }, [driverAccepted, showTimeout, booking?.status]);
+
+  useEffect(() => {
+    if (
+      !showTimeout ||
+      !bookingId ||
+      !profile?.id ||
+      timeoutExpiryRequestedRef.current ||
+      booking?.status !== 'pending' ||
+      booking?.driver_id ||
+      !booking?.expires_at ||
+      new Date(booking.expires_at) > new Date()
+    ) {
+      return;
+    }
+
+    timeoutExpiryRequestedRef.current = true;
+
+    void expireBookingSearch(bookingId, profile.id).then(({ success, error }) => {
+      if (!success) {
+        timeoutExpiryRequestedRef.current = false;
+        console.error('[WAITING] Failed to finalize expired booking:', error);
+      }
+    });
+  }, [showTimeout, bookingId, profile?.id, booking?.status, booking?.driver_id, booking?.expires_at]);
 
   // Redirect if no booking ID - wrapped in useEffect to avoid setState during render
   useEffect(() => {
@@ -178,6 +200,7 @@ const WaitingForDriverPage = () => {
           console.log('[WAITING] Booking is queued - showing queued state');
           setDriverAccepted(false);
           setShowTimeout(false);
+          timeoutExpiryRequestedRef.current = false;
         } else if (hasAssignedDriver(data)) {
           console.log(`[WAITING] Driver already ${data.status} - stopping timer`);
           setDriverAccepted(true);
@@ -191,6 +214,7 @@ const WaitingForDriverPage = () => {
           console.log('[WAITING] Booking already expired - showing add tip screen');
           setShowTimeout(true);
           setTimeRemaining(0);
+          timeoutExpiryRequestedRef.current = false;
         }
       }
     });
@@ -220,6 +244,7 @@ const WaitingForDriverPage = () => {
         console.log('[WAITING] Booking moved to queued state');
         setDriverAccepted(false);
         setShowTimeout(false);
+        timeoutExpiryRequestedRef.current = false;
       } else if (ASSIGNED_BOOKING_STATUSES.includes(updatedBooking.status)) {
         if (updatedBooking.driver) {
           console.log(`[WAITING] Driver found in update (${updatedBooking.status}) - updating state`);
@@ -248,19 +273,82 @@ const WaitingForDriverPage = () => {
           // Reset timer for fresh search
           setShowTimeout(false);
           setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
+          timeoutExpiryRequestedRef.current = false;
+      } else if (updatedBooking.status === 'cancelled') {
+          console.log('[WAITING] Booking was cancelled (possibly search timeout)');
+          const isTimeout = updatedBooking.cancellation_reason === 'Search timed out';
+
+          if (isTimeout) {
+            setDriverAccepted(false);
+            setShowTimeout(true);
+            setTimeRemaining(0);
+            return;
+          }
+
+          Alert.alert(
+            "Ride Cancelled",
+            updatedBooking.cancellation_reason || "This booking has been cancelled.",
+            [{ text: "OK", onPress: () => {
+              clearAll();
+              router.replace("/(tabs)/home");
+            }}]
+          );
       }
     });
+
+    // ── RAPID INITIAL POLLING BURST ─────────────────────────────────────────
+    // For the first 15 seconds, poll every 2 seconds to catch fast acceptances
+    // that may slip through while the Realtime channel is still handshaking.
+    let burstStopped = false;
+    const burstInterval = setInterval(async () => {
+      if (burstStopped) return;
+      try {
+        const { data } = await getBookingById(bookingId);
+        if (data && hasAssignedDriver(data)) {
+          console.log('[WAITING] Rapid-burst detected driver acceptance!');
+          setBooking(data);
+          setCurrentBooking(data);
+          setDriverAccepted(true);
+          burstStopped = true;
+          clearInterval(burstInterval);
+        }
+      } catch (e) {
+        // Non-critical — subscribeToBooking polling will also catch it
+      }
+    }, 2000);
+
+    const burstTimeout = setTimeout(() => {
+      burstStopped = true;
+      clearInterval(burstInterval);
+      console.log('[WAITING] Rapid-burst phase ended (15s)');
+    }, 15000);
+    // ────────────────────────────────────────────────────────────────────────
 
     return () => {
       console.log('[WAITING] Unsubscribing from booking updates');
       // Navigation away from this screen must not cancel the booking.
       // Cancellation is only allowed from explicit user action.
       unsubscribe();
+      burstStopped = true;
+      clearInterval(burstInterval);
+      clearTimeout(burstTimeout);
     };
   }, [bookingId]);
 
   // Handle cancel booking
   const handleCancel = useCallback(async () => {
+    const isTimedOutBooking =
+      showTimeout &&
+      booking?.status === 'cancelled' &&
+      booking?.cancellation_reason === 'Search timed out';
+
+    if (isTimedOutBooking) {
+      clearAll();
+      clearSelectedVehicle();
+      router.replace("/(tabs)/home");
+      return;
+    }
+
     Alert.alert(
       "Cancel Booking",
       "Are you sure you want to cancel this booking?",
@@ -293,7 +381,7 @@ const WaitingForDriverPage = () => {
         },
       ]
     );
-  }, [bookingId, profile?.id, clearAll, clearSelectedVehicle]);
+  }, [bookingId, profile?.id, clearAll, clearSelectedVehicle, showTimeout, booking?.status, booking?.cancellation_reason]);
 
   // Auto-redirect to track-ride when driver is assigned
   useEffect(() => {
@@ -316,6 +404,7 @@ const WaitingForDriverPage = () => {
     try {
       const { success, error } = await retryBookingWithIncreasedPrice(
         bookingId,
+        profile?.id || "",
         tipToApply,
         1.0
       );
@@ -337,6 +426,7 @@ const WaitingForDriverPage = () => {
 
       setShowTimeout(false);
       setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
+      timeoutExpiryRequestedRef.current = false;
       setIsRetrying(false);
     } catch (err: any) {
       Alert.alert("Error", err.message || "Something went wrong");

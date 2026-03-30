@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
 
 const DriverHome = () => {
-    const { signOut, driverProfile, toggleDriverOnline, profile } = useAuth();
+    const { driverProfile, toggleDriverOnline, profile } = useAuth();
     const [isOnline, setIsOnline] = useState(driverProfile?.is_online || false);
 
     useEffect(() => {
@@ -27,12 +27,6 @@ const DriverHome = () => {
                             {profile?.name || 'Driver'}
                         </Text>
                     </View>
-                    <TouchableOpacity
-                        onPress={signOut}
-                        className="bg-red-500/20 px-4 py-2 rounded-full"
-                    >
-                        <Text className="text-red-400 font-JakartaSemiBold">Logout</Text>
-                    </TouchableOpacity>
                 </View>
 
                 {/* Online Status Card */}

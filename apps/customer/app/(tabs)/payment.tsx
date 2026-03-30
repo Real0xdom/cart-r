@@ -231,7 +231,7 @@ const Payment = () => {
           amount: value,
           customer_id: user?.id,
           customer_phone: profile?.phone || user?.phone || "9999999999",
-          customer_name: profile?.name || "CartR User",
+          customer_name: profile?.name || "Cartr User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey
@@ -306,6 +306,50 @@ const Payment = () => {
     setModalVisible(true);
   };
 
+  const formatTransactionLabel = (txn: any) => {
+    const rawDescription = (txn?.description || "").trim();
+
+    if (!rawDescription) {
+      return txn?.type === 'credit' ? 'Money added to wallet' : 'Wallet payment';
+    }
+
+    const bookingMatch = rawDescription.match(/Booking\s*#?\s*([A-Z0-9-]+)/i);
+    const bookingNumber = bookingMatch?.[1];
+
+    if (/wallet escrow re-hold/i.test(rawDescription)) {
+      return bookingNumber ? `Payment retried for booking ${bookingNumber}` : 'Payment retried';
+    }
+
+    if (/stripe refund booking/i.test(rawDescription) || /trip refund/i.test(rawDescription) || /withdrawal refund/i.test(rawDescription)) {
+      return bookingNumber ? `Refund for booking ${bookingNumber}` : 'Refund to wallet';
+    }
+
+    if (/wallet escrow top-up after tip increase/i.test(rawDescription)) {
+      return bookingNumber ? `Updated amount reserved for booking ${bookingNumber}` : 'Updated reserved amount';
+    }
+
+    if (/wallet escrow hold/i.test(rawDescription)) {
+      return bookingNumber ? `Amount reserved for booking ${bookingNumber}` : 'Amount reserved for booking';
+    }
+
+    if (/additional fare settled from wallet/i.test(rawDescription)) {
+      return bookingNumber ? `Additional fare paid for booking ${bookingNumber}` : 'Additional fare paid from wallet';
+    }
+
+    if (/wallet top-up/i.test(rawDescription)) {
+      return 'Money added to wallet';
+    }
+
+    if (/trip payment/i.test(rawDescription)) {
+      return bookingNumber ? `Payment for booking ${bookingNumber}` : 'Trip payment';
+    }
+
+    return rawDescription
+      .replace(/\(full wallet hold\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-general-900">
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
@@ -318,7 +362,7 @@ const Payment = () => {
                 <View className="absolute right-0 top-0 w-32 h-32 bg-gray-800 rounded-full -mr-10 -mt-10 opacity-20" />
                 <View className="absolute left-0 bottom-0 w-24 h-24 bg-brand-500 rounded-full -ml-8 -mb-8 opacity-20" />
                 
-                <Text className="text-gray-400 font-JakartaMedium text-sm">CartR Credit Balance</Text>
+                <Text className="text-gray-400 font-JakartaMedium text-sm">Cartr Credit Balance</Text>
                 <Text className="text-white font-JakartaExtraBold text-4xl mt-2">
                     ₹ {balance.toFixed(2)}
                 </Text>
@@ -340,13 +384,7 @@ const Payment = () => {
                     </TouchableOpacity>
                 </View>
             </View>
-            
-            {/* SDK Status Indicator (for debugging) */}
-            {__DEV__ && (
-              <Text className="text-xs text-gray-400 mt-2 text-center">
-                🌐 Browser Checkout (Expo Go)
-              </Text>
-            )}
+
         </View>
 
         {/* Transactions list */}
@@ -376,7 +414,7 @@ const Payment = () => {
                       </View>
                       <View className="flex-1">
                         <Text className="font-JakartaBold text-gray-800 text-sm">
-                          {txn.description || (txn.type === 'credit' ? 'Wallet Top-up' : 'Payment')}
+                          {formatTransactionLabel(txn)}
                         </Text>
                         <Text className="text-xs text-gray-500">
                           {new Date(txn.created_at).toLocaleDateString()} • {new Date(txn.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -436,7 +474,7 @@ const Payment = () => {
             ) : (
                 <>
                     <Text className="text-xl font-JakartaBold text-center mb-2">Add Money to Wallet</Text>
-                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your CartR balance</Text>
+                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your Cartr balance</Text>
 
                     <View className="items-center mb-8">
                         <View className="flex-row items-center">
