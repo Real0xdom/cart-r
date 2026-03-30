@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { IndianRupee, FileText, TrendingUp, RefreshCw, Search, Filter, X, MapPin, Circle, Truck, Package, Clock, Wallet, AlertTriangle, Users } from 'lucide-react';
+import { IndianRupee, FileText, TrendingUp, RefreshCw, Search, Filter, X, MapPin, Circle, Truck, Package, Clock, Wallet, AlertTriangle, Users, Info } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface Invoice {
@@ -37,7 +37,7 @@ interface Invoice {
 
 interface Stats {
   totalRevenue: number; totalInvoices: number; avgAmount: number;
-  platformEarnings: number; driverPayouts: number;
+  platformEarnings: number; driverEarnings: number;
 }
 
 interface DebtDriver {
@@ -57,6 +57,17 @@ interface WalletDebtSummary {
   recoveredCommissionFromTopups: number;
   debtRecoveryTopupCount: number;
   drivers: DebtDriver[];
+}
+
+interface MetricCard {
+  label: string;
+  value: string | number;
+  color: string;
+  icon: JSX.Element;
+  tooltip: string;
+  subtext: string;
+  borderColor?: string;
+  iconBg?: string;
 }
 
 function formatCurrency(amount: number | null | undefined): string {
@@ -81,6 +92,23 @@ function formatInvoiceNumber(invoiceNumber: string): string {
 }
 
 /* ── Invoice Detail Modal ─────────────────────────────────────────── */
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <div className="group relative">
+      <button
+        type="button"
+        className="flex h-5 w-5 items-center justify-center rounded-full text-gray-400 transition-colors hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+        aria-label={text}
+      >
+        <Info size={14} />
+      </button>
+      <div className="pointer-events-none absolute right-0 top-7 z-20 w-72 rounded-xl border border-gray-200 bg-white p-3 text-left text-xs leading-5 text-gray-600 opacity-0 shadow-xl transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+        {text}
+      </div>
+    </div>
+  );
+}
+
 function InvoiceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -259,7 +287,7 @@ function InvoiceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
 export default function FinancePage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalInvoices: 0, avgAmount: 0, platformEarnings: 0, driverPayouts: 0 });
+  const [stats, setStats] = useState<Stats>({ totalRevenue: 0, totalInvoices: 0, avgAmount: 0, platformEarnings: 0, driverEarnings: 0 });
   const [walletDebt, setWalletDebt] = useState<WalletDebtSummary>({
     driversWithDebt: 0,
     negativeWalletDrivers: 0,
@@ -276,27 +304,22 @@ export default function FinancePage() {
   async function fetchInvoices() {
     setLoading(true);
     try {
-      const [{ data: invoiceData, error: invoiceError }, { data: payoutData, error: payoutError }, walletDebtResponse] = await Promise.all([
+      const [{ data: invoiceData, error: invoiceError }, walletDebtResponse] = await Promise.all([
         supabase.from('invoices')
           .select('*')
           .eq('payment_status', 'paid')
           .order('created_at', { ascending: false })
           .limit(500),
-        supabase.from('withdrawals')
-          .select('amount, status, payout_status')
-          .or('payout_status.eq.SUCCESS,status.eq.paid'),
         fetch('/api/finance/wallet-debt', { cache: 'no-store' }),
       ]);
 
       if (invoiceError) throw invoiceError;
-      if (payoutError) throw payoutError;
       if (!walletDebtResponse.ok) {
         const debtError = await walletDebtResponse.json().catch(() => ({}));
         throw new Error(debtError.error || 'Failed to load wallet debt summary');
       }
 
       const inv = invoiceData || [];
-      const successfulPayouts = payoutData || [];
       const debtSummary = await walletDebtResponse.json();
       setInvoices(inv);
       setWalletDebt(debtSummary);
@@ -306,7 +329,10 @@ export default function FinancePage() {
         totalInvoices: inv.length,
         avgAmount: inv.length > 0 ? Math.round(inv.reduce((s: number, i: Invoice) => s + Number(i.total_amount || 0), 0) / inv.length) : 0,
         platformEarnings: inv.reduce((s: number, i: Invoice) => s + Number(i.platform_fee || 0), 0),
-        driverPayouts: successfulPayouts.reduce((s: number, payout: { amount: number | null }) => s + Number(payout.amount || 0), 0),
+        driverEarnings: inv.reduce((s: number, i: Invoice) => {
+          const earnings = i.driver_payout ?? (Number(i.total_amount || 0) - Number(i.platform_fee || 0));
+          return s + Number(earnings || 0);
+        }, 0),
       });
     } catch (e: any) { toast.error('Failed: ' + e.message); }
     finally { setLoading(false); }
@@ -328,6 +354,81 @@ export default function FinancePage() {
 
   const fmt = (n: number) => '₹' + Number(n).toLocaleString('en-IN');
 
+  const financeCards: MetricCard[] = [
+    {
+      label: 'Total Revenue',
+      value: fmt(stats.totalRevenue),
+      color: 'bg-green-50 text-green-600',
+      icon: <IndianRupee size={18} />,
+      tooltip: 'Total money collected from all paid invoices. Calculated as the sum of total_amount for every invoice where payment_status is paid.',
+      subtext: 'Money collected from paid invoices',
+    },
+    {
+      label: 'Paid Invoices',
+      value: stats.totalInvoices,
+      color: 'bg-blue-50 text-blue-600',
+      icon: <FileText size={18} />,
+      tooltip: 'Count of invoices that have been successfully paid. Calculated as the number of invoice rows where payment_status is paid.',
+      subtext: 'Count of invoices marked paid',
+    },
+    {
+      label: 'Avg Amount',
+      value: fmt(stats.avgAmount),
+      color: 'bg-orange-50 text-orange-600',
+      icon: <TrendingUp size={18} />,
+      tooltip: 'Average invoice value for paid invoices. Calculated as total revenue divided by the number of paid invoices.',
+      subtext: 'Average value per paid invoice',
+    },
+    {
+      label: 'Platform Earnings',
+      value: fmt(stats.platformEarnings),
+      color: 'bg-purple-50 text-purple-600',
+      icon: <IndianRupee size={18} />,
+      tooltip: 'Platform commission earned from paid trips. Calculated as the sum of platform_fee across all paid invoices.',
+      subtext: 'Commission retained by the platform',
+    },
+    {
+      label: 'Driver Earnings',
+      value: fmt(stats.driverEarnings),
+      color: 'bg-cyan-50 text-cyan-600',
+      icon: <IndianRupee size={18} />,
+      tooltip: 'Net amount earned by drivers after platform fee deduction. Calculated as the sum of driver_payout across all paid invoices, or total_amount minus platform_fee when driver_payout is missing.',
+      subtext: 'Net trip earnings after platform fee',
+    },
+  ];
+  const debtCards: MetricCard[] = [
+    {
+      label: 'Outstanding Debt',
+      value: fmt(walletDebt.totalOutstandingCommissionDebt),
+      color: 'bg-red-50 text-red-600',
+      borderColor: 'border-red-100',
+      iconBg: 'bg-red-100',
+      icon: <AlertTriangle size={18} className="text-red-600" />,
+      tooltip: 'Total unpaid platform commission still owed by drivers. Calculated from the wallet debt summary API as the sum of all current commission dues.',
+      subtext: 'Commission still owed to the platform',
+    },
+    {
+      label: 'Drivers With Debt',
+      value: walletDebt.driversWithDebt,
+      color: 'bg-orange-50 text-orange-600',
+      borderColor: 'border-orange-100',
+      iconBg: 'bg-orange-100',
+      icon: <Users size={18} className="text-orange-600" />,
+      tooltip: 'Number of drivers who currently owe unpaid commission to the platform. Calculated as the count of drivers with a positive commission due balance.',
+      subtext: 'Drivers still owing unpaid commission',
+    },
+    {
+      label: 'Negative Wallets',
+      value: walletDebt.negativeWalletDrivers,
+      color: 'bg-amber-50 text-amber-700',
+      borderColor: 'border-amber-100',
+      iconBg: 'bg-amber-100',
+      icon: <Wallet size={18} className="text-amber-700" />,
+      tooltip: 'Number of drivers whose available wallet balance is below zero after commission deductions and settlements.',
+      subtext: 'Wallets below zero after commission deduction',
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-[var(--color-brand-cream)] font-sans">
       <Sidebar />
@@ -335,7 +436,7 @@ export default function FinancePage() {
         <div className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-1">Finance</h1>
-            <p className="text-gray-500 text-sm">Track paid invoices, successful payouts, and completed transaction revenue</p>
+            <p className="text-gray-500 text-sm">Track paid invoices, driver earnings, and completed transaction revenue</p>
           </div>
           <button onClick={fetchInvoices} className="px-4 py-2.5 bg-white text-gray-600 rounded-xl font-semibold shadow-sm border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-2">
             <RefreshCw size={16} /> Refresh
@@ -344,19 +445,15 @@ export default function FinancePage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          {[
-            { label: 'Total Revenue', value: fmt(stats.totalRevenue), color: 'bg-green-50 text-green-600', icon: <IndianRupee size={18} /> },
-            { label: 'Paid Invoices', value: stats.totalInvoices, color: 'bg-blue-50 text-blue-600', icon: <FileText size={18} /> },
-            { label: 'Avg Amount', value: fmt(stats.avgAmount), color: 'bg-orange-50 text-orange-600', icon: <TrendingUp size={18} /> },
-            { label: 'Platform Earnings', value: fmt(stats.platformEarnings), color: 'bg-purple-50 text-purple-600', icon: <IndianRupee size={18} /> },
-            { label: 'Driver Payouts', value: fmt(stats.driverPayouts), color: 'bg-cyan-50 text-cyan-600', icon: <IndianRupee size={18} /> },
-          ].map((s, i) => (
+          {financeCards.map((s, i) => (
             <div key={i} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="mb-2 flex items-start justify-between gap-3">
                 <div className={`w-8 h-8 rounded-full ${s.color} flex items-center justify-center`}>{s.icon}</div>
+                <InfoTooltip text={s.tooltip} />
               </div>
               <p className="text-xl font-bold text-gray-900">{s.value}</p>
               <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{s.label}</p>
+              <p className="mt-1 text-xs text-gray-400">{s.subtext}</p>
             </div>
           ))}
         </div>
@@ -373,49 +470,21 @@ export default function FinancePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-            <div className="bg-red-50 rounded-2xl border border-red-100 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <AlertTriangle size={18} className="text-red-600" />
+            {debtCards.map((card) => (
+              <div key={card.label} className={`${card.color.split(' ')[0]} rounded-2xl border ${card.borderColor} p-5`}>
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl ${card.iconBg} flex items-center justify-center`}>
+                      {card.icon}
+                    </div>
+                    <span className="text-sm font-medium text-gray-600">{card.label}</span>
+                  </div>
+                  <InfoTooltip text={card.tooltip} />
                 </div>
-                <span className="text-sm font-medium text-gray-600">Outstanding Debt</span>
+                <p className="text-2xl font-bold text-gray-900">{card.value}</p>
+                <p className="text-xs text-gray-500 mt-1">{card.subtext}</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{fmt(walletDebt.totalOutstandingCommissionDebt)}</p>
-              <p className="text-xs text-gray-500 mt-1">Commission still owed to the platform</p>
-            </div>
-
-            <div className="bg-orange-50 rounded-2xl border border-orange-100 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center">
-                  <Users size={18} className="text-orange-600" />
-                </div>
-                <span className="text-sm font-medium text-gray-600">Drivers With Debt</span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{walletDebt.driversWithDebt}</p>
-              <p className="text-xs text-gray-500 mt-1">Drivers still owing unpaid commission</p>
-            </div>
-
-            <div className="bg-amber-50 rounded-2xl border border-amber-100 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                  <Wallet size={18} className="text-amber-700" />
-                </div>
-                <span className="text-sm font-medium text-gray-600">Negative Wallets</span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{walletDebt.negativeWalletDrivers}</p>
-              <p className="text-xs text-gray-500 mt-1">Wallets below zero after commission deduction</p>
-            </div>
-
-            <div className="bg-emerald-50 rounded-2xl border border-emerald-100 p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                  <IndianRupee size={18} className="text-emerald-700" />
-                </div>
-                <span className="text-sm font-medium text-gray-600">Recovered From Top-ups</span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{fmt(walletDebt.recoveredCommissionFromTopups)}</p>
-              <p className="text-xs text-gray-500 mt-1">{walletDebt.debtRecoveryTopupCount} recharge{walletDebt.debtRecoveryTopupCount !== 1 ? 's' : ''} applied to dues</p>
-            </div>
+            ))}
           </div>
 
           <div className="rounded-2xl border border-gray-100 overflow-hidden">

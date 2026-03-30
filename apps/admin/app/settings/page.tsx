@@ -157,8 +157,13 @@ export default function SettingsPage() {
                   <p className="text-xs text-gray-400 mt-2">Driver receives {(100 - commissionRate).toFixed(1)}% of total fare</p>
                 </div>
                 <div className="bg-blue-50 rounded-2xl p-6">
-                  <label className="block text-sm font-bold text-blue-700 mb-2">ðŸ’¡ Example Calculation</label>
-                  <p className="text-sm text-blue-600">Fare â‚¹1,000 â†’ Platform gets â‚¹{(1000 * commissionRate / 100).toFixed(0)} | Driver gets â‚¹{(1000 * (100 - commissionRate) / 100).toFixed(0)}</p>
+                  <label className="block text-sm font-bold text-blue-700 mb-2">{'\u{1F4A1} Example Calculation'}</label>
+                  <p className="text-sm text-blue-600">
+                    {'Fare \u20B91,000 \u2192 Platform gets \u20B9'}
+                    {(1000 * commissionRate / 100).toFixed(0)}
+                    {' | Driver gets \u20B9'}
+                    {(1000 * (100 - commissionRate) / 100).toFixed(0)}
+                  </p>
                 </div>
                 <button onClick={handleSaveCommission} disabled={saving === 'commission'}
                   className="px-6 py-3 bg-orange-600 text-white rounded-xl font-semibold hover:bg-orange-700 disabled:opacity-50 transition-colors flex items-center gap-2">
@@ -185,13 +190,13 @@ export default function SettingsPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-gray-50 rounded-2xl p-6">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Minimum Withdrawal (â‚¹)</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">{'Minimum Withdrawal (\u20B9)'}</label>
                     <input type="number" value={minWithdrawal} onChange={e => setMinWithdrawal(Number(e.target.value))}
                       className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-lg font-bold text-gray-900 focus:outline-none focus:border-orange-500" />
                     <p className="text-xs text-gray-400 mt-2">Driver must have at least this much to withdraw</p>
                   </div>
                   <div className="bg-gray-50 rounded-2xl p-6">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Maximum Withdrawal (â‚¹)</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">{'Maximum Withdrawal (\u20B9)'}</label>
                     <input type="number" value={maxWithdrawal} onChange={e => setMaxWithdrawal(Number(e.target.value))}
                       className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-lg font-bold text-gray-900 focus:outline-none focus:border-orange-500" />
                     <p className="text-xs text-gray-400 mt-2">Maximum per withdrawal request</p>
@@ -254,7 +259,7 @@ export default function SettingsPage() {
                 </div>
                 {kycRequired && (
                   <div className="bg-amber-50 rounded-2xl p-6 border border-amber-200">
-                    <p className="text-sm text-amber-800 font-medium">âš ï¸ KYC is enabled</p>
+                    <p className="text-sm text-amber-800 font-medium">{'\u26A0\uFE0F KYC is enabled'}</p>
                     <p className="text-xs text-amber-600 mt-1">Drivers must have their verification_status = &apos;verified&apos; (approved in admin) to submit withdrawal requests. Unverified drivers will see an error.</p>
                   </div>
                 )}
