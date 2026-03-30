@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "react-hot-toast";
+import { getCurrentAdminState } from "@/lib/current-admin";
 import { RoleProvider } from "@/contexts/RoleContext";
 import "./globals.css";
 
@@ -19,17 +20,23 @@ export const metadata: Metadata = {
   description: "Admin console for CARTR delivery management",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const adminState = await getCurrentAdminState();
+
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <RoleProvider>
+        <RoleProvider
+          initialRole={adminState.role}
+          initialEmail={adminState.email}
+          initialLoading={false}
+        >
           <Toaster 
             position="top-right"
             toastOptions={{

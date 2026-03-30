@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
@@ -24,16 +24,16 @@ import {
   Users,
 } from 'lucide-react';
 
-import { getDashboardFinanceData, getDashboardOverviewStats, type DashboardStats, type InvoiceData } from '@/app/actions/dashboard';
+import { getDashboardFinanceData, getDashboardOverviewStats, type DashboardFinanceData, type DashboardStats } from '@/app/actions/dashboard';
 import Sidebar from '@/components/Sidebar';
 import { useRole } from '@/contexts/RoleContext';
 
 interface ChartDataPoint {
   date: string;
+  sortDate: string;
   Revenue: number;
   PlatformEarnings: number;
   DriverPayout: number;
-  Pending: number;
 }
 
 const DASHBOARD_THEME = {
@@ -49,8 +49,8 @@ const DASHBOARD_THEME = {
 } as const;
 
 export default function Home() {
-  const { role } = useRole();
-  const isManager = role === 'manager';
+  const { role, loading: roleLoading } = useRole();
+  const canSeeFinance = role === 'admin' || role === 'superadmin';
 
   const [stats, setStats] = useState<DashboardStats>({
     recentBookings: 0,
@@ -60,94 +60,106 @@ export default function Home() {
     totalRatings: 0,
     openTickets: 0,
   });
-  const [invoices, setInvoices] = useState<InvoiceData[]>([]);
+  const [financeData, setFinanceData] = useState<DashboardFinanceData>({ invoices: [], successfulPayouts: [] });
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
-  const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | '90d' | 'all'>('30d');
+  const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | '90d' | 'all'>('all');
 
-  const fetchOverviewStats = async () => {
+  const fetchOverviewStats = useEffectEvent(async () => {
     try {
       const data = await getDashboardOverviewStats();
       setStats(data);
     } catch (error) {
       console.error('Error fetching overview stats:', error);
     }
-  };
+  });
 
-  const fetchFinanceData = async () => {
+  const fetchFinanceData = useEffectEvent(async (range: typeof dateRange) => {
     try {
-      const data = await getDashboardFinanceData(dateRange);
-      setInvoices(data);
+      const data = await getDashboardFinanceData(range);
+      setFinanceData(data);
     } catch (error) {
       console.error('Error fetching finance data:', error);
     }
-  };
+  });
 
   useEffect(() => {
     const loadAll = async () => {
+      if (roleLoading || !role) {
+        return;
+      }
+
       setLoading(true);
       await fetchOverviewStats();
-      if (!isManager) {
-        await fetchFinanceData();
+      if (canSeeFinance) {
+        await fetchFinanceData(dateRange);
+      } else {
+        setFinanceData({ invoices: [], successfulPayouts: [] });
       }
       setLoading(false);
       setLastUpdated(new Date().toLocaleTimeString());
     };
 
     loadAll();
-  }, [dateRange, isManager]);
+  }, [dateRange, canSeeFinance, role, roleLoading]);
 
   const financeSummary = useMemo(() => {
-    const paidInvoices = invoices.filter((invoice) => invoice.payment_status === 'paid');
-    const pendingInvoices = invoices.filter((invoice) => invoice.payment_status !== 'paid');
+    const paidInvoices = financeData.invoices;
+    const successfulPayouts = financeData.successfulPayouts;
 
     const totalRevenue = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
     const platformEarnings = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.platform_fee || 0), 0);
-    const driverPayouts = paidInvoices.reduce((sum, invoice) => sum + Number(invoice.driver_payout || 0), 0);
-    const pendingAmount = pendingInvoices.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0);
-    const avgAmount = invoices.length > 0 ? totalRevenue / paidInvoices.length || 0 : 0;
+    const driverPayouts = successfulPayouts.reduce((sum, payout) => sum + Number(payout.amount || 0), 0);
+    const avgAmount = paidInvoices.length > 0 ? totalRevenue / paidInvoices.length : 0;
 
     return {
       totalRevenue,
       avgAmount: Math.round(avgAmount),
       platformEarnings,
       driverPayouts,
-      pendingAmount,
     };
-  }, [invoices]);
+  }, [financeData]);
 
   const chartData = useMemo(() => {
     const dailyData: Record<string, ChartDataPoint> = {};
 
-    invoices.forEach((invoice) => {
-      const dateKey = format(new Date(invoice.created_at), 'MMM dd');
+    financeData.invoices.forEach((invoice) => {
+      const createdAt = new Date(invoice.created_at);
+      const sortDate = format(createdAt, 'yyyy-MM-dd');
 
-      if (!dailyData[dateKey]) {
-        dailyData[dateKey] = {
-          date: dateKey,
+      if (!dailyData[sortDate]) {
+        dailyData[sortDate] = {
+          date: format(createdAt, 'MMM dd'),
+          sortDate,
           Revenue: 0,
           PlatformEarnings: 0,
           DriverPayout: 0,
-          Pending: 0,
         };
       }
 
-      if (invoice.payment_status === 'paid') {
-        dailyData[dateKey].Revenue += Number(invoice.total_amount || 0);
-        dailyData[dateKey].PlatformEarnings += Number(invoice.platform_fee || 0);
-        dailyData[dateKey].DriverPayout += Number(invoice.driver_payout || 0);
-      } else {
-        dailyData[dateKey].Pending += Number(invoice.total_amount || 0);
-      }
+      dailyData[sortDate].Revenue += Number(invoice.total_amount || 0);
+      dailyData[sortDate].PlatformEarnings += Number(invoice.platform_fee || 0);
     });
 
-    return Object.values(dailyData).sort((a, b) => {
-      return (
-        new Date(`${a.date} ${new Date().getFullYear()}`).getTime() -
-        new Date(`${b.date} ${new Date().getFullYear()}`).getTime()
-      );
+    financeData.successfulPayouts.forEach((payout) => {
+      const createdAt = new Date(payout.created_at);
+      const sortDate = format(createdAt, 'yyyy-MM-dd');
+
+      if (!dailyData[sortDate]) {
+        dailyData[sortDate] = {
+          date: format(createdAt, 'MMM dd'),
+          sortDate,
+          Revenue: 0,
+          PlatformEarnings: 0,
+          DriverPayout: 0,
+        };
+      }
+
+      dailyData[sortDate].DriverPayout += Number(payout.amount || 0);
     });
-  }, [invoices]);
+
+    return Object.values(dailyData).sort((a, b) => a.sortDate.localeCompare(b.sortDate));
+  }, [financeData]);
 
   const fmt = (amount: number) => `Rs. ${Number(amount).toLocaleString('en-IN')}`;
 
@@ -250,7 +262,7 @@ export default function Home() {
           </Link>
         </div>
 
-        {!isManager && (
+        {canSeeFinance && !roleLoading && (
           <div className="rounded-3xl border border-gray-100 bg-white p-8 shadow-sm">
             <div className="mb-8 flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
               <div>
@@ -258,7 +270,7 @@ export default function Home() {
                   <TrendingUp size={20} className="text-green-800" />
                   Financial Analytics
                 </h2>
-                <p className="mt-1 text-sm text-gray-500">Revenue breakdowns based on completed (paid) invoices</p>
+                <p className="mt-1 text-sm text-gray-500">Paid invoice revenue and successful driver payouts</p>
               </div>
 
               <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-1.5">
@@ -322,15 +334,6 @@ export default function Home() {
                       {fmt(financeSummary.driverPayouts)}
                     </p>
                   </div>
-                  <div
-                    className="flex-grow rounded-xl border px-5 py-3 text-right"
-                    style={{ backgroundColor: DASHBOARD_THEME.orangeSoft, borderColor: '#FDBA74' }}
-                  >
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Pending (Unpaid)</p>
-                    <p className="text-xl font-bold" style={{ color: DASHBOARD_THEME.orangeDark }}>
-                      {fmt(financeSummary.pendingAmount)}
-                    </p>
-                  </div>
                 </div>
 
                 <div className="h-[400px] w-full">
@@ -363,8 +366,7 @@ export default function Home() {
                         <Legend wrapperStyle={{ paddingTop: '20px', color: DASHBOARD_THEME.textMuted }} iconType="circle" />
                         <Bar dataKey="Revenue" fill={DASHBOARD_THEME.greenDark} radius={[4, 4, 0, 0]} />
                         <Bar dataKey="PlatformEarnings" name="Earnings" fill={DASHBOARD_THEME.green} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="DriverPayout" name="Payout" fill={DASHBOARD_THEME.orange} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="Pending" fill={DASHBOARD_THEME.orangeDark} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="DriverPayout" name="Driver Payout" fill={DASHBOARD_THEME.orange} radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (

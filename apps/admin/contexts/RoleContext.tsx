@@ -6,13 +6,13 @@ import { usePathname } from 'next/navigation';
 export type AdminRole = 'admin' | 'superadmin' | 'manager';
 
 interface RoleContextType {
-  role: AdminRole;
+  role: AdminRole | null;
   email: string;
   loading: boolean;
 }
 
 const RoleContext = createContext<RoleContextType>({
-  role: 'admin',
+  role: null,
   email: '',
   loading: true,
 });
@@ -43,19 +43,40 @@ export const MANAGER_ALLOWED_PATHS = [
   '/support',
 ];
 
-export function RoleProvider({ children }: { children: ReactNode }) {
+interface RoleProviderProps {
+  children: ReactNode;
+  initialRole?: AdminRole | null;
+  initialEmail?: string;
+  initialLoading?: boolean;
+}
+
+export function RoleProvider({
+  children,
+  initialRole = null,
+  initialEmail = '',
+  initialLoading,
+}: RoleProviderProps) {
   const pathname = usePathname();
-  const [role, setRole] = useState<AdminRole>('admin');
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(true);
+  const hasInitialIdentity = Boolean(initialRole || initialEmail);
+  const [role, setRole] = useState<AdminRole | null>(initialRole);
+  const [email, setEmail] = useState(initialEmail);
+  const [loading, setLoading] = useState(
+    initialLoading ?? (pathname !== '/login' && !initialRole && !initialEmail)
+  );
 
   useEffect(() => {
     if (pathname === '/login') {
+      setRole(null);
+      setEmail('');
       setLoading(false);
       return;
     }
 
     async function fetchRole() {
+      if (!hasInitialIdentity) {
+        setLoading(true);
+      }
+
       try {
         const response = await fetch('/api/auth/me', {
           cache: 'no-store',
@@ -64,17 +85,22 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
         if (response.ok) {
           const data = await response.json();
-          setRole(data.role || 'admin');
+          setRole(data.role || null);
           setEmail(data.email || '');
+        } else {
+          setRole(null);
+          setEmail('');
         }
       } catch (error) {
         console.error('Error fetching role:', error);
+        setRole(null);
+        setEmail('');
       } finally {
         setLoading(false);
       }
     }
     fetchRole();
-  }, [pathname]);
+  }, [pathname, hasInitialIdentity]);
 
   return (
     <RoleContext.Provider value={{ role, email, loading }}>

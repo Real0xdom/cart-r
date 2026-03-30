@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
+  type LucideIcon,
   Package,
   Truck,
   Users,
@@ -24,7 +25,7 @@ import { useRole, MANAGER_ALLOWED_PATHS, type AdminRole } from '@/contexts/RoleC
 
 interface NavSection {
   label: string;
-  items: { href: string; label: string; icon: any }[];
+  items: { href: string; label: string; icon: LucideIcon }[];
 }
 
 const navSections: NavSection[] = [
@@ -59,7 +60,11 @@ const navSections: NavSection[] = [
   },
 ];
 
-function getFilteredSections(role: AdminRole): NavSection[] {
+function getFilteredSections(role: AdminRole | null): NavSection[] {
+  if (!role) {
+    return [];
+  }
+
   if (role === 'manager') {
     return navSections
       .map((section) => ({
@@ -131,7 +136,21 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="space-y-1 flex-1 relative">
-        {filteredSections.map((section) => (
+        {loading ? (
+          <div className="space-y-4 px-2">
+            {[0, 1, 2].map((section) => (
+              <div key={section}>
+                <div className="mb-3 h-3 w-20 animate-pulse rounded bg-gray-100" />
+                <div className="space-y-2">
+                  {[0, 1, 2].map((item) => (
+                    <div key={item} className="h-10 animate-pulse rounded-xl bg-gray-50" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          filteredSections.map((section) => (
           <div key={section.label} className="mb-4">
             <div className="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-2">
               {section.label}
@@ -165,7 +184,8 @@ export default function Sidebar() {
               })}
             </div>
           </div>
-        ))}
+          ))
+        )}
       </nav>
 
       {/* User Profile / Logout */}
@@ -176,7 +196,7 @@ export default function Sidebar() {
           </div>
           <div className="flex-1 overflow-hidden">
             <p className="text-sm font-semibold text-gray-900 truncate">
-              {getRoleLabel(role)}
+              {role ? getRoleLabel(role) : 'Loading...'}
             </p>
             <p className="text-xs text-gray-500 truncate">
               {email || 'Loading...'}
