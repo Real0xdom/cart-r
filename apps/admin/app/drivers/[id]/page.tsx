@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { sendNotificationToAudience } from '@/app/actions/notifications';
 import Link from 'next/link';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -26,6 +27,7 @@ interface DriverDetail {
   total_trips: number;
   total_earnings: number;
   is_online: boolean;
+  driver_app_enabled: boolean;
   created_at: string;
   user: {
     name: string;
@@ -206,6 +208,10 @@ export default function DriverDetailPage() {
     }
   }, [params.id]);
 
+  async function sendDriverAppNotification(userId: string, title: string, body: string, data: Record<string, any>) {
+    return sendNotificationToAudience('single', title, body, userId, 'driver', data);
+  }
+
   async function fetchDriver(id: string) {
     setLoading(true);
     try {
@@ -293,7 +299,6 @@ export default function DriverDetailPage() {
     setActionLoading(true);
 
     try {
-      // Use API route to update driver (will also record history)
       const response = await fetch('/api/drivers', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -307,13 +312,16 @@ export default function DriverDetailPage() {
         throw new Error('Failed to approve driver');
       }
 
-      // Create notification for driver
-      await supabase.from('notifications').insert({
-        user_id: driver.user_id,
-        title: 'Account Approved! 🎉',
-        body: 'Your driver account has been verified. You can now start accepting rides!',
-        data: { type: 'verification_approved' },
-      });
+      const notificationResult = await sendDriverAppNotification(
+        driver.user_id,
+        'Account Approved!',
+        'Your driver account has been verified. You can now start accepting rides!',
+        { type: 'verification_approved', target_app: 'driver' }
+      );
+
+      if (!notificationResult.success) {
+        console.warn('Driver approval notification failed:', notificationResult.error);
+      }
 
       toast.success('Driver approved successfully!');
       fetchDriver(driver.id);
@@ -332,7 +340,6 @@ export default function DriverDetailPage() {
     setActionLoading(true);
 
     try {
-      // Use API route to update driver (will also record history)
       const response = await fetch('/api/drivers', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -347,13 +354,16 @@ export default function DriverDetailPage() {
         throw new Error('Failed to reject driver');
       }
 
-      // Create notification for driver
-      await supabase.from('notifications').insert({
-        user_id: driver.user_id,
-        title: 'Verification Update',
-        body: 'Your driver verification was not approved. Please check the app for details.',
-        data: { type: 'verification_rejected', reason: rejectionReason },
-      });
+      const notificationResult = await sendDriverAppNotification(
+        driver.user_id,
+        'Verification Update',
+        'Your driver verification was not approved. Please check the app for details.',
+        { type: 'verification_rejected', reason: rejectionReason, target_app: 'driver' }
+      );
+
+      if (!notificationResult.success) {
+        console.warn('Driver rejection notification failed:', notificationResult.error);
+      }
 
       toast.success('Driver rejected');
       setShowRejectModal(false);
@@ -363,6 +373,49 @@ export default function DriverDetailPage() {
     } catch (error: any) {
       toast.error('Failed to reject driver: ' + error.message);
     }
+    setActionLoading(false);
+  }
+
+  async function toggleDriverAppAccess(nextEnabled: boolean) {
+    if (!driver) return;
+    setActionLoading(true);
+
+    try {
+      const response = await fetch('/api/drivers', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: driver.id,
+          driver_app_enabled: nextEnabled,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(nextEnabled ? 'Failed to restore driver access' : 'Failed to suspend driver');
+      }
+
+      const notificationResult = await sendDriverAppNotification(
+        driver.user_id,
+        nextEnabled ? 'Driver Access Restored' : 'Driver Account Suspended',
+        nextEnabled
+          ? 'Your driver app access has been restored. You can sign in and continue driving.'
+          : 'Your driver app access has been suspended. Please contact support for help.',
+        {
+          type: nextEnabled ? 'driver_access_restored' : 'driver_access_suspended',
+          target_app: 'driver',
+        }
+      );
+
+      if (!notificationResult.success) {
+        console.warn('Driver access notification failed:', notificationResult.error);
+      }
+
+      toast.success(nextEnabled ? 'Driver access restored' : 'Driver suspended');
+      fetchDriver(driver.id);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update driver access');
+    }
+
     setActionLoading(false);
   }
 
@@ -450,6 +503,16 @@ export default function DriverDetailPage() {
               {driver.verification_status.toUpperCase()}
             </div>
 
+            <div className={`mt-3 px-4 py-2 rounded-lg text-center font-medium border ${
+              typeof driver.driver_app_enabled === 'boolean' && driver.driver_app_enabled === false
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            }`}>
+              Driver App {typeof driver.driver_app_enabled === 'boolean'
+                ? (driver.driver_app_enabled === false ? 'SUSPENDED' : 'ENABLED')
+                : 'MIGRATION REQUIRED'}
+            </div>
+
             {driver.rejection_reason && (
               <div className="mt-4 p-3 bg-red-50 rounded-lg">
                 <p className="text-sm text-red-800">
@@ -505,8 +568,28 @@ export default function DriverDetailPage() {
                 </button>
               )}
               
-              {/* Reject / Suspend Button */}
-              {driver.verification_status !== 'rejected' && (
+              {driver.verification_status === 'approved' && typeof driver.driver_app_enabled === 'boolean' && driver.driver_app_enabled !== false && (
+                <button
+                  onClick={() => toggleDriverAppAccess(false)}
+                  disabled={actionLoading}
+                  className="w-full bg-red-100 text-red-600 py-3 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50"
+                >
+                  {actionLoading ? 'Processing...' : 'Suspend Driver App'}
+                </button>
+              )}
+
+              {driver.verification_status === 'approved' && typeof driver.driver_app_enabled === 'boolean' && driver.driver_app_enabled === false && (
+                <button
+                  onClick={() => toggleDriverAppAccess(true)}
+                  disabled={actionLoading}
+                  className="w-full bg-green-100 text-green-700 py-3 rounded-lg font-medium hover:bg-green-200 disabled:opacity-50"
+                >
+                  {actionLoading ? 'Processing...' : 'Restore Driver Access'}
+                </button>
+              )}
+
+              {/* Reject Application Button */}
+              {driver.verification_status === 'pending' && (
                   <button
                     onClick={() => {
                         setRejectionReason('');
@@ -515,7 +598,7 @@ export default function DriverDetailPage() {
                     disabled={actionLoading}
                     className="w-full bg-red-100 text-red-600 py-3 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50"
                   >
-                    {driver.verification_status === 'approved' ? '⚠ Suspend Driver' : '✕ Reject Application'}
+                    Reject Application
                   </button>
               )}
             </div>
@@ -782,8 +865,8 @@ export default function DriverDetailPage() {
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">{driver.verification_status === 'approved' ? 'Suspend Driver' : 'Reject Application'}</h3>
-            <p className="text-gray-500 mb-4">Please provide a reason for {driver.verification_status === 'approved' ? 'suspension' : 'rejection'}:</p>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Reject Application</h3>
+            <p className="text-gray-500 mb-4">Please provide a reason for rejection:</p>
             <textarea
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
@@ -802,7 +885,7 @@ export default function DriverDetailPage() {
                 disabled={actionLoading}
                 className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {actionLoading ? 'Processing...' : (driver.verification_status === 'approved' ? 'Suspend' : 'Reject')}
+                {actionLoading ? 'Processing...' : 'Reject'}
               </button>
             </div>
           </div>

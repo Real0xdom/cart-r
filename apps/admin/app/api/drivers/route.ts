@@ -68,7 +68,15 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, verification_status, rejection_reason, vehicle_number, vehicle_model, vehicle_type } = body;
+    const {
+      id,
+      verification_status,
+      rejection_reason,
+      vehicle_number,
+      vehicle_model,
+      vehicle_type,
+      driver_app_enabled,
+    } = body;
 
     // First, get the current driver data
     const { data: currentDriver, error: fetchError } = await supabaseAdmin
@@ -94,6 +102,13 @@ export async function PATCH(request: Request) {
         }
     }
 
+    if (driver_app_enabled !== undefined) {
+      updateData.driver_app_enabled = driver_app_enabled;
+      if (driver_app_enabled === false) {
+        updateData.is_online = false;
+      }
+    }
+
     // Details Updates (Edit Functionality)
     if (vehicle_number) updateData.vehicle_number = vehicle_number;
     if (vehicle_model) updateData.vehicle_model = vehicle_model;
@@ -107,6 +122,9 @@ export async function PATCH(request: Request) {
       .single();
 
     if (error) {
+      if (error.message?.includes('driver_app_enabled')) {
+        return NextResponse.json({ error: 'Live database is missing the driver access migration.' }, { status: 400 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

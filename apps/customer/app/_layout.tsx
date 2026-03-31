@@ -100,6 +100,14 @@ export default function RootLayout() {
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="welcome" options={{ headerShown: false }} />
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="account-blocked"
+              options={{
+                headerShown: false,
+                presentation: "transparentModal",
+                animation: "fade",
+              }}
+            />
             <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
             <Stack.Screen name="(stack)" options={{ headerShown: false }} />
             <Stack.Screen name="ride-details/[id]" options={{ headerShown: false }} />

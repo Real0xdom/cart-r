@@ -37,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isClearingSessionForPhoneAuthRef = useRef(false);
+  const isBlockingDisabledAccountRef = useRef(false);
 
   const isTransientAuthError = (error: unknown) => {
     const message = error instanceof Error ? error.message.toLowerCase() : '';
@@ -263,6 +264,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const currentDriverProfile = driverProfile as (DriverProfile & { driver_app_enabled?: boolean }) | null;
+
+    if (!currentDriverProfile || currentDriverProfile.driver_app_enabled !== false || isBlockingDisabledAccountRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+    isBlockingDisabledAccountRef.current = true;
+
+    const blockDriverAccess = async () => {
+      try {
+        if (!isCancelled) {
+          router.replace('/account-blocked');
+        }
+      } finally {
+        isBlockingDisabledAccountRef.current = false;
+      }
+    };
+
+    void blockDriverAccess();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [driverProfile]);
 
   // [G4] Realtime sync for driver profile — keeps is_online and verification_status
   // up to date across devices and reflects admin overrides (suspend, force-offline) immediately.

@@ -1,9 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
 import Sidebar from '@/components/Sidebar';
-import { Search, RefreshCw, User, Users, ShieldAlert, CheckCircle, Ban } from 'lucide-react';
+import { Search, RefreshCw, User, CheckCircle, Ban } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface User {
@@ -15,6 +13,10 @@ interface User {
   role: string;
   created_at: string;
   is_active: boolean;
+  customer_app_enabled: boolean;
+  has_driver_access?: boolean;
+  driver_app_enabled?: boolean | null;
+  driver_verification_status?: string | null;
   booking_count?: number;
   referral_count?: number;
 }
@@ -49,30 +51,37 @@ export default function UsersPage() {
     setLoading(false);
   }
 
-  async function toggleUserStatus(userId: string, currentStatus: boolean, role: string) {
-    if (role === 'admin') {
+  async function toggleCustomerAccess(user: User) {
+    if (user.role === 'admin') {
       toast.error('Cannot block admin users');
       return;
     }
     
-    if (!confirm(`Are you sure you want to ${currentStatus ? 'block' : 'unblock'} this user?`)) return;
+    if (!confirm(`Are you sure you want to ${user.customer_app_enabled ? 'disable' : 'enable'} customer access for this user?`)) return;
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ is_active: !currentStatus })
-        .eq('id', userId);
+      const response = await fetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: user.id,
+          customer_app_enabled: !user.customer_app_enabled,
+        }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to update customer access');
+      }
 
-      toast.success(`User ${currentStatus ? 'blocked' : 'unblocked'} successfully`);
+      toast.success(`Customer access ${user.customer_app_enabled ? 'disabled' : 'enabled'} successfully`);
       
       // Optimistic update
       setUsers(users.map(u => 
-        u.id === userId ? { ...u, is_active: !currentStatus } : u
+        u.id === user.id ? { ...u, customer_app_enabled: !user.customer_app_enabled } : u
       ));
     } catch (error: any) {
-      toast.error('Failed to update status: ' + error.message);
+      toast.error('Failed to update customer access: ' + error.message);
     }
   }
 
@@ -130,7 +139,9 @@ export default function UsersPage() {
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Apps</th>
+                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer Access</th>
+                    <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Driver Access</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Referrals</th>
                     <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
                     <th className="px-8 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -174,12 +185,43 @@ export default function UsersPage() {
                         </span>
                       </td>
                       <td className="px-8 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                            user.customer_app_enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            Customer
+                          </span>
+                          {user.has_driver_access && (
+                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                              user.driver_app_enabled === false ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              Driver
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-8 py-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                          user.is_active 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-red-100 text-red-700'
+                          user.customer_app_enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                         }`}>
-                          {user.is_active ? 'Active' : 'Blocked'}
+                          {user.customer_app_enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                          !user.has_driver_access
+                            ? 'bg-gray-100 text-gray-500'
+                            : user.driver_app_enabled === false
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-green-100 text-green-700'
+                        }`}>
+                          {!user.has_driver_access
+                            ? 'No driver account'
+                            : user.driver_app_enabled === false
+                              ? 'Suspended'
+                              : user.driver_verification_status === 'approved'
+                                ? 'Enabled'
+                                : `Pending ${user.driver_verification_status || ''}`.trim()}
                         </span>
                       </td>
                       <td className="px-8 py-4">
@@ -195,15 +237,15 @@ export default function UsersPage() {
                       <td className="px-8 py-4 text-right">
                         {user.role !== 'admin' && (
                           <button
-                            onClick={() => toggleUserStatus(user.id, user.is_active ?? true, user.role)}
+                            onClick={() => toggleCustomerAccess(user)}
                             className={`p-2 rounded-lg transition-colors ${
-                              user.is_active 
+                              user.customer_app_enabled
                                 ? 'text-red-500 hover:bg-red-50' 
                                 : 'text-green-500 hover:bg-green-50'
                             }`}
-                            title={user.is_active ? 'Block User' : 'Unblock User'}
+                            title={user.customer_app_enabled ? 'Disable Customer App' : 'Enable Customer App'}
                           >
-                            {user.is_active ? <Ban size={18} /> : <CheckCircle size={18} />}
+                            {user.customer_app_enabled ? <Ban size={18} /> : <CheckCircle size={18} />}
                           </button>
                         )}
                       </td>

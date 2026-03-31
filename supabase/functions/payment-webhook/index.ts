@@ -279,7 +279,7 @@ serve(async (req) => {
             user_id: driver.user_id,
             title: 'Payment Received! 💰',
             body: `Payment of ₹${payload.data.payment.payment_amount} has been received.`,
-            data: { booking_id: booking.id, type: 'payment_received' },
+            data: { booking_id: booking.id, type: 'payment_received', target_app: 'driver' },
           })
         }
       }
@@ -290,7 +290,7 @@ serve(async (req) => {
           user_id: booking.customer_id,
           title: 'Payment Successful ✅',
           body: `Your payment of ₹${payload.data.payment.payment_amount} has been confirmed.`,
-          data: { booking_id: booking.id, type: 'payment_success' },
+          data: { booking_id: booking.id, type: 'payment_success', target_app: 'customer' },
         })
       }
 
@@ -350,7 +350,7 @@ serve(async (req) => {
           user_id: booking.customer_id,
           title: 'Payment Failed',
           body: 'Your payment could not be processed. Please try again.',
-          data: { booking_id: booking.id, type: 'payment_failed' },
+          data: { booking_id: booking.id, type: 'payment_failed', target_app: 'customer' },
         })
       }
     }

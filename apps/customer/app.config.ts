@@ -54,10 +54,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "VIBRATE",
       "WAKE_LOCK"
     ],
-    // Only add google-services.json if it exists to avoid build errors
-    ...(fs.existsSync(path.join(__dirname, "google-services.json")) 
-      ? { googleServicesFile: "./google-services.json" } 
-      : {}),
+    // Resolve google-services.json from either the app root or an existing android/app folder.
+    ...(() => {
+      const rootPath = path.join(__dirname, "google-services.json");
+      const androidAppPath = path.join(__dirname, "android", "app", "google-services.json");
+      if (fs.existsSync(rootPath)) {
+        return { googleServicesFile: "./google-services.json" };
+      }
+      if (fs.existsSync(androidAppPath)) {
+        return { googleServicesFile: "./android/app/google-services.json" };
+      }
+      return {};
+    })(),
   },
   web: {
     bundler: "metro",

@@ -8,6 +8,7 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { filterCustomerWalletHistory, isCustomerWalletTopupTransaction } from "@/lib/walletTransactions";
 
 const Payment = () => {
   const { user, profile } = useAuth();
@@ -74,10 +75,10 @@ const Payment = () => {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(30);
       
       if (data) {
-        setTransactions(data);
+        setTransactions(filterCustomerWalletHistory(data).slice(0, 10));
       }
     } catch (e) {
       console.log("Error fetching transactions:", e);
@@ -196,14 +197,14 @@ const Payment = () => {
       }
 
       console.log("[PAYMENT] Checking for existing orders...");
-      const { data: existingOrder, error: checkError } = await supabase
+      const { data: pendingOrders, error: checkError } = await supabase
         .from('wallet_transactions')
-        .select('*')
+        .select('id, payment_order_id, description')
         .eq('user_id', user.id)
         .eq('amount', value)
         .eq('status', 'pending')
         .gte('created_at', new Date(Date.now() - 60000).toISOString())
-        .maybeSingle();
+        .limit(10);
 
       if (checkError) {
         console.error("[PAYMENT] Check existing order error:", checkError);
@@ -211,6 +212,10 @@ const Payment = () => {
         setLoading(false);
         return;
       }
+
+      const existingOrder = (pendingOrders || []).find((transaction) =>
+        isCustomerWalletTopupTransaction(transaction)
+      );
 
       if (existingOrder) {
         setLoading(false);
