@@ -28,6 +28,28 @@ interface UserAccessMetadata {
   driver_push_active: boolean;
 }
 
+type UserAccessRow = {
+  id: string;
+  customer_app_enabled?: boolean | null;
+};
+
+type DriverAccessRow = {
+  user_id: string;
+  driver_app_enabled?: boolean | null;
+  verification_status?: string | null;
+};
+
+type PushTokenAccessRow = {
+  user_id: string;
+  app_type?: 'customer' | 'driver' | null;
+};
+
+type PushTokenDeliveryRow = {
+  user_id: string;
+  token: string;
+  app_type?: 'customer' | 'driver' | null;
+};
+
 function isMissingColumnError(error: any, column: string) {
   return Boolean(error?.message?.includes(column));
 }
@@ -55,29 +77,29 @@ async function getUserAccessMetadata(userIds: string[]) {
       .eq('is_active', true),
   ]);
 
-  let users = usersResult.data || [];
+  let users: UserAccessRow[] = (usersResult.data || []) as UserAccessRow[];
   if (isMissingColumnError(usersResult.error, 'customer_app_enabled')) {
     const fallbackUsersResult = await supabase
       .from('users')
       .select('id')
       .in('id', userIds);
-    users = fallbackUsersResult.data || [];
+    users = (fallbackUsersResult.data || []) as UserAccessRow[];
   } else if (usersResult.error) {
     throw usersResult.error;
   }
 
-  let drivers = driversResult.data || [];
+  let drivers: DriverAccessRow[] = (driversResult.data || []) as DriverAccessRow[];
   if (isMissingColumnError(driversResult.error, 'driver_app_enabled')) {
     const fallbackDriversResult = await supabase
       .from('drivers')
       .select('user_id, verification_status')
       .in('user_id', userIds);
-    drivers = fallbackDriversResult.data || [];
+    drivers = (fallbackDriversResult.data || []) as DriverAccessRow[];
   } else if (driversResult.error) {
     throw driversResult.error;
   }
 
-  let pushTokens = pushTokensResult.data || [];
+  let pushTokens: PushTokenAccessRow[] = (pushTokensResult.data || []) as PushTokenAccessRow[];
   if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
     const fallbackPushTokensResult = await supabase
       .from('push_tokens')
@@ -87,7 +109,7 @@ async function getUserAccessMetadata(userIds: string[]) {
     pushTokens = (fallbackPushTokensResult.data || []).map((entry: any) => ({
       user_id: entry.user_id,
       app_type: 'customer',
-    }));
+    })) as PushTokenAccessRow[];
   } else if (pushTokensResult.error) {
     throw pushTokensResult.error;
   }
@@ -208,21 +230,23 @@ async function getPushTokensForAudience(
     query = query.eq('app_type', appAudience);
   }
 
-  let pushTokensResult = await query;
+  const pushTokensResult = await query;
+  let pushTokens: PushTokenDeliveryRow[] = (pushTokensResult.data || []) as PushTokenDeliveryRow[];
+
   if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
-    pushTokensResult = await supabase
+    const fallbackPushTokensResult = await supabase
       .from('push_tokens')
       .select('user_id, token')
       .in('user_id', userIds)
       .eq('is_active', true);
+
+    pushTokens = (fallbackPushTokensResult.data || []) as PushTokenDeliveryRow[];
   } else if (pushTokensResult.error) {
     throw pushTokensResult.error;
   }
 
-  const pushTokens = pushTokensResult.data;
-
   const tokenMap = new Map<string, Set<string>>();
-  for (const entry of pushTokens || []) {
+  for (const entry of pushTokens) {
     if (!entry?.user_id || !entry?.token) {
       continue;
     }
