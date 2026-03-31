@@ -19,6 +19,10 @@ interface NotificationRequest {
   data?: Record<string, any>
 }
 
+function isMissingColumnError(error: any, column: string) {
+  return Boolean(error?.message?.includes(column))
+}
+
 interface ExpoPushMessage {
   to: string
   title?: string
@@ -57,20 +61,40 @@ serve(async (req) => {
       )
     }
 
-    // Get all active push tokens for this user
-    // 1. Legacy token from users table
-    const { data: userRecord } = await supabase
-      .from('users')
-      .select('expo_push_token')
-      .eq('id', user_id)
-      .single()
+    const targetApp = data?.target_app === 'customer' || data?.target_app === 'driver'
+      ? data.target_app
+      : null
 
-    // 2. Modern tokens from push_tokens table
-    const { data: pushTokens } = await supabase
+    // Get active push tokens for this user.
+    // Legacy expo_push_token is only used as a fallback for non-customer-only deliveries.
+    const { data: userRecord } = targetApp === 'customer'
+      ? { data: null as { expo_push_token?: string | null } | null }
+      : await supabase
+          .from('users')
+          .select('expo_push_token')
+          .eq('id', user_id)
+          .single()
+
+    let pushTokensQuery = supabase
       .from('push_tokens')
-      .select('token')
+      .select('token, app_type')
       .eq('user_id', user_id)
       .eq('is_active', true)
+
+    if (targetApp) {
+      pushTokensQuery = pushTokensQuery.eq('app_type', targetApp)
+    }
+
+    let pushTokensResult = await pushTokensQuery
+    if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
+      pushTokensResult = await supabase
+        .from('push_tokens')
+        .select('token')
+        .eq('user_id', user_id)
+        .eq('is_active', true)
+    }
+
+    const pushTokens = pushTokensResult.data
 
     const allTokens = new Set<string>()
     if (userRecord?.expo_push_token) allTokens.add(userRecord.expo_push_token)

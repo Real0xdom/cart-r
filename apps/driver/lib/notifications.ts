@@ -1421,14 +1421,38 @@ export async function registerPushToken(supabase: any, userId: string): Promise<
           user_id: userId,
           token,
           device_id: deviceId,
+          app_type: 'driver',
           platform: Platform.OS,
           is_active: true,
         },
-        { onConflict: 'user_id,device_id' }
+        { onConflict: 'user_id,device_id,app_type' }
       );
 
       if (pushTokenError) {
-        console.warn('[Driver] push_tokens upsert failed (non-critical):', pushTokenError);
+        const isMissingAppType =
+          pushTokenError.message?.includes('app_type') ||
+          pushTokenError.message?.includes('schema cache');
+
+        if (isMissingAppType) {
+          const { error: legacyPushTokenError } = await supabase.from('push_tokens').upsert(
+            {
+              user_id: userId,
+              token,
+              device_id: deviceId,
+              platform: Platform.OS,
+              is_active: true,
+            },
+            { onConflict: 'user_id,device_id' }
+          );
+
+          if (legacyPushTokenError) {
+            console.warn('[Driver] legacy push_tokens upsert failed (non-critical):', legacyPushTokenError);
+          } else {
+            console.log('[Driver] Token saved to legacy push_tokens schema');
+          }
+        } else {
+          console.warn('[Driver] push_tokens upsert failed (non-critical):', pushTokenError);
+        }
       } else {
         console.log('[Driver] Token saved to push_tokens table');
       }

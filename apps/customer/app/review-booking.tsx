@@ -5,6 +5,7 @@ import { getApplicableAddons, calculateAddonCharges, AddonService } from "@/lib/
 import { supabase } from "@/lib/supabase";
 import { getActiveVehicleTypes, getVehicleDisplayName, getVehicleImageSource, VehicleType } from "@/lib/vehicleTypes";
 import { getWalletBalance } from "@/lib/wallet";
+import { isCustomerWalletTopupTransaction } from "@/lib/walletTransactions";
 import { useBookingStore, useLocationStore, useRideStore } from "@/store";
 import type { ReviewBookingPaymentMethod, SelectedVehicle } from "@/types/type";
 import { useFocusEffect } from "@react-navigation/native";
@@ -352,20 +353,24 @@ const ReviewBookingPage = () => {
       const timestamp = Math.floor(Date.now() / 60000);
       const idempotencyKey = `wallet-${userId}-${value}-${timestamp}`;
 
-      const { data: existingOrder, error: existingOrderError } = await supabase
+      const { data: pendingOrders, error: existingOrderError } = await supabase
         .from("wallet_transactions")
-        .select("*")
+        .select("id, payment_order_id, description")
         .eq("user_id", userId)
         .eq("amount", value)
         .eq("status", "pending")
         .gte("created_at", new Date(Date.now() - 60000).toISOString())
-        .maybeSingle();
+        .limit(10);
 
       if (existingOrderError) {
         Alert.alert("Database Error", `Failed to check existing transactions: ${existingOrderError.message}`);
         setTopUpLoading(false);
         return;
       }
+
+      const existingOrder = (pendingOrders || []).find((transaction) =>
+        isCustomerWalletTopupTransaction(transaction)
+      );
 
       if (existingOrder) {
         setTopUpLoading(false);

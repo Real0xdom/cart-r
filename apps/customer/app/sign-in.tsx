@@ -165,6 +165,18 @@ const CustomerSignIn = () => {
                     const userId = sessionData.session.user.id;
                     setUserId(userId);
 
+                    const { data: customerProfile, error: customerProfileError } = await supabase
+                        .from('users')
+                        .select('customer_app_enabled')
+                        .eq('id', userId)
+                        .maybeSingle();
+
+                    const customerAccessKnown = !customerProfileError || !customerProfileError.message?.includes('customer_app_enabled');
+                    if (customerAccessKnown && customerProfile && (customerProfile as { customer_app_enabled?: boolean }).customer_app_enabled === false) {
+                        router.replace("/account-blocked");
+                        return;
+                    }
+
                     console.log('[SignIn] Checking terms acceptance for user:', userId);
                     const { data: hasAccepted, error: termsError } = await supabase.rpc(
                         'has_accepted_latest_terms',
