@@ -267,28 +267,57 @@ export async function getExpoPushToken(): Promise<string | null> {
       return null;
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId,
+        });
 
-    if (!tokenData?.data) {
-      console.warn('No push token received');
-      return null;
+        if (!tokenData?.data) {
+          console.warn('No push token received');
+          return null;
+        }
+
+        console.log('Push token obtained');
+        return tokenData.data;
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = String(error?.message || error);
+
+        if (
+          errorMessage.includes('FirebaseApp is not initialized') ||
+          errorMessage.includes('Default FirebaseApp')
+        ) {
+          console.warn(
+            '[PushToken] Firebase is not initialized in this Android build. ' +
+            'Notification permission can still be ON, but Expo cannot mint a push token until the app is rebuilt with Firebase/google-services wired in.'
+          );
+          throw new Error('FIREBASE_NOT_CONFIGURED');
+        }
+
+        if (errorMessage.includes('Cannot find native module')) {
+          console.warn('Expo Notifications native module missing. Please rebuild your development client.');
+          return null;
+        }
+
+        console.warn(`Attempt ${attempt + 1}/3 to get push token failed.`, error);
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
     }
 
-    console.log('Push token obtained');
-    return tokenData.data;
+    console.error('Failed to get Expo push token after retries:', lastError);
   } catch (error: any) {
-    if (error?.message?.includes('Cannot find native module')) {
-      console.warn('Expo Notifications native module missing. Please rebuild your development client.');
-    } else if (error?.message?.includes('FirebaseApp is not initialized')) {
-      console.warn('Firebase not configured - push notifications disabled (expected in dev).');
+    if (error?.message === 'FIREBASE_NOT_CONFIGURED') {
       throw new Error('FIREBASE_NOT_CONFIGURED');
     } else {
       console.error('Error getting push token:', error);
     }
-    return null;
   }
+
+  return null;
 }
 
 export async function registerPushToken(userId: string): Promise<boolean> {
@@ -300,44 +329,86 @@ export async function registerPushToken(userId: string): Promise<boolean> {
 
     console.log('[registerPushToken] Got token:', token.substring(0, 30) + '...');
 
-    const { error } = await supabase
+    let deviceId = 'unknown';
+    try {
+      const Constants = require('expo-constants').default;
+      deviceId = Constants.installationId || Constants.sessionId || `customer-device-${userId.substring(0, 8)}`;
+    } catch {
+      deviceId = `customer-device-${userId.substring(0, 8)}`;
+    }
+
+    let legacyUserTokenSaved = false;
+    let multiDeviceTokenSaved = false;
+
+    const { error: legacyUserError } = await supabase
       .from('users')
       .update({ expo_push_token: token })
       .eq('id', userId);
 
-    if (error) {
-      console.error('[registerPushToken] Supabase update error:', error);
-      return false;
+    if (legacyUserError) {
+      console.warn('[registerPushToken] Failed to update users.expo_push_token fallback:', legacyUserError);
+    } else {
+      legacyUserTokenSaved = true;
+      console.log('[registerPushToken] Token saved to users.expo_push_token fallback');
     }
 
     try {
-      let deviceId = 'unknown';
-      try {
-        const Constants = require('expo-constants').default;
-        deviceId = Constants.installationId || Constants.sessionId || `customer-device-${userId.substring(0, 8)}`;
-      } catch {
-        deviceId = `customer-device-${userId.substring(0, 8)}`;
-      }
-
-      await supabase
+      const { error: pushTokenError } = await supabase
         .from('push_tokens')
         .upsert(
           {
             user_id: userId,
             token,
             device_id: deviceId,
+            app_type: 'customer',
             platform: Platform.OS,
             is_active: true,
           },
-          { onConflict: 'user_id,device_id' }
+          { onConflict: 'user_id,device_id,app_type' }
         );
 
-      console.log('[registerPushToken] Token saved to push_tokens table');
+      if (pushTokenError) {
+        const isMissingAppType =
+          pushTokenError.message?.includes('app_type') ||
+          pushTokenError.message?.includes('schema cache');
+
+        if (isMissingAppType) {
+          const { error: legacyPushTokenError } = await supabase
+            .from('push_tokens')
+            .upsert(
+              {
+                user_id: userId,
+                token,
+                device_id: deviceId,
+                platform: Platform.OS,
+                is_active: true,
+              },
+              { onConflict: 'user_id,device_id' }
+            );
+
+          if (legacyPushTokenError) {
+            throw legacyPushTokenError;
+          }
+
+          multiDeviceTokenSaved = true;
+          console.log('[registerPushToken] Token saved to legacy push_tokens schema');
+        } else {
+          throw pushTokenError;
+        }
+      } else {
+        multiDeviceTokenSaved = true;
+        console.log('[registerPushToken] Token saved to push_tokens table');
+      }
     } catch (pushTokenError) {
-      console.warn('[registerPushToken] push_tokens upsert failed (non-critical):', pushTokenError);
+      console.warn('[registerPushToken] push_tokens upsert failed:', pushTokenError);
     }
 
-    console.log('[registerPushToken] Token saved to database successfully');
+    if (!legacyUserTokenSaved && !multiDeviceTokenSaved) {
+      console.error('[registerPushToken] Token was obtained but could not be saved anywhere.');
+      return false;
+    }
+
+    console.log('[registerPushToken] Token saved successfully');
     return true;
   } catch (error: any) {
     if (error?.message === 'FIREBASE_NOT_CONFIGURED') {

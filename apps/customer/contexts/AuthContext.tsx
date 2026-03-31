@@ -34,6 +34,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isClearingSessionForPhoneAuthRef = useRef(false);
+  const isBlockingDisabledAccountRef = useRef(false);
+  const currentUserId = user?.id ?? null;
 
   const isTransientAuthError = (error: unknown) => {
     const message = error instanceof Error ? error.message.toLowerCase() : '';
@@ -270,6 +272,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const customerProfile = profile as (UserProfile & { customer_app_enabled?: boolean }) | null;
+
+    if (!customerProfile || customerProfile.customer_app_enabled !== false || isBlockingDisabledAccountRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+    isBlockingDisabledAccountRef.current = true;
+
+    const blockCustomerAccess = async () => {
+      try {
+        if (!isCancelled) {
+          router.replace('/account-blocked');
+        }
+      } finally {
+        isBlockingDisabledAccountRef.current = false;
+      }
+    };
+
+    void blockCustomerAccess();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [profile]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`customer-profile-sync-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          console.log('[AUTH] Customer profile updated remotely - syncing:', payload.new);
+          setProfile((prev: UserProfile | null) =>
+            prev ? ({ ...prev, ...payload.new } as UserProfile) : prev
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUserId]);
 
   // Sign up with email/password
   const signUp = async (email: string, password: string, name: string, phone?: string) => {

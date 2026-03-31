@@ -130,6 +130,14 @@ export default function RootLayout() {
             <Stack>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="account-blocked"
+                options={{
+                  headerShown: false,
+                  presentation: "transparentModal",
+                  animation: "fade",
+                }}
+              />
               <Stack.Screen name="onboarding" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="profile" options={{ headerShown: false }} />

@@ -120,23 +120,53 @@ const DriverSignIn = () => {
         return;
       }
 
-      const normalizedPhone = data.user.phone || formattedPhone;
-
-      const { data: existingUser } = await supabase
+      const { data: existingUserProfile } = await supabase
         .from("users")
-        .select("name,email")
+        .select("id, role, name, email")
         .eq("id", data.user.id)
         .maybeSingle();
+
+      let driverAccessEnabled: boolean | undefined;
+      let driverDataQuery = await supabase
+        .from("drivers")
+        .select("id, verification_status, driver_app_enabled")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+
+      if (driverDataQuery.error?.message?.includes('driver_app_enabled')) {
+        driverDataQuery = await supabase
+          .from("drivers")
+          .select("id, verification_status")
+          .eq("user_id", data.user.id)
+          .maybeSingle();
+      } else {
+        driverAccessEnabled = (driverDataQuery.data as { driver_app_enabled?: boolean } | null)?.driver_app_enabled;
+      }
+
+      const driverData = driverDataQuery.data;
+
+      if (!driverData) {
+        router.replace("/onboarding/personal-info");
+        return;
+      }
+
+      if (driverAccessEnabled === false) {
+        await refreshProfile();
+        router.replace("/account-blocked");
+        return;
+      }
+
+      const normalizedPhone = data.user.phone || formattedPhone;
 
       const { error: roleError } = await supabase.from("users").upsert({
         id: data.user.id,
         email:
-          existingUser?.email ||
+          existingUserProfile?.email ||
           data.user.email ||
           `${normalizedPhone}@driver.cart-r.app`,
         name:
-          existingUser?.name && existingUser?.name !== "Driver Partner"
-            ? existingUser.name
+          existingUserProfile?.name && existingUserProfile?.name !== "Driver Partner"
+            ? existingUserProfile.name
             : data.user.user_metadata?.name ||
               data.user.user_metadata?.full_name ||
               "Driver Partner",
@@ -148,12 +178,6 @@ const DriverSignIn = () => {
         Alert.alert(t("error"), roleError.message);
         return;
       }
-
-      const { data: driverData } = await supabase
-        .from("drivers")
-        .select("id, verification_status")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
 
       try {
         await supabase.rpc("record_terms_acceptance", {
@@ -169,9 +193,7 @@ const DriverSignIn = () => {
 
       await refreshProfile();
 
-      if (!driverData) {
-        router.replace("/onboarding/personal-info");
-      } else if (driverData.verification_status === "approved") {
+      if (driverData.verification_status === "approved") {
         router.replace("/(tabs)/home");
       } else if (
         driverData.verification_status === "pending" ||

@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import CashfreeCheckoutModal from '@/components/CashfreeCheckoutModal';
-import { getDriverWalletInfo, requestWithdrawal, getPlatformSetting, WalletInfo, getDriverWalletTransactions, getDriverWithdrawals, getWalletPaymentTransactions, WalletTransaction, WithdrawalRequest, WalletPaymentTransaction } from '@/lib/wallet';
+import { getDriverWalletInfo, requestWithdrawal, getPlatformSetting, WalletInfo, getDriverWalletTransactions, getDriverWithdrawals, getWalletPaymentTransactions, WalletTransaction, WithdrawalRequest, WalletPaymentTransaction, isDriverWalletPaymentTransaction } from '@/lib/wallet';
 import { getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -768,18 +768,22 @@ const DriverEarnings = () => {
             const timestamp = Math.floor(Date.now() / 60000);
             const idempotencyKey = `driver-wallet-${user.id}-${value}-${timestamp}`;
 
-            const { data: existingOrder, error: existingOrderError } = await supabase
+            const { data: pendingOrders, error: existingOrderError } = await supabase
                 .from('wallet_transactions')
-                .select('id')
+                .select('id, payment_order_id, description')
                 .eq('user_id', user.id)
                 .eq('amount', value)
                 .eq('status', 'pending')
                 .gte('created_at', new Date(Date.now() - 60000).toISOString())
-                .maybeSingle();
+                .limit(10);
 
             if (existingOrderError) {
                 throw existingOrderError;
             }
+
+            const existingOrder = (pendingOrders || []).find((transaction) =>
+                isDriverWalletPaymentTransaction(transaction)
+            );
 
             if (existingOrder) {
                 Alert.alert(

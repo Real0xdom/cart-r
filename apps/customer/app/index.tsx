@@ -4,7 +4,8 @@ import { View, Image, StyleSheet } from "react-native";
 import { useAuth } from "@/contexts/AuthContext";
 
 const CustomerEntry = () => {
-  const { user, isLoading } = useAuth();
+  const { user, profile, isLoading } = useAuth();
+  const customerAppEnabled = (profile as { customer_app_enabled?: boolean } | null)?.customer_app_enabled;
 
   // Show branded splash (logo on dark green bg) while checking auth state
   if (isLoading) {
@@ -20,6 +21,10 @@ const CustomerEntry = () => {
   }
 
   // If user is signed in, go to home
+  if (user && customerAppEnabled === false) {
+    return <Redirect href="/account-blocked" />;
+  }
+
   if (user) {
     return <Redirect href="/(tabs)/home" />;
   }

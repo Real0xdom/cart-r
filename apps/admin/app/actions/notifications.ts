@@ -16,25 +16,272 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 // Create a new Expo SDK client
 const expo = new Expo();
 
+type AppAudience = 'customer' | 'driver' | 'both';
+
+interface UserAccessMetadata {
+  has_customer_access: boolean;
+  has_driver_access: boolean;
+  customer_app_enabled: boolean;
+  driver_app_enabled: boolean | null;
+  driver_verification_status: string | null;
+  customer_push_active: boolean;
+  driver_push_active: boolean;
+}
+
+function isMissingColumnError(error: any, column: string) {
+  return Boolean(error?.message?.includes(column));
+}
+
+async function getUserAccessMetadata(userIds: string[]) {
+  const metadataMap = new Map<string, UserAccessMetadata>();
+
+  if (userIds.length === 0) {
+    return metadataMap;
+  }
+
+  const [usersResult, driversResult, pushTokensResult] = await Promise.all([
+    supabase
+      .from('users')
+      .select('id, customer_app_enabled')
+      .in('id', userIds),
+    supabase
+      .from('drivers')
+      .select('user_id, driver_app_enabled, verification_status')
+      .in('user_id', userIds),
+    supabase
+      .from('push_tokens')
+      .select('user_id, app_type')
+      .in('user_id', userIds)
+      .eq('is_active', true),
+  ]);
+
+  let users = usersResult.data || [];
+  if (isMissingColumnError(usersResult.error, 'customer_app_enabled')) {
+    const fallbackUsersResult = await supabase
+      .from('users')
+      .select('id')
+      .in('id', userIds);
+    users = fallbackUsersResult.data || [];
+  } else if (usersResult.error) {
+    throw usersResult.error;
+  }
+
+  let drivers = driversResult.data || [];
+  if (isMissingColumnError(driversResult.error, 'driver_app_enabled')) {
+    const fallbackDriversResult = await supabase
+      .from('drivers')
+      .select('user_id, verification_status')
+      .in('user_id', userIds);
+    drivers = fallbackDriversResult.data || [];
+  } else if (driversResult.error) {
+    throw driversResult.error;
+  }
+
+  let pushTokens = pushTokensResult.data || [];
+  if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
+    const fallbackPushTokensResult = await supabase
+      .from('push_tokens')
+      .select('user_id')
+      .in('user_id', userIds)
+      .eq('is_active', true);
+    pushTokens = (fallbackPushTokensResult.data || []).map((entry: any) => ({
+      user_id: entry.user_id,
+      app_type: 'customer',
+    }));
+  } else if (pushTokensResult.error) {
+    throw pushTokensResult.error;
+  }
+
+  const driverMap = new Map(
+    drivers.map((driver: any) => [driver.user_id, driver])
+  );
+
+  const pushTokenMap = new Map<string, { customer: boolean; driver: boolean }>();
+  for (const token of pushTokens) {
+    if (!token?.user_id) {
+      continue;
+    }
+
+    const current = pushTokenMap.get(token.user_id) || { customer: false, driver: false };
+    if (token.app_type === 'driver') {
+      current.driver = true;
+    } else {
+      current.customer = true;
+    }
+    pushTokenMap.set(token.user_id, current);
+  }
+
+  for (const user of users) {
+    const driver = driverMap.get(user.id);
+    const pushState = pushTokenMap.get(user.id) || { customer: false, driver: false };
+    const customerAppEnabled = typeof (user as any).customer_app_enabled === 'boolean'
+      ? (user as any).customer_app_enabled
+      : true;
+
+    metadataMap.set(user.id, {
+      has_customer_access: customerAppEnabled,
+      has_driver_access: Boolean(driver),
+      customer_app_enabled: customerAppEnabled,
+      driver_app_enabled: typeof driver?.driver_app_enabled === 'boolean' ? driver.driver_app_enabled : null,
+      driver_verification_status: driver?.verification_status ?? null,
+      customer_push_active: pushState.customer,
+      driver_push_active: pushState.driver,
+    });
+  }
+
+  return metadataMap;
+}
+
+async function getAudienceUsers(audience: string, userId?: string) {
+  if (audience === 'single' && userId) {
+    const { data } = await supabase
+      .from('users')
+      .select('id, expo_push_token')
+      .eq('id', userId)
+      .single();
+    return data ? [data] : [];
+  }
+
+  if (audience === 'all_customers') {
+    let result = await supabase
+      .from('users')
+      .select('id, expo_push_token')
+      .eq('customer_app_enabled', true);
+
+    if (isMissingColumnError(result.error, 'customer_app_enabled')) {
+      result = await supabase
+        .from('users')
+        .select('id, expo_push_token')
+        .eq('role', 'customer');
+    }
+
+    return result.data || [];
+  }
+
+  if (audience === 'all_drivers') {
+    let result = await supabase
+      .from('drivers')
+      .select('user_id')
+      .eq('driver_app_enabled', true);
+
+    if (isMissingColumnError(result.error, 'driver_app_enabled')) {
+      result = await supabase
+        .from('drivers')
+        .select('user_id');
+    }
+
+    const uniqueUserIds = [...new Set((result.data || []).map((driver: any) => driver.user_id).filter(Boolean))];
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, expo_push_token')
+      .in('id', uniqueUserIds);
+
+    return users || [];
+  }
+
+  const { data } = await supabase
+    .from('users')
+    .select('id, expo_push_token');
+  return data || [];
+}
+
+async function getPushTokensForAudience(
+  targetUsers: Array<{ id: string; expo_push_token?: string | null }>,
+  appAudience: AppAudience
+) {
+  const userIds = targetUsers.map((user) => user.id);
+  if (userIds.length === 0) {
+    return new Map<string, Set<string>>();
+  }
+
+  let query = supabase
+    .from('push_tokens')
+    .select('user_id, token, app_type')
+    .in('user_id', userIds)
+    .eq('is_active', true);
+
+  if (appAudience !== 'both') {
+    query = query.eq('app_type', appAudience);
+  }
+
+  let pushTokensResult = await query;
+  if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
+    pushTokensResult = await supabase
+      .from('push_tokens')
+      .select('user_id, token')
+      .in('user_id', userIds)
+      .eq('is_active', true);
+  } else if (pushTokensResult.error) {
+    throw pushTokensResult.error;
+  }
+
+  const pushTokens = pushTokensResult.data;
+
+  const tokenMap = new Map<string, Set<string>>();
+  for (const entry of pushTokens || []) {
+    if (!entry?.user_id || !entry?.token) {
+      continue;
+    }
+    if (!tokenMap.has(entry.user_id)) {
+      tokenMap.set(entry.user_id, new Set());
+    }
+    tokenMap.get(entry.user_id)?.add(entry.token);
+  }
+
+  // Legacy fallback: if a user has no active push_tokens row yet, still try the
+  // older users.expo_push_token field so direct sends keep working during rollout.
+  for (const user of targetUsers) {
+    const legacyToken = user.expo_push_token;
+    const hasActiveToken = (tokenMap.get(user.id)?.size || 0) > 0;
+    if (!legacyToken || hasActiveToken || !Expo.isExpoPushToken(legacyToken)) {
+      continue;
+    }
+
+    if (!tokenMap.has(user.id)) {
+      tokenMap.set(user.id, new Set());
+    }
+    tokenMap.get(user.id)?.add(legacyToken);
+  }
+
+  return tokenMap;
+}
+
 export async function getAudienceCounts() {
   try {
-    const { count: customersCount } = await supabase
+    let customersResult = await supabase
       .from('users')
       .select('*', { count: 'exact', head: true })
-      .eq('role', 'customer');
+      .eq('customer_app_enabled', true);
 
-    const { count: driversCount } = await supabase
-      .from('users')
+    if (isMissingColumnError(customersResult.error, 'customer_app_enabled')) {
+      customersResult = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'customer');
+    }
+
+    let driversResult = await supabase
+      .from('drivers')
       .select('*', { count: 'exact', head: true })
-      .eq('role', 'driver');
+      .eq('driver_app_enabled', true);
+
+    if (isMissingColumnError(driversResult.error, 'driver_app_enabled')) {
+      driversResult = await supabase
+        .from('drivers')
+        .select('*', { count: 'exact', head: true });
+    }
 
     const { count: totalCount } = await supabase
       .from('users')
       .select('*', { count: 'exact', head: true });
 
     return {
-      all_customers: customersCount || 0,
-      all_drivers: driversCount || 0,
+      all_customers: customersResult.count || 0,
+      all_drivers: driversResult.count || 0,
       all_users: totalCount || 0,
       error: null
     };
@@ -47,12 +294,28 @@ export async function searchUsers(query: string) {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('id, name, email, role, expo_push_token')
-      .ilike('name', `%${query}%`)
+      .select('id, name, email, phone, role, expo_push_token')
+      .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
       .limit(10);
 
     if (error) throw error;
-    return data || [];
+
+    const users = data || [];
+    const accessMetadata = await getUserAccessMetadata(users.map((user: any) => user.id));
+
+    return users.map((user: any) => {
+      const metadata = accessMetadata.get(user.id);
+      return {
+        ...user,
+        has_customer_access: metadata?.has_customer_access ?? true,
+        has_driver_access: metadata?.has_driver_access ?? false,
+        customer_app_enabled: metadata?.customer_app_enabled ?? true,
+        driver_app_enabled: metadata?.driver_app_enabled ?? null,
+        driver_verification_status: metadata?.driver_verification_status ?? null,
+        customer_push_active: metadata?.customer_push_active ?? false,
+        driver_push_active: metadata?.driver_push_active ?? false,
+      };
+    });
   } catch (error: any) {
     console.error('Search error:', error);
     return [];
@@ -63,47 +326,39 @@ export async function sendNotificationToAudience(
   audience: string,
   title: string,
   body: string,
-  userId?: string
+  userId?: string,
+  singleUserTargetApp: AppAudience = 'both',
+  notificationData: Record<string, any> = {}
 ) {
   try {
-    let targetUsers: any[] = [];
-
-    // Get target users based on audience type
-    if (audience === 'single' && userId) {
-      const { data } = await supabase
-        .from('users')
-        .select('id, expo_push_token')
-        .eq('id', userId)
-        .single();
-      if (data) targetUsers = [data];
-    } else if (audience === 'all_customers') {
-      const { data } = await supabase
-        .from('users')
-        .select('id, expo_push_token')
-        .eq('role', 'customer');
-      targetUsers = data || [];
-    } else if (audience === 'all_drivers') {
-      const { data } = await supabase
-        .from('users')
-        .select('id, expo_push_token')
-        .eq('role', 'driver');
-      targetUsers = data || [];
-    } else if (audience === 'all_users') {
-      const { data } = await supabase
-        .from('users')
-        .select('id, expo_push_token');
-      targetUsers = data || [];
-    }
+    const targetUsers = await getAudienceUsers(audience, userId);
 
     if (targetUsers.length === 0) {
       return { success: false, count: 0, error: 'No users found' };
     }
 
+    const appAudience: AppAudience =
+      audience === 'single'
+        ? singleUserTargetApp
+        : audience === 'all_customers'
+        ? 'customer'
+        : audience === 'all_drivers'
+          ? 'driver'
+          : 'both';
+
+    const pushTokenMap = await getPushTokensForAudience(targetUsers, appAudience);
+
     // 1. Store notifications in database for history
+    const notificationPayload =
+      appAudience === 'both'
+        ? notificationData
+        : { ...notificationData, target_app: appAudience };
+
     const notificationRecords = targetUsers.map(user => ({
       user_id: user.id,
       title,
       body,
+      data: notificationPayload,
       is_read: false,
       created_at: new Date().toISOString()
     }));
@@ -121,19 +376,22 @@ export async function sendNotificationToAudience(
     const messages: ExpoPushMessage[] = [];
     
     for (const user of targetUsers) {
-      if (!user.expo_push_token || !Expo.isExpoPushToken(user.expo_push_token)) {
-        console.warn(`Skipping invalid push token for user ${user.id}: ${user.expo_push_token}`);
-        continue;
-      }
+      const tokens = pushTokenMap.get(user.id) || new Set<string>();
 
-      messages.push({
-        to: user.expo_push_token,
-        sound: 'default',
-        title: title,
-        body: body,
-        // priority: 'high', // 'default' | 'normal' | 'high'
-        data: { withSome: 'data' },
-      });
+      for (const token of tokens) {
+        if (!Expo.isExpoPushToken(token)) {
+          console.warn(`Skipping invalid push token for user ${user.id}: ${token}`);
+          continue;
+        }
+
+        messages.push({
+          to: token,
+          sound: 'default',
+          title: title,
+          body: body,
+          data: notificationPayload,
+        });
+      }
     }
 
     // 3. Group by experience (project) to avoid PUSH_TOO_MANY_EXPERIENCE_IDS

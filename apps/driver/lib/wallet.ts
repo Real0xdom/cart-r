@@ -61,6 +61,21 @@ export interface WalletPaymentTransaction {
   updated_at: string | null;
 }
 
+function normalizeWalletPaymentOrderId(value: string | null | undefined) {
+  return (value || '').trim().toUpperCase();
+}
+
+function normalizeWalletPaymentDescription(value: string | null | undefined) {
+  return (value || '').trim().toLowerCase();
+}
+
+export function isDriverWalletPaymentTransaction(transaction: Pick<WalletPaymentTransaction, 'payment_order_id' | 'description'>) {
+  const orderId = normalizeWalletPaymentOrderId(transaction.payment_order_id);
+  const description = normalizeWalletPaymentDescription(transaction.description);
+
+  return orderId.startsWith('DRIVERWALLET_') || description.includes('driver wallet top-up');
+}
+
 export interface DriverWalletEligibility {
   canAcceptRides: boolean;
   reason?: string;
@@ -214,15 +229,17 @@ export async function getDriverWalletTransactions(driverId: string, limit = 50) 
 
 export async function getWalletPaymentTransactions(userId: string, limit = 50): Promise<{ data: WalletPaymentTransaction[] | null; error: Error | null }> {
   try {
+    const fetchLimit = Math.max(limit * 3, 30);
     const { data, error } = await supabase
       .from('wallet_transactions')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(fetchLimit);
 
     if (error) throw error;
-    return { data: data as WalletPaymentTransaction[], error: null };
+    const filtered = (data as WalletPaymentTransaction[]).filter(isDriverWalletPaymentTransaction).slice(0, limit);
+    return { data: filtered, error: null };
   } catch (error: any) {
     console.error('Error fetching wallet payment transactions:', error);
     return { data: null, error };

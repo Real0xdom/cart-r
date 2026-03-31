@@ -1,14 +1,56 @@
 import { Redirect } from "expo-router";
+import { useEffect, useState } from "react";
 import { View, Image, StyleSheet } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 
 const DriverEntry = () => {
-  const { user, driverProfile, isLoading } = useAuth();
+  const { user, driverProfile, isLoading, refreshProfile } = useAuth();
+  const [checkedDriverProfileForUserId, setCheckedDriverProfileForUserId] = useState<string | null>(null);
+  const driverAppEnabled = (driverProfile as { driver_app_enabled?: boolean } | null)?.driver_app_enabled;
+
+  useEffect(() => {
+    if (!user) {
+      setCheckedDriverProfileForUserId(null);
+      return;
+    }
+
+    if (driverProfile) {
+      setCheckedDriverProfileForUserId(user.id);
+      return;
+    }
+
+    if (isLoading || checkedDriverProfileForUserId === user.id) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const hydrateDriverProfile = async () => {
+      try {
+        await refreshProfile();
+      } finally {
+        if (!isCancelled) {
+          setCheckedDriverProfileForUserId(user.id);
+        }
+      }
+    };
+
+    void hydrateDriverProfile();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [checkedDriverProfileForUserId, driverProfile, isLoading, user]);
+
+  const isHydratingExistingSession =
+    Boolean(user) &&
+    !driverProfile &&
+    (isLoading || checkedDriverProfileForUserId !== user?.id);
 
   // Show branded splash (logo on dark green bg) while checking auth state
   // No duplicate refreshProfile() — AuthContext already fetches profile during initializeAuth()
-  if (isLoading) {
+  if (isLoading || isHydratingExistingSession) {
     return (
       <View style={styles.splashContainer}>
         <Image
@@ -29,6 +71,11 @@ const DriverEntry = () => {
   if (!driverProfile) {
     console.log('[DriverEntry] No driver profile found - redirecting to onboarding');
     return <Redirect href="/onboarding/personal-info" />;
+  }
+
+  if (driverAppEnabled === false) {
+    console.log('[DriverEntry] Driver app access disabled - redirecting to blocked screen');
+    return <Redirect href="/account-blocked" />;
   }
 
   // Driver profile exists - check verification status from DATABASE (single source of truth)

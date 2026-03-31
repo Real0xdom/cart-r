@@ -19,6 +19,10 @@ interface ExpoPushMessage {
   ttl?: number
 }
 
+function isMissingColumnError(error: any, column: string) {
+  return Boolean(error?.message?.includes(column))
+}
+
 serve(async (req) => {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -64,35 +68,54 @@ serve(async (req) => {
       .in('id', userIds)
     
     // Fetch modern tokens from push_tokens table
-    const { data: multiDeviceTokens } = await supabase
+    let multiDeviceTokensResult = await supabase
       .from('push_tokens')
-      .select('user_id, token')
+      .select('user_id, token, app_type')
       .in('user_id', userIds)
       .eq('is_active', true)
 
-    // Map user_id -> Set of tokens
-    const userTokenMap = new Map<string, Set<string>>()
-    
-    userTokens?.forEach(u => {
-      if (u.expo_push_token) {
-        if (!userTokenMap.has(u.id)) userTokenMap.set(u.id, new Set())
-        userTokenMap.get(u.id)?.add(u.expo_push_token)
-      }
-    })
-    
-    multiDeviceTokens?.forEach(t => {
-      if (t.token) {
-        if (!userTokenMap.has(t.user_id)) userTokenMap.set(t.user_id, new Set())
-        userTokenMap.get(t.user_id)?.add(t.token)
-      }
-    })
+    if (isMissingColumnError(multiDeviceTokensResult.error, 'app_type')) {
+      multiDeviceTokensResult = await supabase
+        .from('push_tokens')
+        .select('user_id, token')
+        .in('user_id', userIds)
+        .eq('is_active', true)
+    }
+
+    const multiDeviceTokens = multiDeviceTokensResult.data
 
     // Prepare Expo push messages
     const messagesByExperience = new Map<string, ExpoPushMessage[]>()
     const notificationIds: string[] = []
 
+    const userLegacyTokenMap = new Map<string, string>()
+    userTokens?.forEach(u => {
+      if (u.expo_push_token) {
+        userLegacyTokenMap.set(u.id, u.expo_push_token)
+      }
+    })
+
     for (const notification of notifications) {
-      const tokens = userTokenMap.get(notification.user_id)
+      const targetApp = notification.data?.target_app === 'customer' || notification.data?.target_app === 'driver'
+        ? notification.data.target_app
+        : null
+
+      const tokens = new Set<string>()
+      if (targetApp !== 'customer') {
+        const legacyToken = userLegacyTokenMap.get(notification.user_id)
+        if (legacyToken) {
+          tokens.add(legacyToken)
+        }
+      }
+
+      const multiDeviceMatches = (multiDeviceTokens || []).filter((tokenRow: any) => {
+        if (tokenRow.user_id !== notification.user_id || !tokenRow.token) {
+          return false
+        }
+        return !targetApp || !('app_type' in tokenRow) || tokenRow.app_type === targetApp
+      })
+
+      multiDeviceMatches.forEach((tokenRow: any) => tokens.add(tokenRow.token))
 
       if (!tokens || tokens.size === 0) {
         console.log(`No tokens found for user ${notification.user_id} (notif ${notification.id})`)
