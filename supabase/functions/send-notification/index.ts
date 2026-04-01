@@ -65,9 +65,9 @@ serve(async (req) => {
       ? data.target_app
       : null
 
-    // Get active push tokens for this user.
-    // Legacy expo_push_token is only used as a fallback for non-customer-only deliveries.
-    const { data: userRecord } = targetApp === 'customer'
+    // App-specific deliveries should only use scoped push_tokens rows so a
+    // shared account does not receive driver notifications inside the customer app.
+    const { data: userRecord } = targetApp
       ? { data: null as { expo_push_token?: string | null } | null }
       : await supabase
           .from('users')

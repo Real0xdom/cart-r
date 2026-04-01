@@ -24,6 +24,7 @@ import {
   cancelRideRequestNotification,
   dismissRawRideRequestNotification,
   displayRideRequestWithStackLogic,
+  isRideRequestNotificationType,
   removeActiveRide,
 } from '@/lib/notifications';
 import { getCurrentLocation, refreshLocationTrackingNotification } from '@/lib/location';
@@ -35,7 +36,7 @@ import { useAuth } from '@/contexts/AuthContext';
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
-    if (data?.type === 'new_booking' || data?.is_data_only) {
+    if (isRideRequestNotificationType(data?.type) || data?.is_data_only) {
       return {
         shouldShowAlert: false,
         shouldPlaySound: false,
@@ -562,7 +563,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
     const foregroundSubscription = Notifications.addNotificationReceivedListener(async (notification) => {
       const data = notification.request.content.data;
       console.log('[RIDE NOTIFICATION] Foreground push received:', data);
-      if (data?.type === 'new_booking' && data?.booking_id) {
+      if (isRideRequestNotificationType(data?.type) && data?.booking_id) {
         await dismissRawRideRequestNotification(notification);
         const { data: booking } = await getBookingById(String(data.booking_id));
         if (booking) {
@@ -585,7 +586,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
         return;
       }
 
-      if (data?.type === 'new_booking' || data?.is_data_only) {
+      if (isRideRequestNotificationType(data?.type) || data?.is_data_only) {
         await dismissRawRideRequestNotification(response.notification);
       }
 

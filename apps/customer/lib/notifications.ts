@@ -3,6 +3,7 @@
 
 import { Platform, Alert, Linking } from 'react-native';
 import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
 import { supabase } from './supabase';
 
 export const CUSTOMER_DRIVER_UPDATES_CHANNEL = 'customer_driver_updates';
@@ -18,6 +19,26 @@ const getNotifications = () => {
     return null;
   }
 };
+
+const CUSTOMER_PUSH_DEVICE_ID_KEY = 'customer_push_device_id';
+
+async function getStableDeviceId(userId: string): Promise<string> {
+  const fallbackId = `customer-device-${userId.slice(0, 8)}-${Date.now().toString(36)}`;
+
+  try {
+    const existingId = await SecureStore.getItemAsync(CUSTOMER_PUSH_DEVICE_ID_KEY);
+    if (existingId) {
+      return existingId;
+    }
+
+    const deviceId = `customer-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
+    await SecureStore.setItemAsync(CUSTOMER_PUSH_DEVICE_ID_KEY, deviceId);
+    return deviceId;
+  } catch (error) {
+    console.warn('[registerPushToken] Could not read persisted customer device id:', error);
+    return fallbackId;
+  }
+}
 
 export async function initializeNotifications() {
   const Notifications = getNotifications();
@@ -329,13 +350,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
 
     console.log('[registerPushToken] Got token:', token.substring(0, 30) + '...');
 
-    let deviceId = 'unknown';
-    try {
-      const Constants = require('expo-constants').default;
-      deviceId = Constants.installationId || Constants.sessionId || `customer-device-${userId.substring(0, 8)}`;
-    } catch {
-      deviceId = `customer-device-${userId.substring(0, 8)}`;
-    }
+    const deviceId = await getStableDeviceId(userId);
 
     let legacyUserTokenSaved = false;
     let multiDeviceTokenSaved = false;

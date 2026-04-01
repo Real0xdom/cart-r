@@ -37,6 +37,25 @@ const rideRequestUpdateTimers = new Map<string, ReturnType<typeof setInterval>>(
 const rideRequestClientCancelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const rideRequestServerTimeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const latestRideRequestData = new Map<string, RideRequestNotificationInput>();
+const DRIVER_PUSH_DEVICE_ID_KEY = 'driver_push_device_id';
+
+async function getStableDeviceId(userId: string): Promise<string> {
+  const fallbackId = `driver-device-${userId.slice(0, 8)}-${Date.now().toString(36)}`;
+
+  try {
+    const existingId = await SecureStore.getItemAsync(DRIVER_PUSH_DEVICE_ID_KEY);
+    if (existingId) {
+      return existingId;
+    }
+
+    const deviceId = `driver-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
+    await SecureStore.setItemAsync(DRIVER_PUSH_DEVICE_ID_KEY, deviceId);
+    return deviceId;
+  } catch (error) {
+    console.warn('[Driver] Could not read persisted device id:', error);
+    return fallbackId;
+  }
+}
 
 // ── Ride Stacking State ──────────────────────────────────────────────────────
 // Tracks currently accepted/active rides to determine notification priority.
@@ -63,6 +82,10 @@ export function getActiveRideCount(): number {
 // false if it should be a normal (non-mandatory) notification.
 export function shouldShowStickyRideRequest(): boolean {
   return activeRideIds.size < MAX_STICKY_RIDES;
+}
+
+export function isRideRequestNotificationType(type: unknown): boolean {
+  return type === 'new_booking' || type === 'new_ride';
 }
 
 
@@ -473,7 +496,7 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
     
     if (!bookingId) return;
 
-    if (parsedPayload.type === 'new_booking' || parsedPayload.type === 'cancel_booking' || parsedPayload.is_data_only) {
+    if (isRideRequestNotificationType(parsedPayload.type) || parsedPayload.type === 'cancel_booking' || parsedPayload.is_data_only) {
       await dismissRawRideRequestNotification(notification);
     }
 
@@ -485,7 +508,7 @@ TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => 
     }
 
     // Handle new booking
-    if (parsedPayload.type === 'new_booking' || parsedPayload.is_data_only) {
+    if (isRideRequestNotificationType(parsedPayload.type) || parsedPayload.is_data_only) {
       const isOnline = await isCurrentDriverOnline();
       if (!isOnline) {
         console.log('Skipping background ride request because driver is offline');
@@ -642,7 +665,7 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
 
-    if (data?.type === 'new_booking' || data?.is_data_only) {
+    if (isRideRequestNotificationType(data?.type) || data?.is_data_only) {
       return {
         shouldShowAlert: false,
         shouldPlaySound: false,
@@ -1407,14 +1430,7 @@ export async function registerPushToken(supabase: any, userId: string): Promise<
     }
 
     try {
-      let deviceId = 'unknown';
-
-      try {
-        const expoConstants = require('expo-constants').default;
-        deviceId = expoConstants.installationId || expoConstants.sessionId || `device-${userId.substring(0, 8)}`;
-      } catch {
-        deviceId = `driver-device-${userId.substring(0, 8)}`;
-      }
+      const deviceId = await getStableDeviceId(userId);
 
       const { error: pushTokenError } = await supabase.from('push_tokens').upsert(
         {

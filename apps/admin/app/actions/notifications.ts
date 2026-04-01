@@ -50,6 +50,12 @@ type PushTokenDeliveryRow = {
   app_type?: 'customer' | 'driver' | null;
 };
 
+type PushTicketError = {
+  token: string;
+  message: string;
+  error?: string;
+};
+
 function isMissingColumnError(error: any, column: string) {
   return Boolean(error?.message?.includes(column));
 }
@@ -256,12 +262,13 @@ async function getPushTokensForAudience(
     tokenMap.get(entry.user_id)?.add(entry.token);
   }
 
-  // Legacy fallback: if a user has no active push_tokens row yet, still try the
-  // older users.expo_push_token field so direct sends keep working during rollout.
+  // Only use the legacy shared users.expo_push_token for "both apps" sends.
+  // App-specific deliveries must stay scoped to push_tokens.app_type so a
+  // shared account does not receive driver pushes inside the customer app.
   for (const user of targetUsers) {
     const legacyToken = user.expo_push_token;
     const hasActiveToken = (tokenMap.get(user.id)?.size || 0) > 0;
-    if (!legacyToken || hasActiveToken || !Expo.isExpoPushToken(legacyToken)) {
+    if (appAudience !== 'both' || !legacyToken || hasActiveToken || !Expo.isExpoPushToken(legacyToken)) {
       continue;
     }
 
@@ -272,6 +279,34 @@ async function getPushTokensForAudience(
   }
 
   return tokenMap;
+}
+
+async function deactivatePushTokens(tokens: string[]) {
+  const uniqueTokens = [...new Set(tokens.filter(Boolean))];
+  if (uniqueTokens.length === 0) {
+    return;
+  }
+
+  const { error: pushTokenError } = await supabase
+    .from('push_tokens')
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .in('token', uniqueTokens);
+
+  if (pushTokenError) {
+    console.warn('Failed to deactivate stale push_tokens rows:', pushTokenError.message);
+  }
+
+  const { error: userTokenError } = await supabase
+    .from('users')
+    .update({ expo_push_token: null })
+    .in('expo_push_token', uniqueTokens);
+
+  if (userTokenError) {
+    console.warn('Failed to clear stale users.expo_push_token values:', userTokenError.message);
+  }
 }
 
 export async function getAudienceCounts() {
@@ -396,7 +431,7 @@ export async function sendNotificationToAudience(
       throw dbError;
     }
 
-    // 2. Prepare for Expo Push Notifications
+    // 2. Prepare Expo push notifications
     const messages: ExpoPushMessage[] = [];
     
     for (const user of targetUsers) {
@@ -414,60 +449,65 @@ export async function sendNotificationToAudience(
           title: title,
           body: body,
           data: notificationPayload,
+          priority: 'high',
         });
       }
     }
 
-    // 3. Group by experience (project) to avoid PUSH_TOO_MANY_EXPERIENCE_IDS
-    // Tokens look like ExponentPushToken[xxxxxxxx]
-    // We group by the experience ID extracted from the token to ensure we don't mix projects in one batch request.
-    
-    const messagesByExperience = new Map<string, ExpoPushMessage[]>();
-
-    for (const msg of messages) {
-       const token = typeof msg.to === 'string' ? msg.to : '';
-       if (!token) continue;
-       
-       let expId = 'unknown';
-       // Extract the ID inside the brackets: ExponentPushToken[THIS_PART]
-       const match = token.match(/ExponentPushToken\[(.*?)\]/);
-       if (match && match[1]) {
-           expId = match[1];
-       }
-       
-       const group = messagesByExperience.get(expId) || [];
-       group.push(msg);
-       messagesByExperience.set(expId, group);
-    }
-    
     const tickets: any[] = [];
+    const ticketErrors: PushTicketError[] = [];
+    const staleTokens = new Set<string>();
+    const chunks = expo.chunkPushNotifications(messages);
 
-    // Send each group separately
-    for (const [expId, groupMessages] of messagesByExperience) {
-        // Chunk within the group to respect Expo limit (max 100)
-        const chunks = expo.chunkPushNotifications(groupMessages);
-        
-        for (const chunk of chunks) {
-            try {
-                const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-                tickets.push(...ticketChunk);
-                console.log(`✅ Sent ${chunk.length} notifications for experience '${expId}'`);
-            } catch (error) {
-                console.error(`❌ Error sending chunk for experience '${expId}':`, error);
-            }
+    for (const chunk of chunks) {
+      try {
+        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets.push(...ticketChunk);
+
+        ticketChunk.forEach((ticket: any, index: number) => {
+          const token = typeof chunk[index]?.to === 'string' ? chunk[index].to : '';
+          if (ticket?.status !== 'error') {
+            return;
+          }
+
+          const errorCode = typeof ticket?.details?.error === 'string' ? ticket.details.error : undefined;
+          ticketErrors.push({
+            token,
+            message: ticket?.message || 'Unknown Expo push ticket error',
+            error: errorCode,
+          });
+
+          if (errorCode === 'DeviceNotRegistered' && token) {
+            staleTokens.add(token);
+          }
+        });
+      } catch (error: any) {
+        const chunkTokens = chunk
+          .map((msg) => (typeof msg.to === 'string' ? msg.to : ''))
+          .filter(Boolean);
+
+        console.error('Error sending Expo push chunk:', error);
+        for (const token of chunkTokens) {
+          ticketErrors.push({
+            token,
+            message: error?.message || 'Chunk send failed before Expo returned tickets',
+          });
         }
+      }
     }
-    
-    // Log ticket results for debugging
+
+    if (staleTokens.size > 0) {
+      await deactivatePushTokens([...staleTokens]);
+    }
+
     const successTickets = tickets.filter((t: any) => t.status === 'ok');
-    const errorTickets = tickets.filter((t: any) => t.status === 'error');
-    console.log(`📊 Push results: ${successTickets.length} ok, ${errorTickets.length} errors out of ${tickets.length} tickets`);
-    if (errorTickets.length > 0) {
-      console.error('❌ Error tickets:', JSON.stringify(errorTickets));
+    console.log(`Push results: ${successTickets.length} ok, ${ticketErrors.length} errors out of ${messages.length} messages`);
+    if (ticketErrors.length > 0) {
+      console.error('Push ticket errors:', JSON.stringify(ticketErrors));
     }
+
 
     // Mark notifications as processed so edge function queue doesn't re-send them
-    const notificationIds = notificationRecords.map((_: any, i: number) => i);
     try {
       // Update all notifications we just inserted to mark as already processed
       // We use the user IDs + timestamp to target the right records
@@ -489,8 +529,13 @@ export async function sendNotificationToAudience(
       count: targetUsers.length,
       sent_count: messages.length,
       push_ok: successTickets.length,
-      push_errors: errorTickets.length,
-      error: null
+      push_errors: ticketErrors.length,
+      push_error_details: ticketErrors.slice(0, 5).map(({ token, message, error }) => ({
+        token_preview: token ? `${token.slice(0, 18)}...${token.slice(-6)}` : 'unknown',
+        message,
+        error: error || null,
+      })),
+      error: null,
     };
   } catch (error: any) {
     console.error('Send notification error:', error);

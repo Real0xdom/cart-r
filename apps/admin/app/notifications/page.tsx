@@ -260,6 +260,11 @@ export default function NotificationsPage() {
 
             addLog(`Found ${result.count} target users. Sent push to ${result.sent_count || 0} with valid tokens.`);
             addLog(`📊 Push results: ${result.push_ok || 'N/A'} delivered, ${result.push_errors || 0} errors.`);
+            if (Array.isArray((result as any).push_error_details)) {
+                for (const detail of (result as any).push_error_details) {
+                    addLog(`Push error: ${detail.error || 'UNKNOWN'} - ${detail.message} (${detail.token_preview})`);
+                }
+            }
             if (result.sent_count === 0) {
               addLog(`⚠️ WARNING: No push tokens found! Users may need to re-login in the app.`);
             }

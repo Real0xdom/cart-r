@@ -101,7 +101,7 @@ serve(async (req) => {
         : null
 
       const tokens = new Set<string>()
-      if (targetApp !== 'customer') {
+      if (!targetApp) {
         const legacyToken = userLegacyTokenMap.get(notification.user_id)
         if (legacyToken) {
           tokens.add(legacyToken)

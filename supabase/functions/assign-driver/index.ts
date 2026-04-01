@@ -193,7 +193,7 @@ serve(async (req) => {
       user_id: assignedDriver.user_id,
       title: 'New Ride Request!',
       body: `Pickup: ${booking.origin_address}`,
-      data: { booking_id, type: 'new_ride', target_app: 'driver' },
+      data: { booking_id, type: 'new_booking', target_app: 'driver' },
     })
 
     return new Response(

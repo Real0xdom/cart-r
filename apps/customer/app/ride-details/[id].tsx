@@ -13,7 +13,7 @@ import { getCustomerPaymentMethodLabel } from '@/lib/bookingPayment';
 import type { Booking } from '@/types/type';
 
 const RideDetails = () => {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, returnToHome } = useLocalSearchParams<{ id: string; returnToHome?: string }>();
     const { profile } = useAuth();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -22,10 +22,20 @@ const RideDetails = () => {
     const [isSubmittingRating, setIsSubmittingRating] = useState(false);
     const [alreadyRated, setAlreadyRated] = useState(false);
     const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+    const shouldReturnHome = returnToHome === '1';
+
+    const handleBackNavigation = () => {
+        if (shouldReturnHome) {
+            router.replace('/(tabs)/home');
+            return;
+        }
+
+        router.back();
+    };
 
     useEffect(() => {
         if (!id) {
-            router.back();
+            router.replace('/(tabs)/home');
             return;
         }
 
@@ -92,7 +102,7 @@ const RideDetails = () => {
             } else {
                 setAlreadyRated(true);
                 Alert.alert('Thank you!', 'Your feedback helps us improve.');
-                router.back();
+                handleBackNavigation();
             }
         } catch (err: any) {
             console.error('Rating error:', err);
@@ -118,7 +128,7 @@ const RideDetails = () => {
             {/* Header */}
             <View className="px-5 py-4 flex-row items-center bg-white border-b border-gray-100 shadow-sm">
                 <TouchableOpacity 
-                    onPress={() => router.back()}
+                    onPress={handleBackNavigation}
                     className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center mr-4"
                 >
                     <Feather name="arrow-left" size={20} color="black" />

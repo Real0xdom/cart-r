@@ -814,14 +814,14 @@ const TrackRidePage = () => {
           setShowPaymentConfirmation(false);
           router.replace({
             pathname: '/ride-details/[id]',
-            params: { id: bookingId },
+            params: { id: bookingId, returnToHome: '1' },
           });
         }}
         onSkip={() => {
           setShowPaymentConfirmation(false);
           router.replace({
             pathname: '/ride-details/[id]',
-            params: { id: bookingId },
+            params: { id: bookingId, returnToHome: '1' },
           });
         }}
       />
