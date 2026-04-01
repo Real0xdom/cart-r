@@ -38,17 +38,20 @@ const rideRequestClientCancelTimers = new Map<string, ReturnType<typeof setTimeo
 const rideRequestServerTimeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const latestRideRequestData = new Map<string, RideRequestNotificationInput>();
 const DRIVER_PUSH_DEVICE_ID_KEY = 'driver_push_device_id';
+let cachedDriverDeviceId: string | null = null;
 
 async function getStableDeviceId(userId: string): Promise<string> {
-  const fallbackId = `driver-device-${userId.slice(0, 8)}-${Date.now().toString(36)}`;
+  const fallbackId = cachedDriverDeviceId ?? `driver-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
 
   try {
     const existingId = await SecureStore.getItemAsync(DRIVER_PUSH_DEVICE_ID_KEY);
     if (existingId) {
+      cachedDriverDeviceId = existingId;
       return existingId;
     }
 
     const deviceId = `driver-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
+    cachedDriverDeviceId = deviceId;
     await SecureStore.setItemAsync(DRIVER_PUSH_DEVICE_ID_KEY, deviceId);
     return deviceId;
   } catch (error) {
@@ -1471,6 +1474,18 @@ export async function registerPushToken(supabase: any, userId: string): Promise<
         }
       } else {
         console.log('[Driver] Token saved to push_tokens table');
+      }
+
+      const { error: duplicateCleanupError } = await supabase
+        .from('push_tokens')
+        .delete()
+        .eq('user_id', userId)
+        .eq('app_type', 'driver')
+        .eq('token', token)
+        .neq('device_id', deviceId);
+
+      if (duplicateCleanupError) {
+        console.warn('[Driver] Could not clean duplicate push token rows:', duplicateCleanupError);
       }
     } catch (upsertError) {
       console.warn('[Driver] Error upserting to push_tokens:', upsertError);

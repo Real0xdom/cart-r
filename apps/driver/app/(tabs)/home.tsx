@@ -291,17 +291,6 @@ const DriverHome = () => {
                     console.error('Failed to set initial location:', locError);
                 }
 
-                // Register push token for notifications
-                try {
-                    const { registerPushToken } = require('@/lib/notifications');
-                    const { supabase } = require('@/lib/supabase');
-                    if (profile?.id) {
-                        await registerPushToken(supabase, profile.id);
-                    }
-                } catch (pushError) {
-                    console.error('Failed to register push token:', pushError);
-                }
-
                 // [G3] Start background location tracking — rollback DB if it fails
                 const trackingStarted = await startLocationTracking();
                 if (!trackingStarted) {

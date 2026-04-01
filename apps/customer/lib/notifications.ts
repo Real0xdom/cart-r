@@ -21,17 +21,20 @@ const getNotifications = () => {
 };
 
 const CUSTOMER_PUSH_DEVICE_ID_KEY = 'customer_push_device_id';
+let cachedCustomerDeviceId: string | null = null;
 
 async function getStableDeviceId(userId: string): Promise<string> {
-  const fallbackId = `customer-device-${userId.slice(0, 8)}-${Date.now().toString(36)}`;
+  const fallbackId = cachedCustomerDeviceId ?? `customer-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
 
   try {
     const existingId = await SecureStore.getItemAsync(CUSTOMER_PUSH_DEVICE_ID_KEY);
     if (existingId) {
+      cachedCustomerDeviceId = existingId;
       return existingId;
     }
 
     const deviceId = `customer-device-${userId.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}`;
+    cachedCustomerDeviceId = deviceId;
     await SecureStore.setItemAsync(CUSTOMER_PUSH_DEVICE_ID_KEY, deviceId);
     return deviceId;
   } catch (error) {
@@ -413,6 +416,18 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       } else {
         multiDeviceTokenSaved = true;
         console.log('[registerPushToken] Token saved to push_tokens table');
+      }
+
+      const { error: duplicateCleanupError } = await supabase
+        .from('push_tokens')
+        .delete()
+        .eq('user_id', userId)
+        .eq('app_type', 'customer')
+        .eq('token', token)
+        .neq('device_id', deviceId);
+
+      if (duplicateCleanupError) {
+        console.warn('[registerPushToken] Could not clean duplicate push token rows:', duplicateCleanupError);
       }
     } catch (pushTokenError) {
       console.warn('[registerPushToken] push_tokens upsert failed:', pushTokenError);
