@@ -1,34 +1,24 @@
 # GitHub CI/CD Setup
 
-This repo can build the admin, customer, and driver apps with GitHub Actions.
+This repo includes a GitHub Actions workflow for building the customer mobile app with EAS preview builds.
 
 ## Workflows
 
-- `apps-ci.yml`
-  - Runs on pull requests, pushes to `main`, and manual dispatch.
-  - Builds and validates:
-    - `apps/admin`
-    - `apps/customer`
-    - `apps/driver`
-- `mobile-eas-builds.yml`
-  - Runs preview Android EAS builds for both mobile apps on pushes to `main`.
-  - Also supports manual builds for `customer`, `driver`, or `both`, with `preview` or `production` profiles and `android`, `ios`, or `all` platforms.
+- `customer-preview-build.yml`
+  - Runs a preview Android EAS build for `apps/customer` on pull requests to `main` and pushes to `main` when customer-app files change.
+  - Supports manual runs for `preview` or `production` profiles on `android`, `ios`, or `all` platforms.
 
 ## Required GitHub Secrets
 
 Add these in GitHub under `Settings -> Secrets and variables -> Actions`.
 
 - `EXPO_TOKEN`
-  - Required for the EAS build workflow.
+  - Required so GitHub Actions can authenticate with Expo and trigger EAS builds.
 
-## Recommended Secrets For Real Deployments
+## Recommended Secrets For Customer Builds
 
-The CI workflow uses placeholder values so lint/build can run without production secrets. For release-quality builds and admin deployment, add your real values as repository or environment secrets:
+For working customer preview or production builds, add the app config values used by `apps/customer` as repository or environment secrets:
 
-- `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
 - `EXPO_PUBLIC_SUPABASE_URL`
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 - `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`
@@ -36,20 +26,21 @@ The CI workflow uses placeholder values so lint/build can run without production
 - `EXPO_PUBLIC_OLA_MAPS_API_KEY`
 - `EXPO_PUBLIC_CASHFREE_APP_ID`
 - `CASHFREE_ENVIRONMENT`
-- `EXPO_PUBLIC_GEOAPIFY_API_KEY`
-- `EXPO_PUBLIC_SERVER_URL`
+
+The workflow also expects a repository-root `google-services.json` and copies it into `apps/customer` before triggering the build.
 
 ## Suggested Release Flow
 
 1. Open a pull request.
-2. Let `Apps CI` verify admin, customer, and driver builds.
+2. Let `Customer Preview Build` trigger a preview Android build for `apps/customer`.
 3. Merge to `main`.
-4. Let `Mobile EAS Builds` create preview Android builds automatically.
-5. Use `Run workflow` on `Mobile EAS Builds` when you want a manual `production` or `ios` build.
+4. Let `Customer Preview Build` trigger another preview Android build from `main`.
+5. Use `Run workflow` on `Customer Preview Build` when you want a manual `production` or `ios` build.
 
-## Next Step For Full CD
+## Next Step For Broader CI/CD
 
-If you want full deployment from GitHub as well:
+If you also want full repo CI/CD from GitHub:
 
+- add a separate validation workflow for `apps/admin`, `apps/customer`, and `apps/driver`
 - connect `apps/admin` to Vercel and add a deploy workflow or rely on Vercel's Git integration
 - add EAS `submit` steps for App Store / Play Store once store credentials are configured
