@@ -108,6 +108,7 @@ serve(async (req) => {
         title,
         body,
         data,
+        processed_at: new Date().toISOString(),
       })
       
       return new Response(
@@ -176,6 +177,7 @@ serve(async (req) => {
       title,
       body,
       data,
+      processed_at: new Date().toISOString(),
     })
 
     // Check for errors in Expo response

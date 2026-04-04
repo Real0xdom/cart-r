@@ -155,7 +155,7 @@ async function getLocationTaskOptions() {
 const LOCATION_TASK_NAME = 'cartr-driver-location';
 const LOCATION_UPDATE_INTERVAL = 3000; // 3 seconds (was 10s)
 let lastPublishedBackgroundLocation: PublishedLocationState | null = null;
-const MIN_ACCURACY_THRESHOLD = 50; // meters — skip positions less accurate than this
+const MIN_ACCURACY_THRESHOLD = 120; // meters — allow practical city GPS drift during active trips
 
 // Define the background task
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
@@ -245,7 +245,6 @@ async function updateDriverLocation(
       .update({
         current_latitude: latitude,
         current_longitude: longitude,
-        current_heading: heading,
         last_location_update: isoTimestamp,
       })
       .eq('id', cachedDriverId);

@@ -18,7 +18,7 @@ import { getOutstandingCustomerAmount, usesWalletFunds } from '@/lib/bookingPaym
 import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
 import { refreshLocationTrackingNotification } from '@/lib/location';
-import { NotificationManager, removeActiveRide } from '@/lib/notifications';
+import { removeActiveRide } from '@/lib/notifications';
 
 
 // Helper to calculate total with fees (simplified for now)
@@ -361,21 +361,7 @@ const CollectPayment = () => {
             setCommissionInfo(finalizedCommission);
             // Mark this ride as completed in the stacking tracker
             removeActiveRide(bookingId as string);
-            // Fire notifications after trip is truly complete
-            void NotificationManager.tripCompleted({
-                id: finalizedBooking.id,
-                origin_address: finalizedBooking.origin_address,
-                destination_address: finalizedBooking.destination_address,
-            });
-            // For online payments, show payment received notification — only here,
-            // AFTER delivery OTP is confirmed and completeTripAtomic has succeeded.
-            if (paymentMethod === 'online' || finalizedBooking.payment_status === 'paid') {
-                void NotificationManager.paymentSuccess(
-                    finalizedBooking.id,
-                    payout,                        // net driver earnings after commission
-                    Number(finalizedBooking.total_fare) // gross fare for context
-                );
-            }
+            // The server-side notification pipeline handles any post-completion push delivery.
             void refreshLocationTrackingNotification();
 
             if (finalizedBooking.driver_id) {

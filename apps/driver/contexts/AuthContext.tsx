@@ -540,7 +540,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .update({
           current_latitude: latitude,
           current_longitude: longitude,
-          current_heading: null,
           last_location_update: new Date().toISOString(),
         })
         .eq('id', driverProfile.id);

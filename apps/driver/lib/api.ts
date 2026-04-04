@@ -112,7 +112,6 @@ export async function updateDriverLocation(
       .update({
         current_latitude: latitude,
         current_longitude: longitude,
-        current_heading: heading,
         last_location_update: new Date(timestamp).toISOString(),
       })
       .eq('id', driver.id);

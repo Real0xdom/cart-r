@@ -23,7 +23,6 @@ import { Feather } from "@expo/vector-icons";
 import { TextInput } from "react-native";
 import { subscribeToBooking, cancelBooking, expireBookingSearch, getBookingById, retryBookingWithIncreasedPrice } from "@/lib/bookings";
 import { usesWalletFunds } from "@/lib/bookingPayment";
-import { showDriverAssignedNotification } from "@/lib/notifications";
 import type { Booking } from "@/types/type";
 
 // Timeout duration in seconds (3 minutes)
@@ -221,7 +220,6 @@ const WaitingForDriverPage = () => {
 
     // Subscribe to real-time updates
     const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
-      const previousStatus = previousStatusRef.current;
       console.log('[WAITING] Booking updated:', {
         status: updatedBooking.status,
         hasDriver: !!updatedBooking.driver_id,
@@ -231,13 +229,6 @@ const WaitingForDriverPage = () => {
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
       previousStatusRef.current = updatedBooking.status;
-
-      if (
-        updatedBooking.status === 'accepted' &&
-        previousStatus !== 'accepted'
-      ) {
-        void showDriverAssignedNotification(updatedBooking.id);
-      }
 
       // Transition to Driver Assigned state if driver is available in the update
       if (updatedBooking.status === QUEUED_BOOKING_STATUS) {

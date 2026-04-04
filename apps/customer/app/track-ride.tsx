@@ -18,14 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
-import OlaMapViewDirections from '@/components/OlaMapViewDirections';
-import { subscribeToBooking, subscribeToBookingDriverLocation, getBookingById, cancelBooking, getLatestDriverLocation } from "@/lib/bookings";
-import {
-  showDriverArrivedNotification,
-  showPaymentSuccessNotification,
-  showTripCompletedCustomerNotification,
-  showTripStartedNotification,
-} from "@/lib/notifications";
+import { subscribeToBooking, subscribeToBookingDriverLocation, subscribeToDriverLocation, getBookingById, cancelBooking, getLatestDriverLocation } from "@/lib/bookings";
 import {
   getOutstandingCustomerAmount,
   isCustomerPaymentFullySettled,
@@ -40,10 +33,65 @@ import { saveRoute, saveAddress } from "@/lib/savedPlaces";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAnimatedLocation } from "@/lib/mapAnimation";
 import { icons, images } from "@/constants";
+import { fetchOsrmRoute, type LatLng } from "@/lib/directions";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 const formatCurrency = (amount: number | null | undefined) => `Rs. ${Number(amount || 0).toFixed(2)}`;
+
+function dedupeRouteCoordinates(points: LatLng[]): LatLng[] {
+  return points.filter((point, index, source) => {
+    if (index === 0) return true;
+
+    const previous = source[index - 1];
+    return (
+      Math.abs(point.latitude - previous.latitude) > 0.000001 ||
+      Math.abs(point.longitude - previous.longitude) > 0.000001
+    );
+  });
+}
+
+function findNearestRouteIndex(route: LatLng[], point: LatLng): number {
+  let nearestIndex = 0;
+  let smallestDistance = Number.POSITIVE_INFINITY;
+
+  route.forEach((routePoint, index) => {
+    const latDelta = routePoint.latitude - point.latitude;
+    const lngDelta = routePoint.longitude - point.longitude;
+    const distance = (latDelta * latDelta) + (lngDelta * lngDelta);
+
+    if (distance < smallestDistance) {
+      smallestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  return nearestIndex;
+}
+
+function splitRouteByCurrentLocation(route: LatLng[], currentLocation: LatLng): { covered: LatLng[]; remaining: LatLng[] } {
+  if (route.length === 0) {
+    return { covered: [], remaining: [] };
+  }
+
+  const nearestIndex = findNearestRouteIndex(route, currentLocation);
+  const covered = dedupeRouteCoordinates([...route.slice(0, nearestIndex + 1), currentLocation]);
+  const remaining = dedupeRouteCoordinates([currentLocation, ...route.slice(nearestIndex + 1)]);
+
+  return { covered, remaining };
+}
+
+function buildTrackingRegion(origin: LatLng, target: LatLng) {
+  const latitudeDelta = Math.max(Math.abs(origin.latitude - target.latitude) * 1.6, 0.008);
+  const longitudeDelta = Math.max(Math.abs(origin.longitude - target.longitude) * 1.6, 0.008);
+
+  return {
+    latitude: ((origin.latitude + target.latitude) / 2) + (latitudeDelta * 0.12),
+    longitude: (origin.longitude + target.longitude) / 2,
+    latitudeDelta,
+    longitudeDelta,
+  };
+}
 
 const TrackRidePage = () => {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -62,16 +110,16 @@ const TrackRidePage = () => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+  const [coveredRouteCoords, setCoveredRouteCoords] = useState<LatLng[]>([]);
+  const [remainingRouteCoords, setRemainingRouteCoords] = useState<LatLng[]>([]);
   const mapRef = useRef<MapView>(null);
   const { user } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
-  const previousBookingStatusRef = useRef<Booking["status"] | null>(currentBooking?.status ?? null);
-  const previousPaymentStatusRef = useRef<string | null>(currentBooking?.payment_status ?? null);
   const latestDriverLocationTimestampRef = useRef<number>(0);
   const trackingStartedAtRef = useRef<string | null>(currentBooking?.accepted_at ?? currentBooking?.created_at ?? null);
 
-  const { animatedCoordinate, heading } = useAnimatedLocation(driverLocation);
+  const { heading } = useAnimatedLocation(driverLocation);
 
   const applyDriverLocationUpdate = (location: { latitude: number; longitude: number; heading?: number; recordedAt?: string }) => {
     const parsedTimestamp = location.recordedAt ? new Date(location.recordedAt).getTime() : Date.now();
@@ -205,8 +253,6 @@ const TrackRidePage = () => {
 
         setBooking(data);
         setCurrentBooking(data);
-        previousBookingStatusRef.current = data.status;
-        previousPaymentStatusRef.current = data.payment_status || null;
         trackingStartedAtRef.current = data.accepted_at ?? data.created_at ?? null;
         
         // Set initial driver location if available
@@ -251,28 +297,22 @@ const TrackRidePage = () => {
 
     // Subscribe to booking status updates
     const unsubscribeBooking = subscribeToBooking(bookingId, (updatedBooking) => {
-      const previousStatus = previousBookingStatusRef.current;
-      const previousPaymentStatus = previousPaymentStatusRef.current;
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
-      previousBookingStatusRef.current = updatedBooking.status;
-      previousPaymentStatusRef.current = updatedBooking.payment_status || null;
       trackingStartedAtRef.current = updatedBooking.accepted_at ?? trackingStartedAtRef.current ?? updatedBooking.created_at ?? null;
 
-      if (updatedBooking.status === 'driver_arrived' && previousStatus !== 'driver_arrived') {
-        void showDriverArrivedNotification(updatedBooking.id);
-      }
-
-      if (updatedBooking.status === 'in_progress' && previousStatus !== 'in_progress') {
-        void showTripStartedNotification(updatedBooking.id);
-      }
-
-      if (updatedBooking.status === 'completed' && previousStatus !== 'completed') {
-        void showTripCompletedCustomerNotification(updatedBooking.id);
-      }
-
-      if (updatedBooking.payment_status === 'paid' && previousPaymentStatus !== 'paid') {
-        void showPaymentSuccessNotification(updatedBooking.id);
+      if (
+        updatedBooking.driver &&
+        (updatedBooking.driver as any).current_latitude != null &&
+        (updatedBooking.driver as any).current_longitude != null &&
+        isFreshForCurrentBooking((updatedBooking.driver as any).last_location_update)
+      ) {
+        applyDriverLocationUpdate({
+          latitude: Number((updatedBooking.driver as any).current_latitude),
+          longitude: Number((updatedBooking.driver as any).current_longitude),
+          heading: (updatedBooking.driver as any).current_heading != null ? Number((updatedBooking.driver as any).current_heading) : undefined,
+          recordedAt: (updatedBooking.driver as any).last_location_update ?? undefined,
+        });
       }
 
       // If completed, show payment confirmation modal first
@@ -331,6 +371,16 @@ const TrackRidePage = () => {
       }
     );
 
+    const unsubscribeDriverProfile = subscribeToDriverLocation(activeDriverId, (location) => {
+      console.log(`[TRACKING-PROFILE] Update from driver profile for Driver ${activeDriverId}:`, {
+        lat: location.latitude.toFixed(6),
+        lng: location.longitude.toFixed(6),
+        heading: location.heading,
+        recordedAt: location.recordedAt,
+      });
+      applyDriverLocationUpdate(location);
+    });
+
     // Heartbeat: If no history updates for 10s, poll the driver's profile
     const heartbeatInterval = setInterval(async () => {
       const timeSinceUpdate = Date.now() - (lastUpdateRef.current || 0);
@@ -372,26 +422,97 @@ const TrackRidePage = () => {
 
     return () => {
       unsubscribeLocation();
+      unsubscribeDriverProfile();
       clearInterval(heartbeatInterval);
     };
   }, [booking?.driver_id, bookingId]);
 
-  // Fit map to show driver and destination
+  useEffect(() => {
+    if (!booking || !driverLocation) {
+      setCoveredRouteCoords([]);
+      setRemainingRouteCoords([]);
+      return;
+    }
+
+    const isInDropPhase = booking.status === 'in_progress';
+    const pickupPoint = {
+      latitude: booking.origin_latitude,
+      longitude: booking.origin_longitude,
+    };
+    const activeTarget = isInDropPhase
+      ? {
+          latitude: booking.destination_latitude,
+          longitude: booking.destination_longitude,
+        }
+      : pickupPoint;
+
+    let isMounted = true;
+
+    const syncRouteProgress = async () => {
+      if (isInDropPhase) {
+        const fullTripRoute = await fetchOsrmRoute(pickupPoint, activeTarget);
+
+        if (!isMounted) return;
+
+        if (fullTripRoute?.coordinates?.length) {
+          const { covered, remaining } = splitRouteByCurrentLocation(fullTripRoute.coordinates, driverLocation);
+          setCoveredRouteCoords(covered);
+          setRemainingRouteCoords(remaining);
+          return;
+        }
+
+        setCoveredRouteCoords(dedupeRouteCoordinates([pickupPoint, driverLocation]));
+        setRemainingRouteCoords(dedupeRouteCoordinates([driverLocation, activeTarget]));
+        return;
+      }
+
+      const liveRouteToPickup = await fetchOsrmRoute(driverLocation, activeTarget);
+
+      if (!isMounted) return;
+
+      setCoveredRouteCoords([]);
+      setRemainingRouteCoords(
+        liveRouteToPickup?.coordinates?.length
+          ? dedupeRouteCoordinates(liveRouteToPickup.coordinates)
+          : dedupeRouteCoordinates([driverLocation, activeTarget])
+      );
+    };
+
+    void syncRouteProgress();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    booking?.status,
+    booking?.origin_latitude,
+    booking?.origin_longitude,
+    booking?.destination_latitude,
+    booking?.destination_longitude,
+    driverLocation?.latitude,
+    driverLocation?.longitude,
+  ]);
+
+  // Keep the camera tighter between the driver and the current trip target.
   useEffect(() => {
     if (driverLocation && booking && mapRef.current) {
       const isInProgress = booking.status === 'in_progress';
-      const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
-      const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
-      
-      mapRef.current.fitToCoordinates([
-        driverLocation,
-        { latitude: targetLat, longitude: targetLng }
-      ], {
-        edgePadding: { top: 120, right: 60, bottom: 420, left: 60 },
-        animated: true
-      });
+      const target = {
+        latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
+        longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude,
+      };
+
+      mapRef.current.animateToRegion(buildTrackingRegion(driverLocation, target), 700);
     }
-  }, [driverLocation, booking?.status]);
+  }, [
+    driverLocation?.latitude,
+    driverLocation?.longitude,
+    booking?.status,
+    booking?.origin_latitude,
+    booking?.origin_longitude,
+    booking?.destination_latitude,
+    booking?.destination_longitude,
+  ]);
 
   // Call driver
   const handleCallDriver = () => {
@@ -491,29 +612,28 @@ const TrackRidePage = () => {
 
             {/* Driver marker */}
             {driverLocation ? (
-              <Marker.Animated
-                coordinate={animatedCoordinate as any}
+              <Marker
+                coordinate={driverLocation}
                 anchor={{ x: 0.5, y: 0.5 }}
                 title="Driver"
                 description="En route"
-                tracksViewChanges={false}
                 rotation={heading}
                 flat={true}
               >
-                <Animated.View style={{ 
+                <Animated.View style={{
                   transform: [{ scale: pulseAnim }],
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                  <Image 
+                  <Image
                     source={(() => {
-                      const spec = vehicleSpecs.find(s => s.vehicle_type === booking?.vehicle_type);
+                      const spec = vehicleSpecs.find((vehicle) => vehicle.vehicle_type === booking?.vehicle_type);
                       return getVehicleImageSource(booking?.vehicle_type || "", spec?.icon_url) || images.truckTransparent;
                     })()}
-                    style={{ width: 44, height: 44, resizeMode: 'contain' }} 
+                    style={{ width: 36, height: 36, resizeMode: 'contain' }}
                   />
                 </Animated.View>
-              </Marker.Animated>
+              </Marker>
             ) : null}
 
             {/* Pickup marker */}
@@ -525,7 +645,15 @@ const TrackRidePage = () => {
               title="Pickup"
               anchor={{ x: 0.5, y: 0.5 }}
             >
-               <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
+               <Image
+                 source={icons.point}
+                 style={{
+                   width: isInProgress ? 26 : 34,
+                   height: isInProgress ? 26 : 34,
+                   resizeMode: 'contain',
+                   opacity: isInProgress ? 0.45 : 1,
+                 }}
+               />
             </Marker>
 
             {/* Dropoff marker */}
@@ -537,19 +665,30 @@ const TrackRidePage = () => {
               title="Drop-off"
               anchor={{ x: 0.5, y: 0.5 }}
             >
-               <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
+               <Image
+                 source={icons.pin}
+                 style={{
+                   width: isInProgress ? 40 : 30,
+                   height: isInProgress ? 40 : 30,
+                   resizeMode: 'contain',
+                   opacity: isInProgress ? 1 : 0.55,
+                 }}
+               />
             </Marker>
 
-            {/* Route line from driver to current target */}
-            {driverLocation && (
-              <OlaMapViewDirections
-                origin={driverLocation}
-                destination={{
-                  latitude: isInProgress ? booking.destination_latitude : booking.origin_latitude,
-                  longitude: isInProgress ? booking.destination_longitude : booking.origin_longitude
-                }}
+            {coveredRouteCoords.length > 1 && (
+              <Polyline
+                coordinates={coveredRouteCoords}
+                strokeColor={isInProgress ? "rgba(239,68,68,0.28)" : "rgba(34,197,94,0.22)"}
+                strokeWidth={5}
+              />
+            )}
+
+            {remainingRouteCoords.length > 1 && (
+              <Polyline
+                coordinates={remainingRouteCoords}
                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
-                strokeWidth={4}
+                strokeWidth={5}
               />
             )}
           </MapView>

@@ -357,6 +357,7 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       console.log('[RIDE NOTIFICATION] surfaceBooking triggered:', booking.id, 'appState=', appStateRef.current);
       const { data: fullBooking } = await getBookingById(booking.id);
       const bookingToShow = fullBooking || booking;
+      const alreadySurfaced = surfacedBookingIdsRef.current.has(bookingToShow.id);
 
       // ── CENTRALIZED GATEKEEPER — every surfaceBooking call is distance-checked ──
       if (!isBookingWithinSearchRadius(bookingToShow)) {
@@ -364,12 +365,16 @@ export function RideNotificationProvider({ children }: { children: ReactNode }) 
       }
 
       if (appStateRef.current === 'active') {
-        await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+        if (!alreadySurfaced) {
+          await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+        }
         showNotification(bookingToShow);
         return;
       }
 
-      await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+      if (!alreadySurfaced) {
+        await displayRideRequestWithStackLogic({ ...bookingToShow, type: 'new_booking' });
+      }
     };
 
     const fetchAndSurfaceAvailableBookings = async () => {

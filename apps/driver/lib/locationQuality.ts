@@ -16,7 +16,7 @@ export interface NextLocationCandidate {
   timestamp?: number;
 }
 
-const MAX_ACCEPTABLE_ACCURACY_METERS = 15;
+const MAX_ACCEPTABLE_ACCURACY_METERS = 120;
 const MIN_MOVEMENT_METERS = 10;
 const STATIONARY_SPEED_THRESHOLD = 2.5;
 const HEARTBEAT_INTERVAL_MS = 15000;
@@ -52,12 +52,11 @@ export function shouldPublishLocation(
   );
 
   const isMoving = (next.speed ?? 0) >= STATIONARY_SPEED_THRESHOLD;
-  const hasStrongDirectionalSignal = next.heading != null && next.accuracy != null && next.accuracy <= 10;
   const isMeaningfulMove = distanceMeters >= effectiveAccuracy;
   const isHeartbeatDue = nextTimestamp - previous.timestamp >= HEARTBEAT_INTERVAL_MS;
 
   if (!isMoving && !isMeaningfulMove) {
-    return isHeartbeatDue && hasStrongDirectionalSignal;
+    return isHeartbeatDue;
   }
 
   return true;

@@ -156,7 +156,6 @@ export async function getBookingById(bookingId: string): Promise<{
           rating,
           current_latitude,
           current_longitude,
-          current_heading,
           last_location_update,
           user:users!drivers_user_id_fkey(id, name, phone, avatar_url)
         ),
@@ -407,7 +406,7 @@ export async function getLatestDriverLocation(
 
     const { data: driverRow, error: driverError } = await supabase
       .from('drivers')
-      .select('current_latitude, current_longitude, current_heading, last_location_update')
+      .select('current_latitude, current_longitude, last_location_update')
       .eq('id', options.driverId)
       .maybeSingle();
 
@@ -429,7 +428,6 @@ export async function getLatestDriverLocation(
         bookingId,
         latitude: Number(driverRow.current_latitude),
         longitude: Number(driverRow.current_longitude),
-        heading: (driverRow as any).current_heading != null ? Number((driverRow as any).current_heading) : undefined,
         recordedAt: driverRow.last_location_update ?? undefined,
       },
       error: null,
@@ -444,7 +442,7 @@ export async function getLatestDriverLocation(
  */
 export function subscribeToDriverLocation(
   driverId: string,
-  onLocationUpdate: (location: { latitude: number; longitude: number; heading?: number }) => void
+  onLocationUpdate: (location: { latitude: number; longitude: number; heading?: number; recordedAt?: string }) => void
 ) {
   const subscription = supabase
     .channel(`driver-profile-${driverId}`)
@@ -458,11 +456,12 @@ export function subscribeToDriverLocation(
       },
       (payload) => {
         const { current_latitude, current_longitude, current_heading } = payload.new;
-        if (current_latitude && current_longitude) {
+        if (current_latitude != null && current_longitude != null) {
           onLocationUpdate({
-            latitude: parseFloat(current_latitude),
-            longitude: parseFloat(current_longitude),
-            heading: current_heading ? parseFloat(current_heading) : undefined,
+            latitude: Number(current_latitude),
+            longitude: Number(current_longitude),
+            heading: current_heading != null ? Number(current_heading) : undefined,
+            recordedAt: (payload.new as any).last_location_update ?? undefined,
           });
         }
       }
