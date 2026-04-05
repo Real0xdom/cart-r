@@ -1,6 +1,7 @@
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Image, ImageSourcePropType, View } from "react-native";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { icons } from "@/constants";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -51,6 +52,12 @@ const TabIonicons = ({
 
 const Layout = () => {
     const { t } = useLanguage();
+    const { user, isLoading } = useAuth();
+
+    if (!isLoading && !user) {
+        return <Redirect href="/sign-in" />;
+    }
+
     return (
         <Tabs
             initialRouteName="home"

@@ -26,6 +26,8 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const IS_DEV_BUILD = process.env.EXPO_PUBLIC_ENV === 'development';
+const DEV_LOGIN_DISABLED_MESSAGE = 'Login is disabled in the customer development build.';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -56,6 +58,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       message.includes('otp_expired')
     );
   };
+
+  const createDevLoginDisabledError = () => new Error(DEV_LOGIN_DISABLED_MESSAGE);
 
   const clearLocalSession = async () => {
     isClearingSessionForPhoneAuthRef.current = true;
@@ -206,6 +210,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
+        if (IS_DEV_BUILD) {
+          await supabase.auth.signOut({ scope: 'local' });
+
+          if (isMounted) {
+            await applySession(null);
+          }
+          return;
+        }
+
         const { data, error } = await supabase.auth.getSession();
 
         if (error) {
@@ -248,6 +261,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) {
+          return;
+        }
+
+        if (IS_DEV_BUILD && session?.user) {
+          await supabase.auth.signOut({ scope: 'local' });
+          await applySession(null);
+          setIsLoading(false);
+          router.replace('/sign-in');
           return;
         }
 
@@ -332,6 +353,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign up with email/password
   const signUp = async (email: string, password: string, name: string, phone?: string) => {
     try {
+      if (IS_DEV_BUILD) {
+        throw createDevLoginDisabledError();
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -364,6 +389,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with email/password
   const signIn = async (email: string, password: string) => {
     try {
+      if (IS_DEV_BUILD) {
+        throw createDevLoginDisabledError();
+      }
+
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -379,6 +408,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with phone (OTP)
   const signInWithPhone = async (phone: string) => {
     try {
+      if (IS_DEV_BUILD) {
+        throw createDevLoginDisabledError();
+      }
+
       const normalizedPhone = phone.trim();
 
       await clearLocalSession();
@@ -414,6 +447,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Verify OTP
   const verifyOtp = async (phone: string, token: string) => {
     try {
+      if (IS_DEV_BUILD) {
+        throw createDevLoginDisabledError();
+      }
+
       const normalizedPhone = phone.trim();
       const sanitizedToken = token.replace(/\D/g, '');
       let lastError: Error | null = null;
@@ -461,6 +498,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Verify WhatsApp/Phone OTP with role-based navigation
   const verifyWhatsAppOtp = async (phone: string, token: string, targetRole: string) => {
     try {
+      if (IS_DEV_BUILD) {
+        throw createDevLoginDisabledError();
+      }
+
       const { data, error } = await supabase.auth.verifyOtp({
         phone,
         token,

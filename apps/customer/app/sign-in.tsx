@@ -25,6 +25,8 @@ import { TermsCheckbox } from "@/components/TermsCheckbox";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const OTP_RESEND_COOLDOWN_SECONDS = 30;
+const IS_DEV_BUILD = process.env.EXPO_PUBLIC_ENV === 'development';
+const DEV_LOGIN_DISABLED_MESSAGE = "Login is disabled in this development build.";
 
 const CustomerSignIn = () => {
     const { signInWithPhone, verifyOtp } = useAuth();
@@ -96,6 +98,11 @@ const CustomerSignIn = () => {
 
     // Step 1: Check if user exists, then either send OTP or go to registration
     const onLoginPress = async () => {
+        if (IS_DEV_BUILD) {
+            Alert.alert("Login disabled", DEV_LOGIN_DISABLED_MESSAGE);
+            return;
+        }
+
         if (!phone || phone.length < 10) {
             return Alert.alert(t("error"), t("enterValidPhone"));
         }
@@ -141,6 +148,11 @@ const CustomerSignIn = () => {
     // Step 2: Verify OTP for existing users
     // Step 2: Verify OTP for existing users
     const onVerifyOtpPress = async () => {
+        if (IS_DEV_BUILD) {
+            Alert.alert("Login disabled", DEV_LOGIN_DISABLED_MESSAGE);
+            return;
+        }
+
         if (!otp || otp.length !== 6) {
             return Alert.alert(t("error"), t("enterSixDigitOtp"));
         }
@@ -286,6 +298,14 @@ const CustomerSignIn = () => {
 
             {/* Login Form at Bottom */}
             <View className="flex-1 justify-end px-6 pb-8">
+                {IS_DEV_BUILD && (
+                    <View className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+                        <Text className="text-sm font-JakartaMedium text-amber-900 text-center">
+                            {DEV_LOGIN_DISABLED_MESSAGE}
+                        </Text>
+                    </View>
+                )}
+
                 {/* Country Code & Phone Input */}
                 <View className="mb-4">
                     <Text className="text-sm font-JakartaSemiBold text-gray-600 mb-2 ml-1">
@@ -332,9 +352,9 @@ const CustomerSignIn = () => {
                     onPress={onLoginPress}
                     testID="auth.requestOtpButton"
                     accessibilityLabel="auth.requestOtpButton"
-                    disabled={loading || checkingUser || phone.length < 10 || !termsAccepted}
+                    disabled={IS_DEV_BUILD || loading || checkingUser || phone.length < 10 || !termsAccepted}
                     className={`mt-2 py-4 rounded-2xl items-center justify-center ${
-                        phone.length >= 10 && termsAccepted ? 'bg-success-500' : 'bg-gray-300'
+                        !IS_DEV_BUILD && phone.length >= 10 && termsAccepted ? 'bg-success-500' : 'bg-gray-300'
                     }`}
                     activeOpacity={0.8}
                 >
@@ -399,9 +419,9 @@ const CustomerSignIn = () => {
                 onPress={onVerifyOtpPress}
                 testID="auth.verifyOtpButton"
                 accessibilityLabel="auth.verifyOtpButton"
-                disabled={loading || otp.length !== 6}
+                disabled={IS_DEV_BUILD || loading || otp.length !== 6}
                 className={`mt-2 py-4 rounded-2xl items-center justify-center ${
-                    otp.length === 6 ? 'bg-success-500' : 'bg-gray-300'
+                    !IS_DEV_BUILD && otp.length === 6 ? 'bg-success-500' : 'bg-gray-300'
                 }`}
                 activeOpacity={0.8}
             >
@@ -426,6 +446,11 @@ const CustomerSignIn = () => {
                 </Text>
                 <TouchableOpacity 
                     onPress={() => {
+                        if (IS_DEV_BUILD) {
+                            Alert.alert("Login disabled", DEV_LOGIN_DISABLED_MESSAGE);
+                            return;
+                        }
+
                         setLoading(true);
                         signInWithPhone(formattedPhoneNumber)
                             .then(({ error }) => {
@@ -438,9 +463,9 @@ const CustomerSignIn = () => {
                             })
                             .finally(() => setLoading(false));
                     }}
-                    disabled={loading || resendCountdown > 0}
+                    disabled={IS_DEV_BUILD || loading || resendCountdown > 0}
                 >
-                    <Text className={`font-JakartaSemiBold ${resendCountdown > 0 ? 'text-gray-400' : 'text-success-500'}`}>
+                    <Text className={`font-JakartaSemiBold ${IS_DEV_BUILD || resendCountdown > 0 ? 'text-gray-400' : 'text-success-500'}`}>
                         {resendCountdown > 0 ? `${t("resendOtp")} (${resendCountdown}s)` : t("resendOtp")}
                     </Text>
                 </TouchableOpacity>

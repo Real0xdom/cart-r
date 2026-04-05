@@ -16,7 +16,7 @@ import {
   Image
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather, MaterialIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import MapView, { Marker, Polyline, UrlTile } from "react-native-maps";
 import { subscribeToBooking, subscribeToBookingDriverLocation, subscribeToDriverLocation, getBookingById, cancelBooking, getLatestDriverLocation } from "@/lib/bookings";
 import {
@@ -711,11 +711,7 @@ const TrackRidePage = () => {
           <View className="bg-white/95 px-5 py-2 rounded-full shadow-md ml-4 mr-5 flex-shrink">
             <Text className="text-xl font-JakartaBold text-black" numberOfLines={1}>Track Shipment</Text>
           </View>
-          <TouchableOpacity 
-            className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-sm"
-          >
-            <Feather name="more-vertical" size={24} color="black" />
-          </TouchableOpacity>
+          <View className="w-12 h-12" />
         </View>
       </SafeAreaView>
 
