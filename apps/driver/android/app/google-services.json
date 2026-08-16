@@ -7,7 +7,26 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:670180559382:android:d9e8b0c1f2a3b4c5d6e7",
+        "mobilesdk_app_id": "1:670180559382:android:f234547be0416c787a0337",
+        "android_client_info": {
+          "package_name": "com.carter.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAf3e_rktLO-Cca6O38xYnotj5iOx03zM0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:670180559382:android:679bf5068ae57cc17a0337",
         "android_client_info": {
           "package_name": "com.carter.driver"
         }

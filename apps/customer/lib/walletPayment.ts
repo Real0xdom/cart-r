@@ -143,13 +143,13 @@ export async function getWalletBalance(userId: string): Promise<number> {
 
     if (error || !data) {
       console.error('[WALLET BALANCE] Error:', error);
-      return 0;
+      throw error || new Error('Wallet balance not found');
     }
 
     return data.balance || 0;
   } catch (err) {
     console.error('[WALLET BALANCE] Exception:', err);
-    return 0;
+    throw err;
   }
 }
 

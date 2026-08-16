@@ -1,9 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
+  type LucideIcon,
   Package,
   Truck,
   Users,
@@ -21,19 +21,11 @@ import {
   Wallet,
   Settings,
 } from 'lucide-react';
-
-interface SidebarProps {
-  currentPath?: string;
-}
-
-interface AdminInfo {
-  email: string;
-  role: string;
-}
+import { useRole, MANAGER_ALLOWED_PATHS, type AdminRole } from '@/contexts/RoleContext';
 
 interface NavSection {
   label: string;
-  items: { href: string; label: string; icon: any }[];
+  items: { href: string; label: string; icon: LucideIcon }[];
 }
 
 const navSections: NavSection[] = [
@@ -68,27 +60,41 @@ const navSections: NavSection[] = [
   },
 ];
 
-export default function Sidebar({ currentPath }: SidebarProps) {
+function getFilteredSections(role: AdminRole | null): NavSection[] {
+  if (!role) {
+    return [];
+  }
+
+  if (role === 'manager') {
+    return navSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) =>
+          MANAGER_ALLOWED_PATHS.includes(item.href)
+        ),
+      }))
+      .filter((section) => section.items.length > 0);
+  }
+  return navSections;
+}
+
+function getRoleLabel(role: AdminRole): string {
+  switch (role) {
+    case 'superadmin':
+      return 'Super Admin';
+    case 'manager':
+      return 'Manager';
+    default:
+      return 'Admin';
+  }
+}
+
+export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const activePath = currentPath || pathname;
-  const [adminInfo, setAdminInfo] = useState<AdminInfo | null>(null);
+  const { role, email, loading } = useRole();
 
-  // Fetch admin info from session on mount
-  useEffect(() => {
-    async function fetchAdminInfo() {
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const data = await response.json();
-          setAdminInfo(data);
-        }
-      } catch (error) {
-        console.error('Error fetching admin info:', error);
-      }
-    }
-    fetchAdminInfo();
-  }, []);
+  const filteredSections = getFilteredSections(role);
 
   const handleLogout = async () => {
     try {
@@ -110,6 +116,10 @@ export default function Sidebar({ currentPath }: SidebarProps) {
     return email.slice(0, 2).toUpperCase();
   };
 
+  const roleBadgeColor = role === 'manager'
+    ? 'from-blue-400 to-blue-500'
+    : 'from-orange-400 to-orange-500';
+
   return (
     <div className="fixed left-0 top-0 h-full w-72 bg-white border-r border-gray-100 p-6 flex flex-col shadow-sm z-50 overflow-y-auto">
       {/* Brand */}
@@ -126,15 +136,29 @@ export default function Sidebar({ currentPath }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="space-y-1 flex-1 relative">
-        {navSections.map((section) => (
+        {loading ? (
+          <div className="space-y-4 px-2">
+            {[0, 1, 2].map((section) => (
+              <div key={section}>
+                <div className="mb-3 h-3 w-20 animate-pulse rounded bg-gray-100" />
+                <div className="space-y-2">
+                  {[0, 1, 2].map((item) => (
+                    <div key={item} className="h-10 animate-pulse rounded-xl bg-gray-50" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          filteredSections.map((section) => (
           <div key={section.label} className="mb-4">
             <div className="px-4 text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-2">
               {section.label}
             </div>
             <div className="space-y-0.5">
               {section.items.map((item) => {
-                const isActive = activePath === item.href ||
-                  (item.href !== '/' && activePath.startsWith(item.href));
+                const isActive = pathname === item.href ||
+                  (item.href !== '/' && pathname.startsWith(item.href));
                 const Icon = item.icon;
 
                 return (
@@ -160,21 +184,22 @@ export default function Sidebar({ currentPath }: SidebarProps) {
               })}
             </div>
           </div>
-        ))}
+          ))
+        )}
       </nav>
 
       {/* User Profile / Logout */}
       <div className="mt-auto pt-4 border-t border-gray-100">
         <div className="bg-gradient-to-r from-gray-50 to-gray-100/50 rounded-2xl p-4 mb-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
-            {adminInfo ? getInitials(adminInfo.email) : <User size={18} />}
+          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${roleBadgeColor} flex items-center justify-center text-white font-bold text-sm shadow-md`}>
+            {email ? getInitials(email) : <User size={18} />}
           </div>
           <div className="flex-1 overflow-hidden">
             <p className="text-sm font-semibold text-gray-900 truncate">
-              {adminInfo?.role === 'superadmin' ? 'Super Admin' : 'Admin'}
+              {role ? getRoleLabel(role) : 'Loading...'}
             </p>
             <p className="text-xs text-gray-500 truncate">
-              {adminInfo?.email || 'Loading...'}
+              {email || 'Loading...'}
             </p>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,22 +14,21 @@ const DriverProfile = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
-    // Auto-sync stats if they appear to be missing (e.g. 0 trips but we suspect they have some)
-    // Or just run it once on mount to be safe since the trigger might have missed old data
+    const hasSyncedRef = useRef(false);
+
+    // Auto-sync stats once per session to recalculate and fix any wrongly bloated driver_earnings
     useEffect(() => {
         const syncStats = async () => {
-            if (driverProfile?.id && !isSyncing) {
-                // If we have 0 trips, it's worth checking if that's real or a sync error
-                if (!driverProfile.total_trips || driverProfile.total_trips === 0) {
-                    setIsSyncing(true);
-                    try {
-                        await syncDriverStats(driverProfile.id);
-                        await refreshProfile();
-                    } catch (e) {
-                        console.error('Failed to sync stats', e);
-                    } finally {
-                        setIsSyncing(false);
-                    }
+            if (driverProfile?.id && !isSyncing && !hasSyncedRef.current) {
+                hasSyncedRef.current = true;
+                setIsSyncing(true);
+                try {
+                    await syncDriverStats(driverProfile.id);
+                    await refreshProfile();
+                } catch (e) {
+                    console.error('Failed to sync stats', e);
+                } finally {
+                    setIsSyncing(false);
                 }
             }
         };

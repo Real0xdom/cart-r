@@ -36,19 +36,28 @@ const audienceOptions = [
 export default function LegalPage() {
   const [documents, setDocuments] = useState<LegalDocument[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [acceptanceCount, setAcceptanceCount] = useState(0);
+  const [documentCount, setDocumentCount] = useState(0);
+  const [publishedCount, setPublishedCount] = useState(0);
   const [newDoc, setNewDoc] = useState({ type: 'terms_conditions', title: '', content: '', target_audience: 'both' });
   const [addingNew, setAddingNew] = useState(false);
 
   useEffect(() => {
-    fetchDocuments();
-    fetchAcceptanceCount();
+    refreshPageData();
   }, []);
+
+  async function refreshPageData() {
+    await Promise.all([
+      fetchDocuments(),
+      fetchLegalStats(),
+    ]);
+  }
 
   async function fetchDocuments() {
     setLoading(true);
@@ -68,15 +77,23 @@ export default function LegalPage() {
     }
   }
 
-  async function fetchAcceptanceCount() {
+  async function fetchLegalStats() {
+    setStatsLoading(true);
     try {
-      const { count, error } = await supabase
-        .from('user_terms_acceptance')
-        .select('*', { count: 'exact', head: true });
+      const response = await fetch('/api/legal/stats', { cache: 'no-store' });
+      const result = await response.json();
 
-      if (!error) setAcceptanceCount(count || 0);
-    } catch (e) {
-      // ignore
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to load legal stats');
+      }
+
+      setAcceptanceCount(result.acceptanceCount || 0);
+      setDocumentCount(result.documentCount || 0);
+      setPublishedCount(result.publishedCount || 0);
+    } catch (error: any) {
+      toast.error('Failed to load legal stats: ' + error.message);
+    } finally {
+      setStatsLoading(false);
     }
   }
 
@@ -128,7 +145,7 @@ export default function LegalPage() {
 
       if (error) throw error;
       toast.success(newPublished ? `Published ${doc.title} (${newVersion})` : `${doc.title} unpublished`);
-      fetchDocuments();
+      refreshPageData();
     } catch (error: any) {
       toast.error('Failed to update: ' + error.message);
     }
@@ -145,7 +162,7 @@ export default function LegalPage() {
       if (error) throw error;
       toast.success(`"${doc.title}" deleted`);
       setShowDeleteConfirm(null);
-      fetchDocuments();
+      refreshPageData();
     } catch (error: any) {
       toast.error('Failed to delete: ' + error.message);
     } finally {
@@ -176,7 +193,7 @@ export default function LegalPage() {
       toast.success('Document created!');
       setShowAddModal(false);
       setNewDoc({ type: 'terms_conditions', title: '', content: '', target_audience: 'both' });
-      fetchDocuments();
+      refreshPageData();
     } catch (error: any) {
       toast.error('Failed to create: ' + error.message);
     } finally {
@@ -208,7 +225,7 @@ export default function LegalPage() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={fetchDocuments}
+              onClick={refreshPageData}
               className="px-4 py-2.5 bg-white text-gray-600 rounded-xl font-semibold shadow-sm border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-2"
             >
               <RefreshCw size={16} /> Refresh
@@ -230,7 +247,7 @@ export default function LegalPage() {
                 <FileText size={20} className="text-blue-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{documents.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{statsLoading ? '--' : documentCount}</p>
                 <p className="text-xs text-gray-500">Total Documents</p>
               </div>
             </div>
@@ -241,7 +258,7 @@ export default function LegalPage() {
                 <Eye size={20} className="text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{documents.filter(d => d.is_published).length}</p>
+                <p className="text-2xl font-bold text-gray-900">{statsLoading ? '--' : publishedCount}</p>
                 <p className="text-xs text-gray-500">Published</p>
               </div>
             </div>
@@ -252,7 +269,7 @@ export default function LegalPage() {
                 <Users size={20} className="text-purple-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{acceptanceCount}</p>
+                <p className="text-2xl font-bold text-gray-900">{statsLoading ? '--' : acceptanceCount}</p>
                 <p className="text-xs text-gray-500">Terms Accepted</p>
               </div>
             </div>

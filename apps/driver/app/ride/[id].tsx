@@ -1,7 +1,7 @@
 // Active Ride Screen
 // Driver's view during an active shipment - connected to Supabase
 
-import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, ScrollView, AppState, AppStateStatus, Animated, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
@@ -9,13 +9,33 @@ import { Feather } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
 import OlaMapViewDirections from '@/components/OlaMapViewDirections';
 import * as Location from 'expo-location';
-import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, Booking } from '@/lib/bookings';
+import { getBookingById, updateBookingStatus, subscribeToBooking, cancelBookingByDriver, getDriverQueuedBooking, subscribeToDriverQueuedBooking, Booking } from '@/lib/bookings';
 import { getCurrentLocation, checkLocationServices } from '@/lib/location';
+import { updateDriverLocation as publishDriverLocation } from '@/lib/api';
+import { refreshLocationTrackingNotification } from '@/lib/location';
 import { useAnimatedLocation } from '@/lib/mapAnimation';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { showTripCancelledNotification, NotificationManager, removeActiveRide } from '@/lib/notifications';
+import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from '@/lib/vehicleTypes';
 import { icons, images } from '@/constants';
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
+
+const isDropoffPhase = (status?: Booking['status']) => status === 'in_progress';
+
+const getCurrentTargetCoordinates = (booking: Booking) => {
+    if (isDropoffPhase(booking.status)) {
+        return {
+            latitude: booking.destination_latitude,
+            longitude: booking.destination_longitude,
+        };
+    }
+
+    return {
+        latitude: booking.origin_latitude,
+        longitude: booking.origin_longitude,
+    };
+};
 
 const ActiveRide = () => {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,6 +49,11 @@ const ActiveRide = () => {
     const [cachedRouteCoords, setCachedRouteCoords] = useState<Array<{latitude: number, longitude: number}>>([]);
     const [useDirectionsFallback, setUseDirectionsFallback] = useState(false);
     const [locationError, setLocationError] = useState<string | null>(null);
+    const [cancellationNotice, setCancellationNotice] = useState<Booking | null>(null);
+    const [queuedBooking, setQueuedBooking] = useState<Booking | null>(null);
+    const [queuedCardMinimized, setQueuedCardMinimized] = useState(false);
+    const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+    const cancellationHandledRef = useRef(false);
     const mapRef = useRef<MapView>(null);
     const appState = useRef(AppState.currentState);
 
@@ -71,6 +96,13 @@ const ActiveRide = () => {
                         latitude: location.coords.latitude,
                         longitude: location.coords.longitude
                     });
+                    void publishDriverLocation(
+                        location.coords.latitude,
+                        location.coords.longitude,
+                        location.coords.heading || undefined,
+                        location.coords.speed || undefined,
+                        location.coords.accuracy || undefined
+                    );
                     setLocationError(null);
                 } else {
                     const errorMsg = t('enableLocationServices') || 'Current location is unavailable. Turn on device location services to show the route.';
@@ -89,12 +121,23 @@ const ActiveRide = () => {
 
                 // Start watcher
                 subscription = await Location.watchPositionAsync(
-                    { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+                    {
+                        accuracy: Location.Accuracy.BestForNavigation,
+                        distanceInterval: 3,
+                        timeInterval: 2000,
+                    },
                     (loc) => {
                         setDriverLocation({
                             latitude: loc.coords.latitude,
                             longitude: loc.coords.longitude
                         });
+                        void publishDriverLocation(
+                            loc.coords.latitude,
+                            loc.coords.longitude,
+                            loc.coords.heading || undefined,
+                            loc.coords.speed || undefined,
+                            loc.coords.accuracy || undefined
+                        );
                         setLocationError(null);
                     }
                 );
@@ -153,6 +196,15 @@ const ActiveRide = () => {
         };
     }, []);
 
+    useEffect(() => {
+        const fetchVehicleSpecs = async () => {
+            const { data } = await getActiveVehicleTypes();
+            if (data) setVehicleSpecs(data);
+        };
+
+        fetchVehicleSpecs();
+    }, []);
+
     // Fetch booking data
     useEffect(() => {
         if (!id) {
@@ -162,6 +214,22 @@ const ActiveRide = () => {
         }
 
         console.log('[ACTIVE RIDE] Fetching booking details for ID:', id);
+
+        const exitForCancellation = (cancelledBooking: Booking) => {
+            if (cancellationHandledRef.current) return;
+            cancellationHandledRef.current = true;
+            setBooking(cancelledBooking);
+            setCancellationNotice(cancelledBooking);
+            setIsUpdating(false);
+            void showTripCancelledNotification({
+                id: cancelledBooking.id,
+                origin_address: cancelledBooking.origin_address,
+                destination_address: cancelledBooking.destination_address,
+                cancellation_reason: cancelledBooking.cancellation_reason,
+            }).catch((error) => {
+                console.error('[ACTIVE RIDE] Failed to show cancellation notification:', error);
+            });
+        };
 
         const fetchBooking = async () => {
             const { data, error } = await getBookingById(id);
@@ -173,6 +241,11 @@ const ActiveRide = () => {
             });
             
             if (data) {
+                if (data.status === 'cancelled') {
+                    setIsLoading(false);
+                    exitForCancellation(data);
+                    return;
+                }
                 console.log('[ACTIVE RIDE] Booking loaded successfully:', JSON.stringify(data, null, 2));
                 setBooking(data);
             } else {
@@ -190,16 +263,8 @@ const ActiveRide = () => {
         const unsubscribe = subscribeToBooking(id, (updatedBooking) => {
             console.log('[ACTIVE RIDE] Received booking update:', updatedBooking.status);
             
-            // Customer cancelled the ride
             if (updatedBooking.status === 'cancelled') {
-                Alert.alert(
-                    'Ride Cancelled',
-                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
-                    [{
-                        text: 'OK',
-                        onPress: () => router.replace('/(tabs)/home')
-                    }]
-                );
+                exitForCancellation(updatedBooking);
                 return;
             }
             
@@ -212,14 +277,12 @@ const ActiveRide = () => {
     // Fit map to show route when booking and driver location are available
     useEffect(() => {
         if (booking && driverLocation && mapRef.current) {
-            const isInProgress = booking.status === 'in_progress';
-            
+            const currentTarget = getCurrentTargetCoordinates(booking);
             const pointsToFit = [
                 { latitude: driverLocation.latitude, longitude: driverLocation.longitude },
-                { latitude: booking.origin_latitude, longitude: booking.origin_longitude },
-                { latitude: booking.destination_latitude, longitude: booking.destination_longitude }
+                currentTarget,
             ];
-            
+
             mapRef.current.fitToCoordinates(pointsToFit, {
                 edgePadding: { top: 100, right: 60, bottom: 350, left: 60 },
                 animated: true
@@ -231,25 +294,76 @@ const ActiveRide = () => {
         if (!booking) return;
 
         // Force directions to recalculate when the ride phase switches from pickup to drop-off.
+        setLiveETA(null);
+        setLiveDistance(null);
+        setCachedRouteCoords([]);
         setUseDirectionsFallback(false);
     }, [booking?.status, booking?.origin_latitude, booking?.origin_longitude, booking?.destination_latitude, booking?.destination_longitude]);
 
-    const openNavigation = () => {
-        if (!booking) return;
-        
-        const isPickedUp = booking.status === 'in_progress';
-        const lat = isPickedUp ? booking.destination_latitude : booking.origin_latitude;
-        const lng = isPickedUp ? booking.destination_longitude : booking.origin_longitude;
+    useEffect(() => {
+        if (!booking?.driver_id) {
+            setQueuedBooking(null);
+            return;
+        }
 
-        const url = Platform.select({
-            ios: `maps://app?daddr=${lat},${lng}`,
-            android: `google.navigation:q=${lat},${lng}`,
+        const loadQueuedBooking = async () => {
+            const { data } = await getDriverQueuedBooking(booking.driver_id as string);
+            setQueuedBooking(data && data.id !== booking.id ? data : null);
+        };
+
+        loadQueuedBooking();
+        const unsubscribe = subscribeToDriverQueuedBooking(booking.driver_id, (nextBooking) => {
+            setQueuedBooking(nextBooking && nextBooking.id !== booking.id ? nextBooking : null);
         });
-        if (url) Linking.openURL(url);
+
+        return () => unsubscribe();
+    }, [booking?.driver_id, booking?.id]);
+
+    useEffect(() => {
+        if (!booking?.id) {
+            return;
+        }
+
+        void refreshLocationTrackingNotification();
+    }, [booking?.id, booking?.status, queuedBooking?.id]);
+
+    const openNavigation = async () => {
+        if (!booking) return;
+
+        const { latitude, longitude } = getCurrentTargetCoordinates(booking);
+        const destination = `${latitude},${longitude}`;
+        const origin = driverLocation
+            ? `${driverLocation.latitude},${driverLocation.longitude}`
+            : null;
+
+        try {
+            if (Platform.OS === 'ios') {
+                const googleMapsUrl = `comgooglemaps://?${origin ? `saddr=${encodeURIComponent(origin)}&` : ''}daddr=${encodeURIComponent(destination)}&directionsmode=driving`;
+
+                if (await Linking.canOpenURL(googleMapsUrl)) {
+                    await Linking.openURL(googleMapsUrl);
+                    return;
+                }
+
+                const appleMapsUrl = `http://maps.apple.com/?${origin ? `saddr=${encodeURIComponent(origin)}&` : ''}daddr=${encodeURIComponent(destination)}&dirflg=d`;
+                await Linking.openURL(appleMapsUrl);
+                return;
+            }
+
+            const googleMapsDirectionsUrl = `https://www.google.com/maps/dir/?api=1&${origin ? `origin=${encodeURIComponent(origin)}&` : ''}destination=${encodeURIComponent(destination)}&travelmode=driving`;
+            await Linking.openURL(googleMapsDirectionsUrl);
+        } catch (error) {
+            console.error('[ActiveRide] Failed to open navigation:', error);
+            Alert.alert('Navigation unavailable', 'Unable to open navigation for this location right now.');
+        }
     };
 
     const callCustomer = () => {
-        const phone = booking?.customer?.phone || booking?.receiver_phone;
+        const isInProgress = booking?.status === 'in_progress';
+        const phone = isInProgress 
+            ? (booking?.receiver_phone || booking?.customer?.phone)
+            : (booking?.customer?.phone || booking?.receiver_phone);
+            
         if (phone) {
             Linking.openURL(`tel:${phone}`);
         }
@@ -259,6 +373,13 @@ const ActiveRide = () => {
         if (!booking || !id) return;
 
         const currentStatus = booking.status;
+
+        if (currentStatus === 'cancelled') {
+            Alert.alert('Ride Cancelled', 'This ride was already cancelled by the customer.', [
+                { text: 'OK', onPress: () => router.replace('/(tabs)/home') }
+            ]);
+            return;
+        }
 
         // If in_progress and clicking the button, navigate to Arrived at Drop Location verification
         if (currentStatus === 'in_progress') {
@@ -293,7 +414,9 @@ const ActiveRide = () => {
 
             const { success, error } = await updateBookingStatus(id, newStatus);
 
-            if (!success) {
+            if (success) {
+                void NotificationManager.driverArrived(id);
+            } else {
                 Alert.alert('Error', error || 'Failed to update status');
             }
         } catch (err: any) {
@@ -316,6 +439,8 @@ const ActiveRide = () => {
         switch (booking?.status) {
             case 'accepted': 
                 return { text: 'Head to pickup location', color: 'bg-blue-500/20', textColor: 'text-blue-400' };
+            case 'cancelled':
+                return { text: 'Ride cancelled by customer', color: 'bg-red-500/15', textColor: 'text-red-500' };
             case 'driver_arrived': 
                 return { text: '📍 Arrived - Verify OTP', color: 'bg-yellow-500/20', textColor: 'text-yellow-400' };
             case 'in_progress': 
@@ -336,13 +461,48 @@ const ActiveRide = () => {
 
     const status = getStatusBadge();
     const customerName = booking.customer?.name || 'Customer';
-    const isInProgress = booking.status === 'in_progress';
-    const targetLat = isInProgress ? booking.destination_latitude : booking.origin_latitude;
-    const targetLng = isInProgress ? booking.destination_longitude : booking.origin_longitude;
+    const isInProgress = isDropoffPhase(booking.status);
+    const isCancelled = booking.status === 'cancelled';
+    const currentTarget = getCurrentTargetCoordinates(booking);
+    const targetLat = currentTarget.latitude;
+    const targetLng = currentTarget.longitude;
     const routeKey = `${booking.status}-${targetLat}-${targetLng}`;
 
     return (
         <SafeAreaView testID="driver.activeRide" accessibilityLabel="driver.activeRide" className="flex-1 bg-white">
+            <Modal
+                visible={!!cancellationNotice}
+                transparent
+                animationType="fade"
+                onRequestClose={() => router.replace('/(tabs)/home')}
+            >
+                <View className="flex-1 bg-black/40 items-center justify-center px-6">
+                    <View className="w-full bg-white rounded-3xl p-6 border border-red-100">
+                        <View className="w-16 h-16 rounded-full bg-red-100 items-center justify-center self-center mb-4">
+                            <Feather name="x-circle" size={34} color="#ef4444" />
+                        </View>
+                        <Text className="text-center text-2xl font-JakartaBold text-gray-900 mb-2">Ride Cancelled</Text>
+                        <Text className="text-center text-gray-600 mb-2">
+                            The customer cancelled this ride while you were on the way.
+                        </Text>
+                        <Text className="text-center text-red-500 font-JakartaMedium mb-6">
+                            Reason: {cancellationNotice?.cancellation_reason || 'No reason provided'}
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => setCancellationNotice(null)}
+                            className="bg-gray-100 rounded-2xl py-4 mb-3"
+                        >
+                            <Text className="text-center text-gray-900 font-JakartaBold">OK</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => router.replace('/(tabs)/home')}
+                            className="bg-red-500 rounded-2xl py-4"
+                        >
+                            <Text className="text-center text-white font-JakartaBold">Exit Home</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
             {/* Map View */}
             <View className="flex-1">
                 {driverLocation ? (
@@ -369,21 +529,28 @@ const ActiveRide = () => {
                             flat={true}
                         >
                             <Animated.View className="items-center justify-center">
-                                <Image source={images.truckTransparent} style={{ width: 40, height: 40, resizeMode: 'contain', transform: [{ rotate: '-90deg' }] }} />
+                                <Image
+                                    source={(() => {
+                                        const spec = vehicleSpecs.find(s => s.vehicle_type === booking.vehicle_type);
+                                        return getVehicleImageSource(booking.vehicle_type, spec?.icon_url) || images.truckTransparent;
+                                    })()}
+                                    style={{ width: 40, height: 40, resizeMode: 'contain' }}
+                                />
                             </Animated.View>
                         </Marker.Animated>
 
-                        {/* Pickup marker */}
-                        <Marker
-                            coordinate={{
-                                latitude: booking.origin_latitude,
-                                longitude: booking.origin_longitude,
-                            }}
-                            title="Pickup"
-                            anchor={{ x: 0.5, y: 0.5 }}
-                        >
-                            <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
-                        </Marker>
+                        {!isInProgress && (
+                            <Marker
+                                coordinate={{
+                                    latitude: booking.origin_latitude,
+                                    longitude: booking.origin_longitude,
+                                }}
+                                title="Pickup"
+                                anchor={{ x: 0.5, y: 0.5 }}
+                            >
+                                <Image source={icons.point} style={{ width: 30, height: 30, resizeMode: 'contain' }} />
+                            </Marker>
+                        )}
 
                         {/* Dropoff marker */}
                         <Marker
@@ -397,22 +564,10 @@ const ActiveRide = () => {
                             <Image source={icons.pin} style={{ width: 36, height: 36, resizeMode: 'contain' }} />
                         </Marker>
 
-                        {/* 1. Trip Route (Pickup -> Drop-off) - Always shown in background or foreground */}
-                        {!useDirectionsFallback && (
-                            <OlaMapViewDirections
-                                key={`trip-route-${booking.id}`}
-                                origin={{ latitude: booking.origin_latitude, longitude: booking.origin_longitude }}
-                                destination={{ latitude: booking.destination_latitude, longitude: booking.destination_longitude }}
-                                strokeColor={isInProgress ? "#ef4444" : "#94a3b8"}
-                                strokeWidth={isInProgress ? 5 : 3}
-                                lineDashPattern={isInProgress ? undefined : [5, 5]}
-                            />
-                        )}
-
-                        {/* 2. Navigation Route (Driver -> Next Target) */}
+                        {/* Driver -> current trip destination only */}
                         {driverLocation && !useDirectionsFallback && (
                             <OlaMapViewDirections
-                                key={`nav-route-${booking.status}-${driverLocation.latitude}-${driverLocation.longitude}`}
+                                key={`nav-route-${routeKey}-${driverLocation.latitude}-${driverLocation.longitude}`}
                                 origin={driverLocation}
                                 destination={{ latitude: targetLat, longitude: targetLng }}
                                 strokeColor={isInProgress ? "#ef4444" : "#22c55e"}
@@ -422,10 +577,6 @@ const ActiveRide = () => {
                                     setLiveDistance(Math.round(result.distance * 10) / 10);
                                     setCachedRouteCoords(result.coordinates);
                                     setUseDirectionsFallback(false);
-                                }}
-                                onError={(error) => {
-                                    console.log('[ActiveRide] Directions API error, using cached route:', error);
-                                    setUseDirectionsFallback(true);
                                 }}
                             />
                         )}
@@ -512,6 +663,36 @@ const ActiveRide = () => {
                         </View>
                     </View>
 
+                    {/* Addons Info */}
+                    {booking.booking_addons && booking.booking_addons.length > 0 && (
+                        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200">
+                            <View className="flex-row items-center mb-2">
+                                <Feather name="plus-circle" size={18} color="#d97706" />
+                                <Text className="text-amber-800 font-JakartaBold ml-2">Ride Addons Included</Text>
+                            </View>
+                            <Text className="text-amber-700 text-sm font-JakartaMedium mb-3">
+                                This customer has requested extra services. Fulfil these addons to earn the additional charges!
+                            </Text>
+                            <View className="bg-white rounded-xl p-3 border border-amber-100">
+                                {booking.booking_addons.map((addon, index) => (
+                                    <View key={`addon-${index}`} className={`flex-row justify-between items-center ${index > 0 ? 'mt-2 pt-2 border-t border-amber-50' : ''}`}>
+                                        <View className="flex-row items-center flex-1">
+                                            <View className="w-6 h-6 bg-amber-100 rounded-full items-center justify-center mr-2">
+                                                <Text className="text-amber-700 text-xs font-JakartaBold">{addon.quantity}x</Text>
+                                            </View>
+                                            <Text className="text-gray-900 font-JakartaSemiBold flex-1" numberOfLines={2}>
+                                                {addon.addon_services?.name || 'Additional Service'}
+                                            </Text>
+                                        </View>
+                                        <Text className="text-green-600 font-JakartaBold">
+                                            ₹{addon.total_price || (addon.unit_price * addon.quantity)}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    )}
+
                     {/* Pickup OTP - shown when arrived */}
                     {booking.status === 'driver_arrived' && booking.pickup_otp && (
                         <View className="bg-blue-500/10 rounded-xl p-4 mb-4 border border-blue-200">
@@ -526,6 +707,17 @@ const ActiveRide = () => {
 
                     {/* Ride Details */}
                     <View className="bg-gray-100 rounded-2xl p-4 mb-4 border border-gray-200">
+                        {isCancelled && (
+                            <View className="bg-red-50 rounded-xl p-4 mb-4 border border-red-200">
+                                <Text className="text-red-600 text-sm font-JakartaMedium mb-1">
+                                    Customer cancellation received
+                                </Text>
+                                <Text className="text-gray-900 font-JakartaBold">
+                                    {booking.cancellation_reason || 'This ride was cancelled by the customer.'}
+                                </Text>
+                            </View>
+                        )}
+
                         <View className="mb-3">
                             <Text className="text-gray-500 text-xs mb-1">
                                 {isInProgress ? 'DROP-OFF' : 'PICKUP'}
@@ -576,32 +768,82 @@ const ActiveRide = () => {
                         </View>
                     </View>
 
-                    {/* Action Buttons */}
-                    <View className="flex-row gap-3">
-                        <TouchableOpacity
-                            onPress={openNavigation}
-                            className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
-                        >
-                            <Feather name="navigation" size={18} color="#fff" />
-                            <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={handleStatusUpdate}
-                            disabled={isUpdating}
-                            className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
-                        >
-                            {isUpdating ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                                <Text className="text-white text-center font-JakartaBold">
-                                    {getButtonText()}
-                                </Text>
+                    {queuedBooking && (
+                        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200">
+                            <View className="flex-row items-center justify-between mb-2">
+                                <View className="bg-amber-500 px-3 py-1 rounded-full">
+                                    <Text className="text-white text-xs font-JakartaBold">Next Ride Queued</Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setQueuedCardMinimized((value) => !value)}
+                                    className="w-8 h-8 rounded-full bg-amber-100 items-center justify-center"
+                                >
+                                    <Feather name={queuedCardMinimized ? 'chevron-down' : 'chevron-up'} size={16} color="#b45309" />
+                                </TouchableOpacity>
+                            </View>
+
+                            {!queuedCardMinimized && (
+                                <>
+                                    <Text className="text-gray-900 font-JakartaBold text-base">
+                                        {queuedBooking.customer?.name || 'Customer'}
+                                    </Text>
+                                    <Text className="text-gray-600 font-JakartaMedium text-sm mt-1">
+                                        {queuedBooking.destination_address}
+                                    </Text>
+                                    <Text className="text-amber-700 font-JakartaMedium text-sm mt-3">
+                                        This trip will activate automatically after you complete the current ride.
+                                    </Text>
+                                </>
                             )}
-                        </TouchableOpacity>
-                    </View>
+                        </View>
+                    )}
+
+                    {/* Action Buttons */}
+                    {isCancelled ? (
+                        <View className="gap-3">
+                            <TouchableOpacity
+                                onPress={() => setCancellationNotice(booking)}
+                                className="bg-gray-100 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                <Feather name="alert-circle" size={18} color="#111827" />
+                                <Text className="text-gray-900 ml-2 font-JakartaBold">Show Cancellation Notice</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => router.replace('/(tabs)/home')}
+                                className="bg-red-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                <Text className="text-white text-center font-JakartaBold">
+                                    Exit Home
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <View className="flex-row gap-3">
+                            <TouchableOpacity
+                                onPress={openNavigation}
+                                className="flex-1 bg-blue-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                <Feather name="navigation" size={18} color="#fff" />
+                                <Text className="text-white ml-2 font-JakartaBold">Navigate</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleStatusUpdate}
+                                disabled={isUpdating}
+                                className="flex-1 bg-green-500 p-4 rounded-xl flex-row items-center justify-center"
+                            >
+                                {isUpdating ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text className="text-white text-center font-JakartaBold">
+                                        {getButtonText()}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    )}
 
                     {/* Cancel Option - before trip start */}
-                    {(booking.status === 'accepted' || booking.status === 'driver_arrived') && (
+                    {!isCancelled && (booking.status === 'accepted' || booking.status === 'driver_arrived') && (
                         <TouchableOpacity
                             onPress={() => {
                                 Alert.alert(
@@ -620,6 +862,8 @@ const ActiveRide = () => {
                                                 const { success, error } = await cancelBookingByDriver(id, booking.driver_id, 'Cancelled by driver');
                                                 
                                                 if (success) {
+                                                    // Remove from stacking tracker on driver cancel
+                                                    removeActiveRide(id);
                                                     router.replace('/(tabs)/home');
                                                 } else {
                                                     Alert.alert('Error', error || 'Failed to cancel ride');
@@ -641,4 +885,3 @@ const ActiveRide = () => {
 };
 
 export default ActiveRide;
-

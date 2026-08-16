@@ -11,6 +11,7 @@ interface Driver {
   vehicle_number: string;
   vehicle_model: string;
   verification_status: 'pending' | 'approved' | 'rejected';
+  driver_app_enabled?: boolean | null;
   rating: number;
   total_trips: number;
   total_earnings: number;
@@ -54,11 +55,20 @@ export default function DriversPage() {
     setLoading(false);
   }
 
+  const getDriverDisplayStatus = (driver: Driver) => {
+    if (driver.verification_status === 'approved' && driver.driver_app_enabled === false) {
+      return 'suspended';
+    }
+
+    return driver.verification_status;
+  };
+
   const getStatusBadge = (status: string) => {
     const styles = {
       pending: 'bg-yellow-100 text-yellow-800',
       approved: 'bg-green-100 text-green-800',
       rejected: 'bg-red-100 text-red-800',
+      suspended: 'bg-red-100 text-red-800',
     };
     return styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-800';
   };
@@ -147,7 +157,10 @@ export default function DriversPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {drivers.map((driver) => (
+                  {drivers.map((driver) => {
+                    const displayStatus = getDriverDisplayStatus(driver);
+
+                    return (
                     <tr key={driver.id} className="hover:bg-gray-50/80 transition-colors group">
                       <td className="px-8 py-4">
                         <div className="flex items-center gap-3">
@@ -168,8 +181,8 @@ export default function DriversPage() {
                       </td>
                       <td className="px-8 py-4">
                         <div className="flex items-center gap-2">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold capitalize ${getStatusBadge(driver.verification_status)}`}>
-                            {driver.verification_status}
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold capitalize ${getStatusBadge(displayStatus)}`}>
+                            {displayStatus}
                           </span>
                           {driver.is_online && (
                             <span className="w-2 h-2 bg-green-500 rounded-full" title="Online"></span>
@@ -194,7 +207,8 @@ export default function DriversPage() {
                         </Link>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

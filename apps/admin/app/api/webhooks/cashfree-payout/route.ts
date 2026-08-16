@@ -93,7 +93,7 @@ export async function POST(request: Request) {
           user_id: driverUser.user_id,
           title: '💰 Payout Successful',
           body: `₹${withdrawal.amount} has been transferred to your bank account.`,
-          data: { type: 'payout_success', withdrawal_id: withdrawal.id },
+          data: { type: 'payout_success', withdrawal_id: withdrawal.id, target_app: 'driver' },
         });
       }
       
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
           user_id: failedDriverUser.user_id,
           title: '⚠️ Payout Failed',
           body: `₹${withdrawal.amount} payout failed. Amount refunded to wallet. Reason: ${statusDescription || 'Transfer failed'}`,
-          data: { type: 'payout_failed', withdrawal_id: withdrawal.id },
+          data: { type: 'payout_failed', withdrawal_id: withdrawal.id, target_app: 'driver' },
         });
       }
       
@@ -204,7 +204,7 @@ export async function POST(request: Request) {
           user_id: reversedDriverUser.user_id,
           title: '🔄 Payout Reversed',
           body: `₹${withdrawal.amount} payout was reversed by your bank. Amount refunded to wallet.`,
-          data: { type: 'payout_reversed', withdrawal_id: withdrawal.id },
+          data: { type: 'payout_reversed', withdrawal_id: withdrawal.id, target_app: 'driver' },
         });
       }
       

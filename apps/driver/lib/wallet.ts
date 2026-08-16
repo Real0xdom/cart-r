@@ -1,14 +1,35 @@
 import { supabase } from './supabase';
 
+export const DRIVER_WALLET_DEBT_THRESHOLD = -100;
+export const DRIVER_WALLET_RECHARGE_BUFFER = 100;
+
 export interface WalletInfo {
+  id: string;
   pending_balance: number;
   available_balance: number;
   total_earned: number;
   total_withdrawn: number;
   pending_withdrawals: number;
+  total_commission_owed: number;
   bank_details: any;
   beneficiary_status: string;
   verification_status: string;
+  has_negative_balance: boolean;
+  requires_recharge: boolean;
+  updated_at: string;
+}
+
+export interface WalletStats {
+  total_rides_completed: number;
+  total_earned_this_month: number;
+  total_commission_paid: number;
+  pending_withdrawals: number;
+}
+
+export interface DriverWalletInfoResponse {
+  wallet: WalletInfo;
+  recent_transactions: WalletTransaction[];
+  stats: WalletStats;
 }
 
 export interface WalletTransaction {
@@ -16,7 +37,8 @@ export interface WalletTransaction {
   driver_id: string;
   booking_id: string | null;
   withdrawal_id: string | null;
-  type: 'earning' | 'withdrawal' | 'reversal' | 'release' | 'adjustment';
+  reference_id?: string | null;
+  type: 'earning' | 'withdrawal' | 'reversal' | 'release' | 'adjustment' | 'platform_fee';
   amount: number;
   balance_type: 'available' | 'pending';
   direction: 'credit' | 'debit';
@@ -26,12 +48,162 @@ export interface WalletTransaction {
   created_at: string;
 }
 
-export async function getDriverWalletInfo(driverId: string): Promise<{ data: WalletInfo | null; error: Error | null }> {
+export interface WalletPaymentTransaction {
+  id: string;
+  user_id: string;
+  amount: number;
+  type: 'credit' | 'debit';
+  status: 'pending' | 'completed' | 'failed' | string | null;
+  payment_order_id: string | null;
+  booking_id: string | null;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+function normalizeWalletPaymentOrderId(value: string | null | undefined) {
+  return (value || '').trim().toUpperCase();
+}
+
+function normalizeWalletPaymentDescription(value: string | null | undefined) {
+  return (value || '').trim().toLowerCase();
+}
+
+export function isDriverWalletPaymentTransaction(transaction: Pick<WalletPaymentTransaction, 'payment_order_id' | 'description'>) {
+  const orderId = normalizeWalletPaymentOrderId(transaction.payment_order_id);
+  const description = normalizeWalletPaymentDescription(transaction.description);
+
+  return orderId.startsWith('DRIVERWALLET_') || description.includes('driver wallet top-up');
+}
+
+export interface DriverWalletEligibility {
+  canAcceptRides: boolean;
+  reason?: string;
+  currentBalance: number;
+  requiredRecharge?: number;
+}
+
+export interface DriverWalletRestrictionDetails {
+  errorCode: 'wallet_recharge_required';
+  message: string;
+  currentBalance: number;
+  requiredRecharge: number;
+}
+
+function getWalletPayload(data: any): Partial<WalletInfo> | null {
+  if (data?.wallet && typeof data.wallet === 'object') {
+    return data.wallet as Partial<WalletInfo>;
+  }
+
+  if (data && typeof data === 'object' && 'available_balance' in data) {
+    return data as Partial<WalletInfo>;
+  }
+
+  return null;
+}
+
+function toMoneyAmount(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+export function getDriverWalletRequiredRecharge(balance: number): number {
+  return Math.abs(balance) + DRIVER_WALLET_RECHARGE_BUFFER;
+}
+
+export function getDriverWalletRechargeNavigationTarget() {
+  return {
+    pathname: '/(tabs)/earnings',
+    params: { openRecharge: '1' },
+  } as const;
+}
+
+export function parseDriverWalletRestriction(result: any): DriverWalletRestrictionDetails | null {
+  if (result?.error !== 'wallet_recharge_required') {
+    return null;
+  }
+
+  const currentBalance = toMoneyAmount(result.current_balance, 0);
+  const requiredRecharge = toMoneyAmount(
+    result.required_recharge,
+    getDriverWalletRequiredRecharge(currentBalance)
+  );
+
+  return {
+    errorCode: 'wallet_recharge_required',
+    message:
+      typeof result.message === 'string' && result.message.trim().length > 0
+        ? result.message
+        : 'Negative wallet balance. Please recharge to continue.',
+    currentBalance,
+    requiredRecharge,
+  };
+}
+
+export async function checkDriverWalletEligibility(driverId: string): Promise<DriverWalletEligibility> {
+  console.log('[WALLET] Checking driver wallet eligibility', { driverId });
+
+  const { data, error } = await supabase.rpc('get_driver_wallet_info', { p_driver_id: driverId });
+
+  if (error) {
+    console.error('[WALLET] Failed to fetch driver wallet info:', error);
+    throw error;
+  }
+
+  const wallet = getWalletPayload(data);
+
+  if (!wallet) {
+    console.warn('[WALLET] Driver wallet missing from RPC payload', { driverId });
+    return {
+      canAcceptRides: false,
+      reason: 'Wallet not initialized',
+      currentBalance: 0,
+    };
+  }
+
+  const currentBalance = toMoneyAmount(wallet.available_balance, 0);
+  const requiresRecharge =
+    typeof wallet.requires_recharge === 'boolean'
+      ? wallet.requires_recharge
+      : currentBalance < DRIVER_WALLET_DEBT_THRESHOLD;
+
+  console.log('[WALLET] Driver wallet eligibility result', {
+    driverId,
+    currentBalance,
+    threshold: DRIVER_WALLET_DEBT_THRESHOLD,
+    requiresRecharge,
+  });
+
+  if (requiresRecharge) {
+    return {
+      canAcceptRides: false,
+      reason: 'Negative wallet balance. Please recharge to continue.',
+      currentBalance,
+      requiredRecharge: getDriverWalletRequiredRecharge(currentBalance),
+    };
+  }
+
+  return {
+    canAcceptRides: true,
+    currentBalance,
+  };
+}
+
+export async function getDriverWalletInfo(driverId: string): Promise<{ data: DriverWalletInfoResponse | null; error: Error | null }> {
   try {
     const { data, error } = await supabase.rpc('get_driver_wallet_info', { p_driver_id: driverId });
     if (error) throw error;
-    // @ts-ignore
-    return { data: data as WalletInfo, error: null };
+    return { data: data as unknown as DriverWalletInfoResponse, error: null };
   } catch (error: any) {
     console.error('Error fetching wallet info:', error);
     return { data: null, error };
@@ -51,6 +223,25 @@ export async function getDriverWalletTransactions(driverId: string, limit = 50) 
     return { data: data as any, error: null };
   } catch (error: any) {
     console.error('Error fetching wallet transactions:', error);
+    return { data: null, error };
+  }
+}
+
+export async function getWalletPaymentTransactions(userId: string, limit = 50): Promise<{ data: WalletPaymentTransaction[] | null; error: Error | null }> {
+  try {
+    const fetchLimit = Math.max(limit * 3, 30);
+    const { data, error } = await supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(fetchLimit);
+
+    if (error) throw error;
+    const filtered = (data as WalletPaymentTransaction[]).filter(isDriverWalletPaymentTransaction).slice(0, limit);
+    return { data: filtered, error: null };
+  } catch (error: any) {
+    console.error('Error fetching wallet payment transactions:', error);
     return { data: null, error };
   }
 }

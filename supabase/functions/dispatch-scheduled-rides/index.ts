@@ -64,10 +64,20 @@ serve(async (req) => {
       }
     }
 
+    // 3. Cleanup expired pending bookings to trigger refunds
+    console.log('[Scheduler] Cleaning up expired pending bookings...');
+    const { data: cleanupCount, error: cleanupError } = await supabaseClient.rpc('cleanup_expired_bookings');
+    if (cleanupError) {
+      console.error('[Scheduler] Failed to cleanup expired bookings:', cleanupError);
+    } else if (cleanupCount > 0) {
+      console.log(`[Scheduler] Successfully cleaned up ${cleanupCount} expired bookings.`);
+    }
+
     return new Response(JSON.stringify({ 
       success: true, 
-      message: `Dispatched ${successCount}/${upcomingBookings.length} scheduled rides.`,
-      dispatched: successCount
+      message: `Dispatched ${successCount}/${upcomingBookings.length} scheduled rides. Cleaned up ${cleanupCount || 0} expired rides.`,
+      dispatched: successCount,
+      cleanedUp: cleanupCount || 0
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

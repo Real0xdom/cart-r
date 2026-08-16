@@ -2,13 +2,18 @@
   "name": "carter-project",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "workspaces": [
     "apps/*"
   ],
   "description": "Carter - Pune's Logistics App",
   "scripts": {
-    "customer": "cd apps/customer; npm run start",
-    "driver": "cd apps/driver; npm run start",
+    "customer": "cd apps/customer && npx expo start",
+    "driver": "cd apps/driver && npm run start",
+    "test:wallet:unit": "vitest run tests/unit/driver-wallet-commission.test.ts tests/unit/driver-wallet-restrictions.test.ts tests/unit/payment-split.test.ts tests/unit/payment-webhook.test.ts tests/unit/wallet-credit.test.ts tests/api/payment-order.test.ts tests/api/verify-payment.test.ts tests/integration/booking-lifecycle.test.ts",
+    "test:wallet:api": "playwright test -c e2e/playwright.wallet.config.ts e2e/tests/api/payment.test.ts e2e/tests/api/driver-wallet-release-gate.test.ts e2e/tests/multi-user/race-condition.test.ts e2e/tests/driver/edge-cases.test.ts",
     "test:mobile": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results mocha --config mobile-tests/.mocharc.cjs",
     "test:web": "cross-env TEST_ENV= ALLURE_RESULTS_DIR=reports/allure-results playwright test -c web-tests/playwright.config.ts",
     "test:all": "npm run test:web && npm run test:mobile",
@@ -55,21 +60,24 @@
     "@types/chai": "^5.2.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.18.0",
+    "ajv": "^8.18.0",
+    "ajv-keywords": "^5.1.0",
     "allure-commandline": "^2.34.0",
     "allure-mocha": "^3.0.0",
     "allure-playwright": "^3.0.0",
     "chai": "^5.2.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.6.0",
-    "metro": "0.80.12", 
+    "metro": "0.80.12",
     "metro-config": "0.80.12",
     "metro-minify-terser": "0.80.12",
     "mocha": "^11.7.0",
     "rimraf": "^5.0.1",
+    "tailwindcss": "3.3.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
     "webdriverio": "^9.20.0",
     "zod": "^4.3.6"
   }
-
 }

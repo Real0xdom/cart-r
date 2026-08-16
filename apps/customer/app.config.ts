@@ -4,7 +4,7 @@ import path from 'path';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Carter",
+  name: "Cartr",
   slug: "carter-customer",
   version: "1.0.0",
   orientation: "portrait",
@@ -12,13 +12,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "carter",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./assets/splash-logo.png",
     resizeMode: "contain",
-    backgroundColor: "#31502d"
+    backgroundColor: "#21461E"
   },
   notification: {
     icon: "./assets/images/notification-icon.png",
-    color: "#4CAF50"
+    color: "#21461E"
   },
   ios: {
     supportsTablet: true,
@@ -41,7 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#21461E"
     },
     package: "com.carter.customer",
     config: {
@@ -55,10 +54,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "VIBRATE",
       "WAKE_LOCK"
     ],
-    // Only add google-services.json if it exists to avoid build errors
-    ...(fs.existsSync(path.join(__dirname, "google-services.json")) 
-      ? { googleServicesFile: "./google-services.json" } 
-      : {}),
+    // Resolve google-services.json from either the app root or an existing android/app folder.
+    ...(() => {
+      const rootPath = path.join(__dirname, "google-services.json");
+      const androidAppPath = path.join(__dirname, "android", "app", "google-services.json");
+      if (fs.existsSync(rootPath)) {
+        return { googleServicesFile: "./google-services.json" };
+      }
+      if (fs.existsSync(androidAppPath)) {
+        return { googleServicesFile: "./android/app/google-services.json" };
+      }
+      return {};
+    })(),
   },
   web: {
     bundler: "metro",
@@ -75,7 +82,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Carter needs your location to show nearby drivers and track your deliveries."
+        "locationAlwaysAndWhenInUsePermission": "Cartr needs your location to show nearby drivers and track your deliveries."
       }
     ],
     "expo-notifications"
@@ -88,8 +95,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://cart-r.com/"
     },
     eas: {
-      "projectId": "b9192aff-c534-4495-aac5-d2fe15a2a92f"
+      "projectId": "87356e02-f8e3-4779-affa-c07c7c136af9"
     }
   },
-  owner: "amycarter192"
+  owner: "cartrlogistics"
 });

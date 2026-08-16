@@ -79,6 +79,15 @@ describe('Payment Webhook — Success Handler Logic', () => {
     expect(result.action).toBe('skip_wallet');
   });
 
+  it('skips driver wallet top-up orders so the idempotent driver credit path can handle them', () => {
+    const result = shouldProcessPaymentSuccess(
+      'PAYMENT_SUCCESS', 'SUCCESS', 'DRIVERWALLET_driver123_1234567890', null
+    );
+    expect(
+      result.action === 'skip_wallet' || result.action === 'skip_not_found'
+    ).toBe(true);
+  });
+
   it('skips already-paid bookings (idempotency)', () => {
     const result = shouldProcessPaymentSuccess(
       'PAYMENT_SUCCESS', 'SUCCESS', 'BOOKING_abc12345_1234567890', 'paid'

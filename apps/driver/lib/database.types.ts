@@ -259,6 +259,7 @@ export type Database = {
           pickup_otp: string | null
           receiver_name: string | null
           receiver_phone: string | null
+          queued_at: string | null
           scheduled_at: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["booking_status"] | null
@@ -329,6 +330,7 @@ export type Database = {
           pickup_otp?: string | null
           receiver_name?: string | null
           receiver_phone?: string | null
+          queued_at?: string | null
           scheduled_at?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["booking_status"] | null
@@ -399,6 +401,7 @@ export type Database = {
           pickup_otp?: string | null
           receiver_name?: string | null
           receiver_phone?: string | null
+          queued_at?: string | null
           scheduled_at?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["booking_status"] | null
@@ -2341,6 +2344,10 @@ export type Database = {
         Args: { p_amount: number; p_order_id: string; p_user_id: string }
         Returns: boolean
       }
+      admin_cancel_booking: {
+        Args: { p_booking_id: string; p_reason?: string }
+        Returns: Json
+      }
       calculate_addon_charges: {
         Args: { p_booking_id: string }
         Returns: number
@@ -2363,7 +2370,11 @@ export type Database = {
         Returns: Json
       }
       cancel_booking_by_customer_v2: {
-        Args: { p_booking_id: string; p_reason?: string }
+        Args: {
+          p_booking_id: string
+          p_customer_user_id: string
+          p_reason?: string
+        }
         Returns: Json
       }
       cancel_booking_by_driver: {
@@ -3398,6 +3409,7 @@ export type Database = {
         | "accepted"
         | "driver_arrived"
         | "in_progress"
+        | "queued"
         | "completed"
         | "cancelled"
         | "scheduled"
@@ -3563,6 +3575,7 @@ export const Constants = {
         "accepted",
         "driver_arrived",
         "in_progress",
+        "queued",
         "completed",
         "cancelled",
         "scheduled",

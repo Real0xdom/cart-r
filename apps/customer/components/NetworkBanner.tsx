@@ -4,13 +4,6 @@ import NetInfo from '@react-native-community/netinfo';
 import { Feather } from '@expo/vector-icons';
 
 const NetworkBanner = () => {
-  console.log('🌐 [NetworkBanner] Rendering...');
-  try {
-    console.log('📡 [NetworkBanner] NetInfo available:', !!NetInfo);
-    console.log('🪶 [NetworkBanner] Feather available:', !!Feather);
-  } catch (e) {
-    console.log('❌ [NetworkBanner] Error checking imports:', e);
-  }
   
   const [isConnected, setIsConnected] = useState(true);
   const [anim] = useState(new Animated.Value(-100)); // Start off-screen

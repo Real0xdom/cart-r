@@ -27,26 +27,10 @@ BEGIN
   -- Generate new OTP
   v_otp := LPAD(FLOOR(RANDOM() * 1000000)::TEXT, 6, '0');
 
-  -- Update booking
+  -- Booking update will automatically fire queue_delivery_otp_sms if status is in_progress
   UPDATE bookings 
   SET delivery_otp = v_otp
   WHERE id = p_booking_id;
-
-  -- Automatically queue SMS if receiver phone exists
-  IF v_booking.receiver_phone IS NOT NULL THEN
-    sms_message := 'CARTR Delivery: Your delivery OTP is ' || v_otp || '. Share this with the driver upon delivery. Booking #' || COALESCE(v_booking.booking_number, SUBSTRING(p_booking_id::TEXT, 1, 8));
-    
-    INSERT INTO sms_queue (phone_number, message, booking_id, status, created_at)
-    VALUES (
-      '+91' || v_booking.receiver_phone,
-      sms_message,
-      p_booking_id,
-      'pending',
-      NOW()
-    );
-    
-    RAISE NOTICE 'OTP generated and SMS queued for % (booking %)', v_booking.receiver_phone, p_booking_id;
-  END IF;
 
   RETURN jsonb_build_object('success', true, 'otp', v_otp, 'status', 'generated', 'regenerated', p_force_regenerate);
 END;

@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import CustomButton from "@/components/CustomButton";
 import InputField from "@/components/InputField";
@@ -23,6 +24,7 @@ const DUPLICATE_EMAIL_MESSAGE =
 
 const PersonalInfo = () => {
   const { user, profile, driverProfile } = useAuth();
+  const insets = useSafeAreaInsets();
 
   if (driverProfile?.verification_status === "approved") {
     console.log("[PersonalInfo] Driver is already approved - redirecting to home");
@@ -140,7 +142,23 @@ const PersonalInfo = () => {
     >
       <ScrollView className="flex-1 bg-white">
         <View className="flex-1 bg-white pb-10">
-          <View className="h-[180px] w-full justify-center bg-green-500 px-5">
+          <View
+            className="w-full justify-end bg-green-500 px-5 pb-6"
+            style={{ minHeight: 200, paddingTop: insets.top + 52 }}
+          >
+            <Pressable
+              onPress={() => router.replace("/sign-in")}
+              className="absolute left-5 flex-row items-center"
+              style={{ top: insets.top + 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back to login"
+            >
+              <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+              <Text className="ml-2 text-sm font-JakartaSemiBold text-white">
+                Back to login
+              </Text>
+            </Pressable>
+
             <Text className="mb-2 text-sm font-Jakarta text-white">Step 1 of 3</Text>
             <Text className="text-2xl font-JakartaBold text-white">
               Personal Information

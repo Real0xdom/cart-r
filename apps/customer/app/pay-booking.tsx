@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { images } from "@/constants";
 import { getWalletBalance, payWithWallet, calculatePaymentSplit, completePartialPayment, rollbackPartialPayment } from '@/lib/walletPayment';
+import { getOutstandingCustomerAmount } from '@/lib/bookingPayment';
 
 // Icon Component
 const Icon = ({ name }: { name: any }) => (
@@ -54,7 +55,7 @@ if (Platform.OS !== 'web') {
 }
 
 // Helper for total
-const calculateTotal = (b: any) => b.driver_payout || b.total_fare;
+const calculateTotal = (b: any) => getOutstandingCustomerAmount(b);
 
 const PayBooking = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -86,8 +87,14 @@ const PayBooking = () => {
         
         const fetchData = async () => {
             if (user?.id) {
-                const balance = await getWalletBalance(user.id);
-                setWalletBalance(balance);
+                let balance = 0;
+                try {
+                    balance = await getWalletBalance(user.id);
+                    setWalletBalance(balance);
+                } catch (error) {
+                    console.error('[PayBooking] Failed to load wallet balance:', error);
+                    setWalletBalance(0);
+                }
                 
                 // Auto-select wallet if balance > 0
                 if (balance > 0) {
@@ -98,7 +105,7 @@ const PayBooking = () => {
             const { data } = await getBookingById(bookingId);
             if (data) {
                 setBooking(data);
-                if (data.payment_status === 'paid') {
+                if (data.payment_status === 'paid' && calculateTotal(data) <= 0) {
                     Alert.alert('Success', 'This booking is already paid.');
                     router.replace('/(tabs)/home');
                 }
@@ -163,7 +170,7 @@ const PayBooking = () => {
             return;
         }
         
-        const amount = booking.driver_payout || booking.total_fare;
+        const amount = calculateTotal(booking);
         const { canPayFull, walletAmount, onlineAmount, needsOnlinePayment } = calculatePaymentSplit(walletBalance, amount);
 
         if (paymentMethod === 'wallet' && walletBalance <= 0 && booking.payment_status !== 'partial_paid') {
@@ -217,11 +224,11 @@ const PayBooking = () => {
                     );
 
                     if (orderError || !orderData) {
-                        // Critical: Online order creation failed but wallet was deducted.
+                        // Critical: Online order creation failed after the wallet hold was created.
                         // In a production app, we should auto-refund or show a "Retry Online" state.
                         // For now, throwing error will alert user. They can try paying online again 
                         // (logic needs to support paying remaining if status is partial_paid).
-                        throw new Error(orderError || "Failed to create online order. Please contact support if wallet was deducted.");
+                        throw new Error(orderError || "Failed to create online order. Please contact support if your wallet hold was created.");
                     }
 
                     // Track for verification
@@ -282,8 +289,13 @@ const PayBooking = () => {
             const result = await rollbackPartialPayment(booking!.id);
             if (result.success) {
                 // Refresh data
-                const balance = await getWalletBalance(user!.id);
-                setWalletBalance(balance);
+                try {
+                    const balance = await getWalletBalance(user!.id);
+                    setWalletBalance(balance);
+                } catch (error) {
+                    console.error('[PayBooking] Failed to refresh wallet balance after rollback:', error);
+                    setWalletBalance(0);
+                }
                 
                 const { data } = await getBookingById(bookingId);
                 if (data) setBooking(data);
@@ -337,12 +349,17 @@ const PayBooking = () => {
         
         if (success) {
             try {
-                // Call backend to mark payment as complete
-                const completeRes = await completePartialPayment(
-                    booking!.id, 
-                    orderId, 
-                    amount
-                );
+                const completeRes = (isSplit && booking?.payment_status === 'partial_paid')
+                  ? await completePartialPayment(
+                      booking!.id,
+                      orderId,
+                      amount
+                    )
+                  : await (supabase.rpc as any)('apply_booking_online_payment', {
+                      p_booking_id: booking!.id,
+                      p_amount: amount,
+                      p_payment_order_id: orderId,
+                    }).then(({ data, error }: any) => error ? { success: false, error: error.message } : data);
                 
                 if (completeRes.success) {
                     Alert.alert(
@@ -472,7 +489,7 @@ const PayBooking = () => {
                 
                 if (data?.status === 'PAID') {
                      // If split payment, ensure we complete the wallet part
-                     if (isSplitPayment) {
+                     if (isSplitPayment && booking?.payment_status === 'partial_paid') {
                         await completePartialPayment(booking!.id, specificOrderId, currentAmount);
                      }
                      
@@ -517,7 +534,7 @@ const PayBooking = () => {
         );
     }
 
-    const amount = booking.driver_payout || booking.total_fare;
+    const amount = calculateTotal(booking);
     const isAlreadyPartial = booking.payment_status === 'partial_paid';
     
     // In partial state, we only care about the remaining online amount

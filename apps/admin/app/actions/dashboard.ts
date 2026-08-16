@@ -16,9 +16,29 @@ export interface InvoiceData {
   id: string;
   total_amount: number;
   platform_fee: number;
-  driver_payout: number;
-  payment_status: string;
   created_at: string;
+}
+
+export interface WithdrawalData {
+  id: string;
+  amount: number;
+  created_at: string;
+}
+
+export interface DashboardFinanceData {
+  invoices: InvoiceData[];
+  successfulPayouts: WithdrawalData[];
+}
+
+function getStartDateForRange(dateRange: string): Date | null {
+  const now = new Date();
+
+  if (dateRange === 'today') return startOfDay(now);
+  if (dateRange === '7d') return subDays(now, 7);
+  if (dateRange === '30d') return subDays(now, 30);
+  if (dateRange === '90d') return subDays(now, 90);
+
+  return null;
 }
 
 export async function getDashboardOverviewStats(): Promise<DashboardStats> {
@@ -57,33 +77,46 @@ export async function getDashboardOverviewStats(): Promise<DashboardStats> {
   }
 }
 
-export async function getDashboardFinanceData(dateRange: string): Promise<InvoiceData[]> {
+export async function getDashboardFinanceData(dateRange: string): Promise<DashboardFinanceData> {
   try {
-    let query = supabaseAdmin.from('invoices').select('id, total_amount, platform_fee, driver_payout, payment_status, created_at');
-    
-    if (dateRange !== 'all') {
-      const now = new Date();
-      let startDate;
-      if (dateRange === 'today') startDate = startOfDay(now);
-      else if (dateRange === '7d') startDate = subDays(now, 7);
-      else if (dateRange === '30d') startDate = subDays(now, 30);
-      else if (dateRange === '90d') startDate = subDays(now, 90);
-      
-      if (startDate) {
-        query = query.gte('created_at', startDate.toISOString());
-      }
+    const startDate = dateRange === 'all' ? null : getStartDateForRange(dateRange);
+
+    let invoiceQuery = supabaseAdmin
+      .from('invoices')
+      .select('id, total_amount, platform_fee, created_at')
+      .eq('payment_status', 'paid');
+
+    let payoutQuery = supabaseAdmin
+      .from('withdrawals')
+      .select('id, amount, created_at')
+      .or('payout_status.eq.SUCCESS,status.eq.paid');
+
+    if (startDate) {
+      const isoStartDate = startDate.toISOString();
+      invoiceQuery = invoiceQuery.gte('created_at', isoStartDate);
+      payoutQuery = payoutQuery.gte('created_at', isoStartDate);
     }
 
-    const { data, error } = await query;
-    
-    if (error) {
-      console.error('Supabase query error:', error);
-      throw error;
+    const [{ data: invoiceData, error: invoiceError }, { data: payoutData, error: payoutError }] = await Promise.all([
+      invoiceQuery,
+      payoutQuery,
+    ]);
+
+    if (invoiceError) {
+      console.error('Supabase invoice query error:', invoiceError);
+      throw invoiceError;
     }
-    
-    return data as InvoiceData[];
+    if (payoutError) {
+      console.error('Supabase payout query error:', payoutError);
+      throw payoutError;
+    }
+
+    return {
+      invoices: (invoiceData as InvoiceData[]) || [],
+      successfulPayouts: (payoutData as WithdrawalData[]) || [],
+    };
   } catch (error) {
     console.error('Failed to fetch finance data:', error);
-    return [];
+    return { invoices: [], successfulPayouts: [] };
   }
 }

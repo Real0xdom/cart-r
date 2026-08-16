@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
 
 export interface InvoiceData {
   booking_id: string;
@@ -20,6 +22,8 @@ export interface InvoiceData {
   addon_charges: number;
   waiting_charges: number;
   total_amount: number;
+  driver_payout: number;
+  platform_fee: number;
   payment_method: string;
   payment_status: string;
   addons?: Array<{
@@ -43,6 +47,51 @@ export async function generateInvoice(bookingId: string): Promise<{
     if (error) {
       console.error('[INVOICE] Error generating:', error);
       return { data: null, error: error.message };
+    }
+
+    // Fix: the view or RPC returns 0 for distance_km if actual_distance is empty on older DB schemas
+    // Also ensuring platform_fee matches the exact backend commission
+    if (data) {
+      try {
+        const { data: bookingData } = await supabase
+          .from('bookings')
+          .select('actual_distance, estimated_distance, total_fare, driver_payout')
+          .eq('id', bookingId)
+          .single();
+        if (bookingData) {
+          if (!data.distance_km || data.distance_km === 0) {
+            data.distance_km = bookingData.actual_distance || bookingData.estimated_distance || 0;
+          }
+          if (bookingData.driver_payout !== undefined && bookingData.driver_payout !== null) {
+             data.driver_payout = bookingData.driver_payout;
+             data.platform_fee = bookingData.total_fare - bookingData.driver_payout;
+          }
+        }
+      } catch (err) {
+        console.error('[INVOICE] Error fetching fallback block:', err);
+      }
+
+      // If commission deduction is still 0 (or very close) but total fare exists, apply backend settings logically
+      if ((!data.platform_fee || data.platform_fee <= 0) && data.total_amount > 0) {
+        try {
+          const { data: settingsData } = await supabase
+            .from('platform_settings')
+            .select('value')
+            .eq('key', 'commission')
+            .single();
+            
+          let commissionRate = 15; // default fallback
+          if (settingsData && settingsData.value && (settingsData.value as any).default_rate !== undefined) {
+             commissionRate = Number((settingsData.value as any).default_rate);
+          }
+          data.platform_fee = Math.round(data.total_amount * (commissionRate / 100));
+          data.driver_payout = data.total_amount - data.platform_fee;
+        } catch (commErr) {
+          console.error('[INVOICE] Error fetching commission settings:', commErr);
+          data.platform_fee = Math.round(data.total_amount * 0.15);
+          data.driver_payout = data.total_amount - data.platform_fee;
+        }
+      }
     }
 
     console.log('[INVOICE] Generated successfully:', data);
@@ -72,6 +121,51 @@ export async function getInvoice(bookingId: string): Promise<{
       return { data: null, error: error.message };
     }
 
+    // Fix: the view returns 0 for distance_km if actual_distance is empty on older DB schemas
+    // Also ensuring platform_fee matches the exact backend commission
+    if (data) {
+      try {
+        const { data: bookingData } = await supabase
+          .from('bookings')
+          .select('actual_distance, estimated_distance, total_fare, driver_payout')
+          .eq('id', bookingId)
+          .single();
+        if (bookingData) {
+          if (!data.distance_km || data.distance_km === 0) {
+            data.distance_km = bookingData.actual_distance || bookingData.estimated_distance || 0;
+          }
+          if (bookingData.driver_payout !== undefined && bookingData.driver_payout !== null) {
+             data.driver_payout = bookingData.driver_payout;
+             data.platform_fee = bookingData.total_fare - bookingData.driver_payout;
+          }
+        }
+      } catch (err) {
+        console.error('[INVOICE] Error fetching fallback block:', err);
+      }
+
+      // If commission deduction is still 0 (or very close) but total fare exists, apply backend settings logically
+      if ((!data.platform_fee || data.platform_fee <= 0) && data.total_amount > 0) {
+        try {
+          const { data: settingsData } = await supabase
+            .from('platform_settings')
+            .select('value')
+            .eq('key', 'commission')
+            .single();
+            
+          let commissionRate = 15; // default fallback
+          if (settingsData && settingsData.value && (settingsData.value as any).default_rate !== undefined) {
+             commissionRate = Number((settingsData.value as any).default_rate);
+          }
+          data.platform_fee = Math.round(data.total_amount * (commissionRate / 100));
+          data.driver_payout = data.total_amount - data.platform_fee;
+        } catch (commErr) {
+          console.error('[INVOICE] Error fetching commission settings:', commErr);
+          data.platform_fee = Math.round(data.total_amount * 0.15);
+          data.driver_payout = data.total_amount - data.platform_fee;
+        }
+      }
+    }
+
     return { data, error: null };
   } catch (err: any) {
     console.error('[INVOICE] Exception:', err);
@@ -96,7 +190,7 @@ export function formatInvoiceNumber(invoiceNumber: string): string {
  */
 export function formatCurrency(amount: number | null | undefined): string {
   const n = amount ?? 0;
-  return `₹${Number(n).toFixed(2)}`;
+  return `₹${Math.round(Number(n))}`;
 }
 
 /**
@@ -134,7 +228,7 @@ export function invoiceToHtml(invoice: InvoiceData): string {
   const invDate = formatInvoiceDate(invoice.invoice_date);
   const pickupTime = formatInvoiceDate(invoice.pickup_time);
   const dropoffTime = formatInvoiceDate(invoice.dropoff_time);
-  const fmt = (n: number | null | undefined) => `₹${(n ?? 0).toFixed(2)}`;
+  const fmt = (n: number | null | undefined) => `₹${Math.round(n ?? 0)}`;
 
   const addonsRows =
     invoice.addons && invoice.addons.length > 0
@@ -204,18 +298,20 @@ export function invoiceToHtml(invoice: InvoiceData): string {
     <div class="section-title">Trip</div>
     <p><strong>Pickup</strong> ${escapeHtml(invoice.pickup_address)}<br/><span style="color:#666;">${escapeHtml(pickupTime)}</span></p>
     <p><strong>Drop</strong> ${escapeHtml(invoice.dropoff_address)}<br/><span style="color:#666;">${escapeHtml(dropoffTime)}</span></p>
-    <p>Vehicle: ${escapeHtml(invoice.vehicle_type)} &nbsp;|&nbsp; Distance: ${Number(invoice.distance_km).toFixed(2)} km</p>
+    <p>Vehicle: ${escapeHtml(invoice.vehicle_type)} &nbsp;|&nbsp; Distance: ${Number(invoice.distance_km).toFixed(1)} km</p>
   </div>
 
   <div class="section">
     <div class="section-title">Charges</div>
     <table>
-      <tr><td>Base Fare</td><td style="text-align:right;">${fmt(invoice.base_fare)}</td></tr>
+      <tr><td>Trip Fare (Gross)</td><td style="text-align:right;">${fmt(invoice.total_amount - (invoice.waiting_charges || 0) - (invoice.addon_charges || 0) - (invoice.tip_amount || 0))}</td></tr>
       ${invoice.tip_amount > 0 ? `<tr><td>Tip</td><td style="text-align:right;">${fmt(invoice.tip_amount)}</td></tr>` : ''}
       ${invoice.addon_charges > 0 ? `<tr><td>Add-on Services</td><td style="text-align:right;">${fmt(invoice.addon_charges)}</td></tr>${addonsRows}` : ''}
       ${invoice.waiting_charges > 0 ? `<tr><td>Waiting Charges</td><td style="text-align:right;">${fmt(invoice.waiting_charges)}</td></tr>` : ''}
+      <tr><td><strong>Gross Total</strong></td><td style="text-align:right;"><strong>${fmt(invoice.total_amount)}</strong></td></tr>
+      <tr><td>Commission Deduction</td><td style="text-align:right;">- ${fmt(invoice.platform_fee)}</td></tr>
     </table>
-    <div class="total-row">Total Amount: ${fmt(invoice.total_amount)}</div>
+    <div class="total-row">Driver Payout: ${fmt(invoice.driver_payout)}</div>
   </div>
 
   <div class="payment">
@@ -236,8 +332,6 @@ export function invoiceToHtml(invoice: InvoiceData): string {
  * Uses expo-print to convert HTML → PDF, then renames to a readable filename.
  */
 export async function generatePdfUri(invoice: InvoiceData): Promise<string> {
-  const Print = await import('expo-print');
-  const FileSystem = await import('expo-file-system');
   const html = invoiceToHtml(invoice);
   const { uri } = await Print.printToFileAsync({ html });
 

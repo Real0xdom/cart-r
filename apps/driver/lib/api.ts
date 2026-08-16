@@ -1,7 +1,46 @@
 // API helper functions for Driver App
 import { supabase } from './supabase';
+import { PublishedLocationState, shouldPublishLocation } from './locationQuality';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const ACTIVE_TRACKING_STATUSES = ['accepted', 'driver_arrived', 'in_progress'] as const;
+let lastPublishedForegroundLocation: PublishedLocationState | null = null;
+
+async function getTrackedBookingId(driverId: string): Promise<string | null> {
+  const { data: bookings, error } = await supabase
+    .from('bookings')
+    .select('id, status, accepted_at, driver_arrived_at, started_at, updated_at, created_at')
+    .eq('driver_id', driverId)
+    .in('status', [...ACTIVE_TRACKING_STATUSES])
+    .limit(10);
+
+  if (error || !bookings?.length) {
+    return null;
+  }
+
+  const getPriority = (status: string) => {
+    if (status === 'in_progress') return 0;
+    if (status === 'driver_arrived') return 1;
+    return 2;
+  };
+
+  const getTimestamp = (booking: any) => {
+    const raw = booking.started_at || booking.driver_arrived_at || booking.accepted_at || booking.updated_at || booking.created_at;
+    const parsed = raw ? new Date(raw).getTime() : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const trackedBooking = [...bookings].sort((left: any, right: any) => {
+    const priorityDelta = getPriority(left.status) - getPriority(right.status);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return getTimestamp(right) - getTimestamp(left);
+  })[0];
+
+  return trackedBooking?.id ?? null;
+}
 
 /**
  * Update driver's online/offline status
@@ -40,7 +79,8 @@ export async function updateDriverLocation(
   latitude: number,
   longitude: number,
   heading?: number,
-  speed?: number
+  speed?: number,
+  accuracy?: number
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -60,13 +100,19 @@ export async function updateDriverLocation(
       return { success: false, error: 'Driver profile not found' };
     }
 
+    const timestamp = Date.now();
+    const nextLocation = { latitude, longitude, heading, speed, accuracy, timestamp };
+    if (!shouldPublishLocation(lastPublishedForegroundLocation, nextLocation)) {
+      return { success: true, error: null };
+    }
+
     // Update current location in drivers table
     const { error: updateError } = await supabase
       .from('drivers')
       .update({
         current_latitude: latitude,
         current_longitude: longitude,
-        last_location_update: new Date().toISOString(),
+        last_location_update: new Date(timestamp).toISOString(),
       })
       .eq('id', driver.id);
 
@@ -74,14 +120,20 @@ export async function updateDriverLocation(
       return { success: false, error: updateError.message };
     }
 
+    const trackedBookingId = await getTrackedBookingId(driver.id);
+
     // Also insert into location history (for tracking during active trips)
     await supabase.from('driver_locations').insert({
       driver_id: driver.id,
+      booking_id: trackedBookingId,
       latitude,
       longitude,
       heading,
       speed,
+      accuracy,
     });
+
+    lastPublishedForegroundLocation = nextLocation;
 
     return { success: true, error: null };
   } catch (err: any) {

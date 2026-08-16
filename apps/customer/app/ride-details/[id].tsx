@@ -9,10 +9,11 @@ import { images } from '@/constants';
 import { hasUserRated } from '@/lib/ratingUtils';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { getCustomerPaymentMethodLabel } from '@/lib/bookingPayment';
 import type { Booking } from '@/types/type';
 
 const RideDetails = () => {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, returnToHome } = useLocalSearchParams<{ id: string; returnToHome?: string }>();
     const { profile } = useAuth();
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -21,10 +22,20 @@ const RideDetails = () => {
     const [isSubmittingRating, setIsSubmittingRating] = useState(false);
     const [alreadyRated, setAlreadyRated] = useState(false);
     const [vehicleSpecs, setVehicleSpecs] = useState<VehicleType[]>([]);
+    const shouldReturnHome = returnToHome === '1';
+
+    const handleBackNavigation = () => {
+        if (shouldReturnHome) {
+            router.replace('/(tabs)/home');
+            return;
+        }
+
+        router.back();
+    };
 
     useEffect(() => {
         if (!id) {
-            router.back();
+            router.replace('/(tabs)/home');
             return;
         }
 
@@ -91,7 +102,7 @@ const RideDetails = () => {
             } else {
                 setAlreadyRated(true);
                 Alert.alert('Thank you!', 'Your feedback helps us improve.');
-                router.back();
+                handleBackNavigation();
             }
         } catch (err: any) {
             console.error('Rating error:', err);
@@ -117,7 +128,7 @@ const RideDetails = () => {
             {/* Header */}
             <View className="px-5 py-4 flex-row items-center bg-white border-b border-gray-100 shadow-sm">
                 <TouchableOpacity 
-                    onPress={() => router.back()}
+                    onPress={handleBackNavigation}
                     className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center mr-4"
                 >
                     <Feather name="arrow-left" size={20} color="black" />
@@ -139,10 +150,10 @@ const RideDetails = () => {
                     </View>
                     
                     <Text className="text-3xl font-JakartaBold text-gray-800 mb-1">
-                        ₹{booking.driver_payout || booking.total_fare}
+                        ₹{booking.total_fare}
                     </Text>
                      <Text className="text-gray-400 text-xs font-JakartaMedium mb-4">
-                        {booking.payment_method === 'online' ? 'Paid Online' : 'Cash Payment'}
+                        {getCustomerPaymentMethodLabel(booking.payment_method)}
                     </Text>
                     
                     <View className="bg-gray-50 p-3 rounded-xl flex-row items-center">

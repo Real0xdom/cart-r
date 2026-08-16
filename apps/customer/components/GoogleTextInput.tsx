@@ -1,26 +1,23 @@
 import React, { useState, useRef, useEffect } from "react";
 import { 
   View, 
-  Image, 
   TouchableOpacity, 
   TextInput, 
-  FlatList, 
   Text,
   ActivityIndicator,
   Keyboard,
   ScrollView
 } from "react-native";
+import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
-
-import { icons } from "@/constants";
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
 declare interface GoogleInputProps {
-  icon?: any;
   initialLocation?: string;
   containerStyle?: string;
   textInputBackgroundColor?: string;
+  listPosition?: "top" | "bottom";
   handlePress: ({
     latitude,
     longitude,
@@ -35,11 +32,12 @@ declare interface GoogleInputProps {
     longitude: number;
     radius: number;
   };
-  onActionPress?: () => void;
-  actionIcon?: any;
-  showAction?: boolean;
+  showMapAction?: boolean;
+  onMapActionPress?: () => void;
+  onClear?: () => void;
   onFocus?: () => void;
   onBlur?: () => void;
+  onListVisibilityChange?: (visible: boolean) => void;
   testID?: string;
 }
 
@@ -55,17 +53,18 @@ interface Prediction {
 }
 
 const GoogleTextInput = ({
-  icon,
   initialLocation,
   containerStyle,
   textInputBackgroundColor,
+  listPosition = "bottom",
   handlePress,
   locationBias,
-  onActionPress,
-  actionIcon,
-  showAction = false,
+  showMapAction = false,
+  onMapActionPress,
+  onClear,
   onFocus,
   onBlur,
+  onListVisibilityChange,
   testID,
 }: GoogleInputProps) => {
   const [query, setQuery] = useState("");
@@ -74,12 +73,33 @@ const GoogleTextInput = ({
   const [isFocused, setIsFocused] = useState(false);
   const [showList, setShowList] = useState(false);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const blurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInteractingWithListRef = useRef(false);
 
   useEffect(() => {
-    if (initialLocation && initialLocation !== query) {
-      setQuery(initialLocation);
-    }
+    setQuery(initialLocation ?? "");
   }, [initialLocation]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const isListVisible = showList && query.trim().length > 0;
+
+  useEffect(() => {
+    onListVisibilityChange?.(isListVisible);
+
+    return () => {
+      onListVisibilityChange?.(false);
+    };
+  }, [isListVisible, onListVisibilityChange]);
 
   const searchPlaces = async (text: string) => {
     if (!text || text.trim().length < 3) {
@@ -113,8 +133,8 @@ const GoogleTextInput = ({
 
   const handleTextChange = (text: string) => {
     setQuery(text);
-    setShowList(true);
-    setLoading(true);
+    setShowList(text.trim().length > 0);
+    setLoading(text.trim().length >= 3);
 
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
@@ -126,7 +146,13 @@ const GoogleTextInput = ({
   };
 
   const handleSelect = (item: Prediction) => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+    isInteractingWithListRef.current = false;
     setQuery(item.description);
+    setPredictions([]);
     setShowList(false);
     setIsFocused(false);
     Keyboard.dismiss();
@@ -145,26 +171,112 @@ const GoogleTextInput = ({
     }
   };
 
+  const handleClear = () => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+
+    isInteractingWithListRef.current = false;
+    setQuery("");
+    setPredictions([]);
+    setShowList(false);
+    setLoading(false);
+    onClear?.();
+  };
+
+  const handleMapAction = () => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+
+    isInteractingWithListRef.current = false;
+    setIsFocused(false);
+    setShowList(false);
+    Keyboard.dismiss();
+    onBlur?.();
+    onMapActionPress?.();
+  };
+
+  const renderAutocompleteList = () => (
+    <View
+      className={`absolute left-0 right-0 rounded-xl border border-gray-200 bg-white overflow-hidden z-[9999] ${
+        listPosition === "top" ? "bottom-14" : "top-14"
+      }`}
+      style={{
+        maxHeight: 260,
+        elevation: 30,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 16,
+      }}
+      pointerEvents="auto"
+    >
+      {loading && predictions.length === 0 ? (
+        <View className="p-4 items-center justify-center">
+          <ActivityIndicator size="small" color="#FF9800" />
+        </View>
+      ) : predictions.length === 0 ? (
+        <View className="px-4 py-3">
+          <Text className="text-sm font-JakartaMedium text-gray-500">
+            No locations found
+          </Text>
+        </View>
+      ) : (
+        <GestureScrollView
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          onTouchStart={() => {
+            isInteractingWithListRef.current = true;
+            if (blurTimeoutRef.current) {
+              clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
+          }}
+          onScrollBeginDrag={() => {
+            isInteractingWithListRef.current = true;
+          }}
+          onTouchEnd={() => {
+            setTimeout(() => {
+              isInteractingWithListRef.current = false;
+            }, 150);
+          }}
+        >
+          {predictions.map((item) => (
+            <TouchableOpacity
+              key={item.place_id}
+              onPress={() => handleSelect(item)}
+              activeOpacity={0.7}
+              className="px-4 py-3 border-b border-gray-100 flex-row items-center"
+            >
+              <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />
+              <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={2}>
+                {item.description}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </GestureScrollView>
+      )}
+    </View>
+  );
+
   return (
     <View 
       className={`relative ${containerStyle}`}
       style={{ 
         zIndex: (isFocused || showList) ? 1000 : 1,
-        elevation: (isFocused || showList) ? 20 : 0
+        elevation: (isFocused || showList) ? 20 : 0,
+        overflow: "visible",
       }}
     >
       <View
-        className="flex flex-row items-center justify-center rounded-2xl mx-5 shadow-sm"
+        className="flex flex-row items-center justify-center rounded-2xl w-full shadow-sm"
         style={{ backgroundColor: textInputBackgroundColor || "white" }}
       >
-        <View className="justify-center items-center w-10 h-10 ml-2">
-          <Image
-            source={icon ? icon : icons.search}
-            className="w-5 h-5"
-            resizeMode="contain"
-          />
-        </View>
-
         <TextInput
           value={query}
           onChangeText={handleTextChange}
@@ -173,65 +285,57 @@ const GoogleTextInput = ({
           testID={testID}
           accessibilityLabel={testID}
           onFocus={() => {
-            setShowList(true);
+            if (blurTimeoutRef.current) {
+              clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
             setIsFocused(true);
+            if (query.trim().length > 0 && predictions.length > 0) {
+              setShowList(true);
+            }
             if (onFocus) onFocus();
           }}
           onBlur={() => {
             setIsFocused(false);
-            // Small delay to allow handleSelect to fire before the list disappears
-            setTimeout(() => setShowList(false), 200);
+            blurTimeoutRef.current = setTimeout(() => {
+              if (!isInteractingWithListRef.current) {
+                setShowList(false);
+              }
+            }, 250);
             if (onBlur) onBlur();
           }}
-          className="flex-1 text-base font-JakartaSemiBold text-black h-12"
+          className="flex-1 text-base font-JakartaSemiBold text-black h-12 px-4"
         />
 
-        {showAction && (
-          <TouchableOpacity 
-            onPress={onActionPress}
-            className="justify-center items-center w-8 h-8 mr-3 bg-gray-100 rounded-full"
+        {query.trim().length > 0 && (
+          <TouchableOpacity
+            onPress={handleClear}
+            className="justify-center items-center w-7 h-7 mr-1 bg-gray-100 rounded-full"
           >
-            <Ionicons 
-              name={actionIcon || "bookmark-outline"} 
-              size={18} 
-              color="#FF9800" 
+            <Ionicons
+              name="close"
+              size={13}
+              color="#6b7280"
+            />
+          </TouchableOpacity>
+        )}
+
+        {showMapAction && (
+          <TouchableOpacity
+            onPress={handleMapAction}
+            className="justify-center items-center w-7 h-7 mr-2 bg-gray-100 rounded-full"
+          >
+            <Ionicons
+              name="map-outline"
+              size={14}
+              color="#3b82f6"
             />
           </TouchableOpacity>
         )}
       </View>
 
       {/* Autocomplete List */}
-      {showList && (query.length > 0) && (
-        <View 
-          className="absolute top-14 left-5 right-5 rounded-xl shadow-2xl z-[100] overflow-hidden border border-gray-100"
-          style={{ backgroundColor: "white", maxHeight: 250 }}
-        >
-          {loading && predictions.length === 0 ? (
-            <View className="p-4 items-center justify-center">
-              <ActivityIndicator size="small" color="#FF9800" />
-            </View>
-          ) : (
-            <ScrollView 
-              className="w-full"
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled={true}
-            >
-              {predictions.map((item) => (
-                <TouchableOpacity
-                  key={item.place_id}
-                  onPress={() => handleSelect(item)}
-                  className="px-4 py-3 border-b border-gray-100 flex-row items-center"
-                >
-                  <Ionicons name="location-outline" size={20} color="gray" style={{ marginRight: 10 }} />
-                  <Text className="text-sm font-JakartaMedium text-gray-800 flex-1" numberOfLines={2}>
-                    {item.description}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      )}
+      {isListVisible && renderAutocompleteList()}
     </View>
   );
 };

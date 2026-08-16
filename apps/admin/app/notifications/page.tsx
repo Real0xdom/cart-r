@@ -9,8 +9,14 @@ interface UserProfile {
     id: string;
     name: string;
     email: string;
+    phone?: string | null;
     role: string;
     expo_push_token?: string;
+    has_customer_access?: boolean;
+    has_driver_access?: boolean;
+    customer_push_active?: boolean;
+    driver_push_active?: boolean;
+    driver_verification_status?: string | null;
 }
 
 interface NotificationHistory {
@@ -39,6 +45,7 @@ interface AudienceCounts {
 }
 
 type AudienceType = 'single' | 'all_customers' | 'all_drivers' | 'all_users';
+type SingleUserTargetApp = 'customer' | 'driver' | 'both';
 
 export default function NotificationsPage() {
     const [loading, setLoading] = useState(false);
@@ -51,6 +58,7 @@ export default function NotificationsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+    const [singleUserTargetApp, setSingleUserTargetApp] = useState<SingleUserTargetApp>('both');
 
     // Message Content
     const [title, setTitle] = useState('');
@@ -155,6 +163,69 @@ export default function NotificationsPage() {
 
     const [logs, setLogs] = useState<string[]>([]);
 
+    const getAvailableTargets = (user: UserProfile | null): SingleUserTargetApp[] => {
+        if (!user) {
+            return ['both'];
+        }
+
+        const targets: SingleUserTargetApp[] = [];
+        if (user.has_customer_access) {
+            targets.push('customer');
+        }
+        if (user.has_driver_access) {
+            targets.push('driver');
+        }
+        if (targets.length > 1) {
+            targets.unshift('both');
+        }
+
+        return targets.length > 0 ? targets : ['both'];
+    };
+
+    const getDefaultTargetForUser = (user: UserProfile): SingleUserTargetApp => {
+        const targets = getAvailableTargets(user);
+        return targets.includes('both') ? 'both' : targets[0];
+    };
+
+    const renderAccessBadges = (user: UserProfile, compact = false) => {
+        const baseClass = compact ? 'text-[10px] px-2 py-0.5' : 'text-xs px-2.5 py-1';
+        const badges = [];
+
+        if (user.has_customer_access) {
+            badges.push(
+                <span key="customer" className={`${baseClass} rounded-full bg-blue-100 text-blue-700 font-bold uppercase tracking-wider`}>
+                    Customer
+                </span>
+            );
+        }
+
+        if (user.has_driver_access) {
+            badges.push(
+                <span key="driver" className={`${baseClass} rounded-full bg-emerald-100 text-emerald-700 font-bold uppercase tracking-wider`}>
+                    Driver
+                </span>
+            );
+        }
+
+        if (user.customer_push_active) {
+            badges.push(
+                <span key="customer-push" className={`${baseClass} rounded-full bg-sky-50 text-sky-700 font-semibold`}>
+                    Customer Push
+                </span>
+            );
+        }
+
+        if (user.driver_push_active) {
+            badges.push(
+                <span key="driver-push" className={`${baseClass} rounded-full bg-orange-50 text-orange-700 font-semibold`}>
+                    Driver Push
+                </span>
+            );
+        }
+
+        return badges;
+    };
+
     const addLog = (msg: string) => {
         const timestamp = new Date().toLocaleTimeString();
         setLogs(prev => [`[${timestamp}] ${msg}`, ...prev]);
@@ -179,7 +250,8 @@ export default function NotificationsPage() {
                 audience,
                 title,
                 body,
-                selectedUser?.id
+                selectedUser?.id,
+                singleUserTargetApp
             );
 
             if (!result.success) {
@@ -188,6 +260,11 @@ export default function NotificationsPage() {
 
             addLog(`Found ${result.count} target users. Sent push to ${result.sent_count || 0} with valid tokens.`);
             addLog(`📊 Push results: ${result.push_ok || 'N/A'} delivered, ${result.push_errors || 0} errors.`);
+            if (Array.isArray((result as any).push_error_details)) {
+                for (const detail of (result as any).push_error_details) {
+                    addLog(`Push error: ${detail.error || 'UNKNOWN'} - ${detail.message} (${detail.token_preview})`);
+                }
+            }
             if (result.sent_count === 0) {
               addLog(`⚠️ WARNING: No push tokens found! Users may need to re-login in the app.`);
             }
@@ -199,6 +276,7 @@ export default function NotificationsPage() {
             if (audience === 'single') {
                 setSelectedUser(null);
                 setSearchQuery('');
+                setSingleUserTargetApp('both');
             }
 
             loadStats();
@@ -358,6 +436,7 @@ export default function NotificationsPage() {
                                                                     key={user.id}
                                                                     onClick={() => {
                                                                         setSelectedUser(user);
+                                                                        setSingleUserTargetApp(getDefaultTargetForUser(user));
                                                                         setSearchResults([]);
                                                                         setSearchQuery('');
                                                                     }}
@@ -369,11 +448,11 @@ export default function NotificationsPage() {
                                                                     <div className="flex-1">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="font-bold text-slate-900">{user.name}</span>
-                                                                            {user.expo_push_token && (
-                                                                                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wider">Push Active</span>
-                                                                            )}
                                                                         </div>
-                                                                        <div className="text-xs text-slate-500 font-medium">{user.role} • {user.email}</div>
+                                                                        <div className="mt-1 flex flex-wrap gap-1.5">
+                                                                            {renderAccessBadges(user, true)}
+                                                                        </div>
+                                                                        <div className="text-xs text-slate-500 font-medium mt-1">{user.phone || user.email}</div>
                                                                     </div>
                                                                 </button>
                                                             ))}
@@ -392,21 +471,57 @@ export default function NotificationsPage() {
                                                             <User size={24} />
                                                         </div>
                                                         <div>
-                                                            <div className="font-bold text-lg flex items-center gap-2">
-                                                                {selectedUser.name}
-                                                                {selectedUser.expo_push_token && (
-                                                                    <span className="text-[10px] bg-green-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Active</span>
-                                                                )}
+                                                            <div className="font-bold text-lg">{selectedUser.name}</div>
+                                                            <div className="mt-1 flex flex-wrap gap-2">
+                                                                {renderAccessBadges(selectedUser)}
                                                             </div>
-                                                            <div className="text-sm text-slate-400">{selectedUser.role} • {selectedUser.email}</div>
+                                                            <div className="text-sm text-slate-400 mt-2">{selectedUser.phone || selectedUser.email}</div>
                                                         </div>
                                                     </div>
                                                     <button
-                                                        onClick={() => setSelectedUser(null)}
+                                                        onClick={() => {
+                                                            setSelectedUser(null);
+                                                            setSingleUserTargetApp('both');
+                                                        }}
                                                         className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-bold transition-colors"
                                                     >
                                                         Change
                                                     </button>
+                                                </div>
+                                            )}
+
+                                            {selectedUser && (
+                                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                                    <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">
+                                                        Send To
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-3">
+                                                        {getAvailableTargets(selectedUser).map((target) => {
+                                                            const isSelected = singleUserTargetApp === target;
+                                                            const label =
+                                                                target === 'customer'
+                                                                    ? 'Customer App'
+                                                                    : target === 'driver'
+                                                                        ? 'Driver App'
+                                                                        : 'Both Apps';
+
+                                                            return (
+                                                                <button
+                                                                    key={target}
+                                                                    type="button"
+                                                                    onClick={() => setSingleUserTargetApp(target)}
+                                                                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition-all ${
+                                                                        isSelected
+                                                                            ? 'border-slate-900 bg-slate-900 text-white'
+                                                                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                                                                    }`}
+                                                                >
+                                                                    {isSelected && <CheckCircle size={16} />}
+                                                                    <span>{label}</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>

@@ -1,32 +1,25 @@
 // OTP Verification Screen for Drop-off
 // Driver enters 6-digit delivery OTP from receiver/customer to complete the trip
 
-import { View, Text, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { getBookingById, updateBookingStatus, subscribeToBooking } from '@/lib/bookings';
+import { getBookingById, subscribeToBooking } from '@/lib/bookings';
 import type { Booking } from '@/lib/bookings';
+import OtpCodeField, { type OtpCodeFieldHandle } from '@/components/OtpCodeField';
 
 const VerifyDropOtp = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
-    const [otp, setOtp] = useState(['', '', '', '', '', '']); // 6 digits
+    const [otp, setOtp] = useState('');
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    
-    // Refs for OTP inputs
-    const inputRefs = [
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-    ];
+    const [isRetryingSms, setIsRetryingSms] = useState(false);
+    const otpInputRef = useRef<OtpCodeFieldHandle>(null);
 
     // Fetch booking data
     useEffect(() => {
@@ -39,6 +32,34 @@ const VerifyDropOtp = () => {
             const { data, error } = await getBookingById(bookingId);
             if (data) {
                 setBooking(data);
+
+                // IMPORTANT: Generate OTP if not present when arriving at drop-off
+                if (!data.delivery_otp) {
+                    console.log('Generating Delivery OTP at drop-off...');
+                    const { data: rpcData, error: rpcError } = await supabase.rpc('initiate_delivery_otp', {
+                        p_booking_id: bookingId
+                    });
+
+                    if (rpcError) {
+                        console.error('Failed to generate OTP:', rpcError);
+                        Alert.alert('Error', 'Failed to generate delivery OTP');
+                    } else {
+                        console.log('OTP Generated and SMS queued automatically:', rpcData);
+                        
+                        // Notify driver playfully that SMS has been sent to receiver
+                        if (data.receiver_phone && rpcData?.otp) {
+                            Alert.alert(
+                                '✅ OTP Sent via SMS',
+                                `A 6-digit OTP has been sent via SMS to the receiver's phone (+91 ${data.receiver_phone}). The sender can also see it in their app. Ask for the OTP to complete delivery!`,
+                                [{ text: 'Got it!' }]
+                            );
+                        }
+
+                        // Refresh booking to get the new OTP into state
+                        const { data: refreshed } = await getBookingById(bookingId);
+                        if (refreshed) setBooking(refreshed);
+                    }
+                }
             } else {
                 Alert.alert('Error', 'Failed to load booking details');
                 router.back();
@@ -68,32 +89,9 @@ const VerifyDropOtp = () => {
         return () => unsubscribe();
     }, [bookingId]);
 
-    // Handle OTP input
-    const handleOtpChange = (value: string, index: number) => {
-        // Only allow numbers
-        const numericValue = value.replace(/[^0-9]/g, '');
-        
-        const newOtp = [...otp];
-        newOtp[index] = numericValue;
-        setOtp(newOtp);
-        setError(null);
-
-        // Auto-focus next input
-        if (numericValue && index < 5) {
-            inputRefs[index + 1].current?.focus();
-        }
-    };
-
-    // Handle backspace
-    const handleKeyPress = (key: string, index: number) => {
-        if (key === 'Backspace' && !otp[index] && index > 0) {
-            inputRefs[index - 1].current?.focus();
-        }
-    };
-
     // Verify OTP
     const handleVerify = async () => {
-        const enteredOtp = otp.join('');
+        const enteredOtp = otp;
         
         if (enteredOtp.length !== 6) {
             setError('Please enter complete 6-digit OTP');
@@ -112,8 +110,8 @@ const VerifyDropOtp = () => {
             // Check if OTP matches
             if (enteredOtp !== booking.delivery_otp) {
                 setError('Incorrect OTP. Please try again.');
-                setOtp(['', '', '', '', '', '']);
-                inputRefs[0].current?.focus();
+                setOtp('');
+                otpInputRef.current?.focus();
                 setIsVerifying(false);
                 return;
             }
@@ -143,22 +141,40 @@ const VerifyDropOtp = () => {
         }
     };
 
-    const handleBack = () => {
+    // Resend/Regenerate OTP
+    const handleResendOtp = async () => {
+        if (!booking || !bookingId || isRetryingSms) return;
+
         Alert.alert(
-            'Go back?',
-            'Delivery OTP is not verified yet. Return to the ride screen?',
+            'Resend OTP?',
+            'This will create a NEW OTP and send a NEW Notification to the receiver. The old OTP will become invalid.',
             [
-                { text: 'Stay', style: 'cancel' },
+                { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Go back',
-                    onPress: () => {
-                        if (!bookingId) return;
-                        router.replace({
-                            pathname: '/ride/[id]',
-                            params: { id: bookingId },
-                        });
-                    },
-                },
+                    text: 'Resend',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsRetryingSms(true);
+                        try {
+                            const { data: rpcData, error: rpcError } = await supabase.rpc('initiate_delivery_otp', {
+                                p_booking_id: bookingId,
+                                p_force_regenerate: true
+                            });
+
+                            if (rpcError) throw rpcError;
+
+                            Alert.alert('New OTP Sent', `A new 6-digit OTP has been sent via SMS to the receiver's phone. The sender's app also shows the updated OTP.`);
+                            const { data: refreshed } = await getBookingById(bookingId);
+                            if (refreshed) setBooking(refreshed);
+                            setOtp('');
+                            setError(null);
+                        } catch (err: any) {
+                            Alert.alert('Error', 'Failed to resend OTP: ' + err.message);
+                        } finally {
+                            setIsRetryingSms(false);
+                        }
+                    }
+                }
             ]
         );
     };
@@ -223,46 +239,25 @@ const VerifyDropOtp = () => {
                             </View>
                         )}
 
-                        <View className="flex-row justify-center gap-2 mb-6">
-                            {otp.map((digit, index) => (
-                                <View
-                                    key={index}
-                                    style={{
-                                        width: 45,
-                                        height: 45,
-                                        backgroundColor: '#f3f4f6',
-                                        borderWidth: 2,
-                                        borderColor: error ? '#ef4444' : digit ? '#22c55e' : '#e5e7eb',
-                                        borderRadius: 12,
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        zIndex: 10,
-                                        elevation: 5
-                                    }}
-                                >
-                                    <TextInput
-                                        ref={inputRefs[index]}
-                                        value={digit}
-                                        onChangeText={(value) => handleOtpChange(value, index)}
-                                        onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            color: '#111827',
-                                            fontSize: 18,
-                                            fontWeight: 'bold',
-                                            textAlign: 'center',
-                                            backgroundColor: 'transparent'
-                                        }}
-                                        selectionColor="#22c55e"
-                                        cursorColor="#111827"
-                                        keyboardType="number-pad"
-                                        maxLength={1}
-                                        selectTextOnFocus
-                                        placeholderTextColor="#9ca3af"
-                                    />
-                                </View>
-                            ))}
+                        <View className="mb-6 w-full">
+                            <OtpCodeField
+                                ref={otpInputRef}
+                                value={otp}
+                                onChange={(value) => {
+                                    setOtp(value);
+                                    if (error) {
+                                        setError(null);
+                                    }
+                                }}
+                                length={6}
+                                error={!!error}
+                                autoFocus
+                                boxWidth={45}
+                                boxHeight={45}
+                                fontSize={18}
+                                gap={8}
+                                testID="drop-otp-field"
+                            />
                         </View>
 
                         {/* Error Message */}
@@ -276,16 +271,16 @@ const VerifyDropOtp = () => {
                         {/* Verify Button */}
                         <TouchableOpacity
                             onPress={handleVerify}
-                            disabled={isVerifying || otp.join('').length !== 6}
+                            disabled={isVerifying || otp.length !== 6}
                             className={`w-full py-4 rounded-xl flex-row items-center justify-center ${
-                                otp.join('').length === 6 ? 'bg-green-500' : 'bg-gray-200'
+                                otp.length === 6 ? 'bg-green-500' : 'bg-gray-200'
                             }`}
                         >
                             {isVerifying ? (
-                                <ActivityIndicator size="small" color={otp.join('').length === 6 ? '#fff' : '#6b7280'} />
+                                <ActivityIndicator size="small" color={otp.length === 6 ? '#fff' : '#6b7280'} />
                             ) : (
                                 <>
-                                    <Feather name="check-circle" size={20} color={otp.join('').length === 6 ? '#fff' : '#6b7280'} />
+                                    <Feather name="check-circle" size={20} color={otp.length === 6 ? '#fff' : '#6b7280'} />
                                     <Text className="ml-2 text-gray-900 font-JakartaBold text-lg">
                                         Verify & Complete Delivery
                                     </Text>
@@ -293,12 +288,24 @@ const VerifyDropOtp = () => {
                             )}
                         </TouchableOpacity>
 
+                        {/* Resend Action */}
+                        <TouchableOpacity 
+                            onPress={handleResendOtp}
+                            disabled={isRetryingSms}
+                            className={`mt-6 py-4 px-6 rounded-xl flex-row items-center justify-center w-full bg-gray-100 ${isRetryingSms ? 'opacity-50' : 'active:bg-gray-200'}`}
+                        >
+                            <Feather name="refresh-cw" size={18} color="#4b5563" />
+                            <Text className="ml-2 font-JakartaBold text-gray-700">
+                                {isRetryingSms ? 'Sending...' : 'Resend OTP'}
+                            </Text>
+                        </TouchableOpacity>
+
                         {/* Footer Info */}
                         <View className="bg-yellow-500/10 rounded-xl p-4 mt-6 w-full border border-yellow-200">
                             <View className="flex-row items-start">
                                 <Feather name="info" size={18} color="#ca8a04" />
                                 <Text className="ml-2 text-yellow-700 font-JakartaMedium flex-1">
-                                    The customer/receiver has received a 6-digit OTP via the app. Ask them to share it to verify successful delivery.
+                                    The receiver has been sent a 6-digit OTP via SMS. The sender (customer) can also see it in their app. Ask either of them for the OTP to verify successful delivery.
                                 </Text>
                             </View>
                         </View>

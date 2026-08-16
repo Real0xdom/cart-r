@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { Database } from './database.types';
 
 // =====================================================
 // BOOKING API HELPERS
@@ -35,7 +36,8 @@ export interface Booking {
   total_fare: number;
   payment_status: 'pending' | 'paid' | 'refunded';
   payment_method: 'cash' | 'online';
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled' | 'scheduled';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled' | 'scheduled';
+  queued_at?: string | null;
   pickup_otp: string | null;
   scheduled_at?: string;
   created_at: string;

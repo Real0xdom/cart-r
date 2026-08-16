@@ -28,9 +28,14 @@ const DEFAULT_REGION: Region = {
 interface MapProps {
   selectionMode?: 'from' | 'to' | null;
   onLocationSelected?: () => void;
+  interactionEnabled?: boolean;
 }
 
-const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
+const Map = ({
+  selectionMode = null,
+  onLocationSelected,
+  interactionEnabled = true,
+}: MapProps) => {
   const {
     userLongitude,
     userLatitude,
@@ -43,6 +48,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
   } = useLocationStore();
   const mapRef = useRef<MapView>(null);
   const destinationMarkerRef = useRef<any>(null);
+  const geocodeRequestIdRef = useRef(0);
 
   // Temporary marker for selection
   const [tempMarker, setTempMarker] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -50,6 +56,7 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
   // Note: Drivers fetch removed as requested ("remove fake car icons")
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
 
   // Show callout when destination is set
   useEffect(() => {
@@ -76,37 +83,58 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
     };
   }, [userLatitude, userLongitude, destinationLatitude, destinationLongitude, tempMarker]);
 
+  const setSelectedLocation = (
+    mode: 'from' | 'to',
+    locationData: { latitude: number; longitude: number; address: string }
+  ) => {
+    if (mode === 'from') {
+      setUserLocation(locationData);
+      return;
+    }
+
+    setDestinationLocation(locationData);
+  };
+
   // Handle map tap for location selection
   const handleMapPress = async (event: MapPressEvent) => {
     if (!selectionMode) return;
 
+    const selectedMode = selectionMode;
     const { latitude, longitude } = event.nativeEvent.coordinate;
-    
+    const requestId = ++geocodeRequestIdRef.current;
+    const fallbackAddress = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
     setTempMarker({ latitude, longitude });
+    setSelectedLocation(selectedMode, {
+      latitude,
+      longitude,
+      address: fallbackAddress,
+    });
+    setTempMarker(null);
+
+    if (onLocationSelected) {
+      onLocationSelected();
+    }
+
+    setIsGeocoding(true);
 
     try {
       const address = await reverseGeocode(latitude, longitude);
+      if (geocodeRequestIdRef.current !== requestId || !address || address === fallbackAddress) {
+        return;
+      }
 
-      const locationData = {
+      setSelectedLocation(selectedMode, {
         latitude,
         longitude,
         address,
-      };
-
-      if (selectionMode === 'from') {
-        setUserLocation(locationData);
-      } else if (selectionMode === 'to') {
-        setDestinationLocation(locationData);
-      }
-
-      setTempMarker(null);
-
-      if (onLocationSelected) {
-        onLocationSelected();
-      }
+      });
     } catch (err) {
-      console.error("Error selecting location:", err);
-      Alert.alert("Error", "Could not process location. Please try again.");
+      console.warn("Reverse geocoding failed after map selection:", err);
+    } finally {
+      if (geocodeRequestIdRef.current === requestId) {
+        setIsGeocoding(false);
+      }
       setTempMarker(null);
     }
   };
@@ -147,100 +175,114 @@ const Map = ({ selectionMode = null, onLocationSelected }: MapProps) => {
   }
 
   return (
-    <MapView
-      ref={mapRef}
-      style={styles.map}
-      mapType="standard"
-      showsPointsOfInterest={false}
-      region={region}
-      showsUserLocation={true}
-      showsMyLocationButton={true}
-      onPress={handleMapPress}
-    >
+    <View style={styles.map} pointerEvents={interactionEnabled ? "auto" : "none"}>
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        mapType="standard"
+        showsPointsOfInterest={false}
+        region={region}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        onPress={handleMapPress}
+        scrollEnabled={interactionEnabled}
+        zoomEnabled={interactionEnabled}
+        rotateEnabled={interactionEnabled}
+        pitchEnabled={interactionEnabled}
+      >
 
-      {/* Pickup location marker */}
-      {userLatitude && userLongitude && userAddress && (
-        <Marker
-          key="pickup"
-          coordinate={{
-            latitude: userLatitude,
-            longitude: userLongitude,
-          }}
-          pinColor="#22c55e"
-        >
-          <Callout tooltip>
-            <View style={styles.calloutContainer}>
-              <View style={styles.calloutBubble}>
-                <Text style={styles.calloutTitle}>📦 Pickup Location</Text>
-                <Text style={styles.calloutText} numberOfLines={2}>
-                  {userAddress}
-                </Text>
-              </View>
-              <View style={styles.calloutArrow} />
-            </View>
-          </Callout>
-        </Marker>
-      )}
-
-      {/* Temporary selection marker */}
-      {tempMarker && (
-        <Marker
-          key="temp-marker"
-          coordinate={tempMarker}
-          pinColor="#FF9800"
-        >
-          <Callout>
-            <Text>Selecting location...</Text>
-          </Callout>
-        </Marker>
-      )}
-
-      {/* Destination marker */}
-      {destinationLatitude && destinationLongitude && (
-        <>
+        {/* Pickup location marker */}
+        {userLatitude && userLongitude && userAddress && (
           <Marker
-            ref={destinationMarkerRef}
-            key="destination"
+            key="pickup"
             coordinate={{
-              latitude: destinationLatitude,
-              longitude: destinationLongitude,
+              latitude: userLatitude,
+              longitude: userLongitude,
             }}
-            pinColor="#ef4444"
+            pinColor="#22c55e"
           >
             <Callout tooltip>
               <View style={styles.calloutContainer}>
-                <View style={styles.dropCalloutBubble}>
-                  <Text style={styles.calloutTitle}>📍 Drop Location</Text>
-                  <Text style={styles.dropCalloutSubtitle}>Your goods will be dropped here</Text>
-                  {destinationAddress && (
-                    <Text style={styles.calloutText} numberOfLines={2}>
-                      {destinationAddress}
-                    </Text>
-                  )}
+                <View style={styles.calloutBubble}>
+                  <Text style={styles.calloutTitle}>📦 Pickup Location</Text>
+                  <Text style={styles.calloutText} numberOfLines={2}>
+                    {userAddress}
+                  </Text>
                 </View>
-                <View style={styles.dropCalloutArrow} />
+                <View style={styles.calloutArrow} />
               </View>
             </Callout>
           </Marker>
+        )}
 
-          {/* Route line */}
-          {userLatitude && userLongitude && (
-            <OlaMapViewDirections
-              origin={{
-                latitude: userLatitude,
-                longitude: userLongitude,
-              }}
-              destination={{
+        {/* Temporary selection marker */}
+        {tempMarker && (
+          <Marker
+            key="temp-marker"
+            coordinate={tempMarker}
+            pinColor="#FF9800"
+          >
+            <Callout>
+              <Text>Selecting location...</Text>
+            </Callout>
+          </Marker>
+        )}
+
+        {/* Destination marker */}
+        {destinationLatitude && destinationLongitude && (
+          <>
+            <Marker
+              ref={destinationMarkerRef}
+              key="destination"
+              coordinate={{
                 latitude: destinationLatitude,
                 longitude: destinationLongitude,
               }}
-              strokeColor="#FF9800"
-            strokeWidth={4}
-            />
-          )}
-        </>
+              pinColor="#ef4444"
+            >
+              <Callout tooltip>
+                <View style={styles.calloutContainer}>
+                  <View style={styles.dropCalloutBubble}>
+                    <Text style={styles.calloutTitle}>📍 Drop Location</Text>
+                    <Text style={styles.dropCalloutSubtitle}>Your goods will be dropped here</Text>
+                    {destinationAddress && (
+                      <Text style={styles.calloutText} numberOfLines={2}>
+                        {destinationAddress}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.dropCalloutArrow} />
+                </View>
+              </Callout>
+            </Marker>
+
+            {/* Route line */}
+            {userLatitude && userLongitude && (
+              <OlaMapViewDirections
+                origin={{
+                  latitude: userLatitude,
+                  longitude: userLongitude,
+                }}
+                destination={{
+                  latitude: destinationLatitude,
+                  longitude: destinationLongitude,
+                }}
+                strokeColor="#FF9800"
+              strokeWidth={4}
+              />
+            )}
+          </>
+        )}
+      </MapView>
+      {isGeocoding && (
+        <View style={styles.geocodingOverlay}>
+          <View style={styles.geocodingBubble}>
+            <ActivityIndicator size="small" color="#FF9800" />
+            <Text style={styles.geocodingText}>Getting address...</Text>
+          </View>
+        </View>
       )}
-    </MapView>
+    </View>
   );
 };
 
@@ -327,7 +369,28 @@ const styles = StyleSheet.create({
     color: '#fff',
     opacity: 0.9,
   },
+  geocodingOverlay: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  geocodingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  geocodingText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
 });
 
 export default Map;
-

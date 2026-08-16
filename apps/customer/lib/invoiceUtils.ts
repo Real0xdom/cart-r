@@ -47,6 +47,22 @@ export async function generateInvoice(bookingId: string): Promise<{
       return { data: null, error: error.message };
     }
 
+    // Fix: the view or RPC returns 0 for distance_km if actual_distance is empty on older DB schemas
+    if (data && (!data.distance_km || data.distance_km === 0)) {
+      try {
+        const { data: bookingData } = await supabase
+          .from('bookings')
+          .select('actual_distance, estimated_distance')
+          .eq('id', bookingId)
+          .single();
+        if (bookingData) {
+          data.distance_km = bookingData.actual_distance || bookingData.estimated_distance || 0;
+        }
+      } catch (err) {
+        console.error('[INVOICE] Error fetching fallback block:', err);
+      }
+    }
+
     console.log('[INVOICE] Generated successfully:', data);
     return { data, error: null };
   } catch (err: any) {
@@ -72,6 +88,22 @@ export async function getInvoice(bookingId: string): Promise<{
     if (error) {
       console.error('[INVOICE] Error fetching:', error);
       return { data: null, error: error.message };
+    }
+
+    // Fix: the view returns 0 for distance_km if actual_distance is empty on older DB schemas
+    if (data && (!data.distance_km || data.distance_km === 0)) {
+      try {
+        const { data: bookingData } = await supabase
+          .from('bookings')
+          .select('actual_distance, estimated_distance')
+          .eq('id', bookingId)
+          .single();
+        if (bookingData) {
+          data.distance_km = bookingData.actual_distance || bookingData.estimated_distance || 0;
+        }
+      } catch (err) {
+        console.error('[INVOICE] Error fetching fallback block:', err);
+      }
     }
 
     return { data, error: null };
@@ -212,7 +244,7 @@ export function invoiceToHtml(invoice: InvoiceData): string {
   <div class="section">
     <div class="section-title">Charges</div>
     <table>
-      <tr><td>Base Fare</td><td style="text-align:right;">${fmt(invoice.base_fare)}</td></tr>
+      <tr><td>Trip Fare</td><td style="text-align:right;">${fmt(invoice.total_amount - (invoice.tip_amount || 0) - (invoice.addon_charges || 0) - (invoice.waiting_charges || 0))}</td></tr>
       ${invoice.tip_amount > 0 ? `<tr><td>Tip</td><td style="text-align:right;">${fmt(invoice.tip_amount)}</td></tr>` : ''}
       ${invoice.addon_charges > 0 ? `<tr><td>Add-on Services</td><td style="text-align:right;">${fmt(invoice.addon_charges)}</td></tr>${addonsRows}` : ''}
       ${invoice.waiting_charges > 0 ? `<tr><td>Waiting Charges</td><td style="text-align:right;">${fmt(invoice.waiting_charges)}</td></tr>` : ''}

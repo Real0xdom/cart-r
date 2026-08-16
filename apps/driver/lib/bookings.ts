@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { parseDriverWalletRestriction } from './wallet';
 
 // =====================================================
 // BOOKING API HELPERS
@@ -34,6 +35,7 @@ export interface Booking {
   estimated_duration: number | null;
   total_fare: number;
   addon_charges?: number;
+  quoted_total_fare?: number;
   // New fields for tip and fare adjustments
   tip_amount?: number;
   fare_multiplier?: number;
@@ -47,10 +49,11 @@ export interface Booking {
   // Payment and status
   payment_status: 'pending' | 'paid' | 'refunded' | 'partial_paid';
   wallet_amount_used?: number;
-  payment_method: 'cash' | 'online';
-  status: 'pending' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
+  payment_method: 'cash' | 'online' | 'wallet' | 'partial_wallet' | 'wallet_plus_online' | 'wallet_plus_cash';
+  status: 'pending' | 'queued' | 'accepted' | 'driver_arrived' | 'in_progress' | 'completed' | 'cancelled';
   // Timestamps
   created_at: string;
+  queued_at?: string | null;
   accepted_at?: string;
   started_at?: string;
   completed_at?: string;
@@ -85,6 +88,21 @@ export interface Booking {
     addon_services: { name: string; code: string; price: number } | null;
   }>;
 }
+
+export interface AcceptBookingResult {
+  success: boolean;
+  error: string | null;
+  errorCode?: string | null;
+  currentBalance?: number;
+  requiredRecharge?: number;
+  assignmentMode?: 'accepted' | 'queued' | null;
+}
+
+const TRANSITION_GUARDS: Partial<Record<Booking['status'], Booking['status'][]>> = {
+  driver_arrived: ['accepted'],
+  in_progress: ['driver_arrived'],
+  completed: ['in_progress'],
+};
 
 // Fare configuration — fetched from database `fare_config` table at runtime
 // Fallback values used only if DB fetch fails (should match DB defaults)
@@ -298,6 +316,7 @@ export async function getBookingById(bookingId: string): Promise<{ data: Booking
           rating,
           user:users!drivers_user_id_fkey(name, phone, avatar_url)
         ),
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
         booking_addons(
           quantity,
           unit_price,
@@ -337,6 +356,7 @@ export async function updateBookingStatus(
 ): Promise<{ success: boolean; error: string | null }> {
   try {
     const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+    const expectedCurrentStatuses = TRANSITION_GUARDS[status];
     
     // Add timestamps based on status
     if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
@@ -349,13 +369,28 @@ export async function updateBookingStatus(
       Object.assign(updateData, additionalData);
     }
     
-    const { error } = await supabase
+    let query = supabase
       .from('bookings')
       .update(updateData)
       .eq('id', bookingId);
+
+    if (expectedCurrentStatuses?.length) {
+      query = query.in('status', expectedCurrentStatuses as any);
+    }
+
+    const { data, error } = await query
+      .select('id, status, cancellation_reason')
+      .maybeSingle();
     
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (!data) {
+      return {
+        success: false,
+        error: 'Ride was already cancelled or moved to another state.',
+      };
     }
     
     return { success: true, error: null };
@@ -371,6 +406,24 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
+  let lastStateString = '';
+
+  // Fallback polling every 5 seconds
+  const pollInterval = setInterval(async () => {
+    try {
+      const { data } = await getBookingById(bookingId);
+      if (data) {
+        const stateString = JSON.stringify(data);
+        if (stateString !== lastStateString) {
+          lastStateString = stateString;
+          onUpdate(data);
+        }
+      }
+    } catch (e) {
+      console.warn('[subscribeToBooking] Polling strictly failed:', e);
+    }
+  }, 5000);
+
   const channelName = `booking-${bookingId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   const subscription = supabase
     .channel(channelName)
@@ -382,13 +435,19 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      (payload) => {
-        onUpdate(payload.new as Booking);
+      async (payload) => {
+        const fallbackBooking = payload.new as Booking;
+        const { data } = await getBookingById(bookingId);
+        
+        const bookingToUpdate = data ?? fallbackBooking;
+        lastStateString = JSON.stringify(bookingToUpdate);
+        onUpdate(bookingToUpdate);
       }
     )
     .subscribe();
   
   return () => {
+    clearInterval(pollInterval);
     subscription.unsubscribe();
   };
 }
@@ -527,7 +586,7 @@ export async function getAvailableBookings(
 export async function acceptBooking(
   bookingId: string,
   driverId: string
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<AcceptBookingResult> {
   try {
     // Use atomic database function for proper race condition handling
     const { data, error } = await supabase.rpc('accept_booking_atomic' as any, {
@@ -544,10 +603,31 @@ export async function acceptBooking(
     const result = data as any;
     
     if (!result.success) {
-      return { success: false, error: result.message };
+      const walletRestriction = parseDriverWalletRestriction(result);
+
+      if (walletRestriction) {
+        return {
+          success: false,
+          error: walletRestriction.message,
+          errorCode: walletRestriction.errorCode,
+          currentBalance: walletRestriction.currentBalance,
+          requiredRecharge: walletRestriction.requiredRecharge,
+        };
+      }
+
+      return {
+        success: false,
+        error: result.message || 'Failed to accept booking',
+        errorCode: typeof result.error === 'string' ? result.error : null,
+        assignmentMode: typeof result.assignment_mode === 'string' ? result.assignment_mode : null,
+      };
     }
 
-    return { success: true, error: null };
+    return {
+      success: true,
+      error: null,
+      assignmentMode: result.assignment_mode === 'queued' ? 'queued' : 'accepted',
+    };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -564,6 +644,54 @@ export function subscribeToAvailableBookings(
   onUpdate?: (booking: Booking) => void
 ) {
   const channelName = `available-bookings-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  const delayedRefreshTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
+
+  const emitHydratedPendingBooking = async (bookingId: string) => {
+    const { data: fullBooking } = await getBookingById(bookingId);
+    if (!fullBooking) {
+      return;
+    }
+
+    if (
+      fullBooking.status === 'pending' &&
+      !fullBooking.driver_id &&
+      fullBooking.vehicle_type === driverVehicleType
+    ) {
+      if (onUpdate) {
+        onUpdate(fullBooking);
+      } else {
+        onInsert(fullBooking);
+      }
+      return;
+    }
+
+    onDelete(bookingId);
+  };
+
+  const clearDelayedRefresh = (bookingId: string) => {
+    const timers = delayedRefreshTimers.get(bookingId);
+    if (!timers) {
+      return;
+    }
+
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+    delayedRefreshTimers.delete(bookingId);
+  };
+
+  const scheduleDelayedRefresh = (bookingId: string) => {
+    clearDelayedRefresh(bookingId);
+
+    const timers = [900, 1800].map((delayMs) =>
+      setTimeout(() => {
+        void emitHydratedPendingBooking(bookingId);
+      }, delayMs)
+    );
+
+    delayedRefreshTimers.set(bookingId, timers);
+  };
+
   const subscription = supabase
     .channel(channelName)
     .on(
@@ -573,11 +701,13 @@ export function subscribeToAvailableBookings(
         schema: 'public',
         table: 'bookings',
       },
-      (payload) => {
+      async (payload) => {
         // Only show bookings matching driver's vehicle type
         console.log('[subscribeToAvailableBookings] INSERT event:', payload.new.id, 'status:', payload.new.status, 'vehicle_type:', payload.new.vehicle_type, 'driverVehicleType:', driverVehicleType);
         if (payload.new.status === 'pending' && !payload.new.driver_id && payload.new.vehicle_type === driverVehicleType) {
-          onInsert(payload.new as Booking);
+          // Fetch full booking with booking_addons so the UI can show addon services immediately
+          await emitHydratedPendingBooking(payload.new.id as string);
+          scheduleDelayedRefresh(payload.new.id as string);
         }
       }
     )
@@ -596,11 +726,13 @@ export function subscribeToAvailableBookings(
         // Check if booking was accepted by a driver (including this one)
         if (b.driver_id !== null && b.driver_id !== undefined) {
           console.log('[subscribeToAvailableBookings] DELETE: booking has driver_id:', b.driver_id);
+          clearDelayedRefresh(b.id as string);
           onDelete(b.id as string);
         } 
         // Check if status changed from pending to something else
         else if (b.status !== 'pending' && oldBooking?.status === 'pending') {
           console.log('[subscribeToAvailableBookings] DELETE: status changed from pending to:', b.status);
+          clearDelayedRefresh(b.id as string);
           onDelete(b.id as string);
         }
         // Don't delete based on expiration - let server handle rejection when driver accepts
@@ -613,14 +745,37 @@ export function subscribeToAvailableBookings(
           // Booking is still available - update it in the list (e.g., tip added)
           if (onUpdate) {
             console.log('[subscribeToAvailableBookings] UPDATE: calling onUpdate for booking:', b.id);
-            onUpdate(payload.new as Booking);
+            // Fetch full booking with joins (booking_addons) before surfacing to UI
+            void emitHydratedPendingBooking(b.id as string);
           }
         }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'booking_addons',
+      },
+      (payload) => {
+        const bookingId = (payload.new as any)?.booking_id ?? (payload.old as any)?.booking_id;
+        if (!bookingId) {
+          return;
+        }
+
+        console.log('[subscribeToAvailableBookings] BOOKING_ADDONS event:', payload.eventType, 'booking_id:', bookingId);
+        // Customer add-ons are attached after the booking row is created, so
+        // refresh the parent booking when addon rows change.
+        void emitHydratedPendingBooking(String(bookingId));
       }
     )
     .subscribe();
   
   return () => {
+    for (const bookingId of delayedRefreshTimers.keys()) {
+      clearDelayedRefresh(bookingId);
+    }
     subscription.unsubscribe();
   };
 }
@@ -797,6 +952,84 @@ export async function cancelBookingByDriver(
   }
 }
 
+export async function getDriverQueuedBooking(
+  driverId: string
+): Promise<{ data: Booking | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      return { data: null, error: error.message };
+    }
+
+    return { data: data as Booking | null, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message };
+  }
+}
+
+export function subscribeToDriverQueuedBooking(
+  driverId: string,
+  onUpdate: (booking: Booking | null) => void
+) {
+  let lastStateString = '';
+
+  // Fallback polling every 5 seconds
+  const pollInterval = setInterval(async () => {
+    try {
+      const { data } = await getDriverQueuedBooking(driverId);
+      const stateString = JSON.stringify(data);
+      if (stateString !== lastStateString) {
+        lastStateString = stateString;
+        onUpdate(data);
+      }
+    } catch (e) {
+      console.warn('[subscribeToDriverQueuedBooking] Polling strictly failed:', e);
+    }
+  }, 5000);
+
+  const channelName = `driver-queued-booking-${driverId}-${Date.now()}`;
+  const subscription = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'bookings',
+        filter: `driver_id=eq.${driverId}`,
+      },
+      async () => {
+        const { data } = await getDriverQueuedBooking(driverId);
+        lastStateString = JSON.stringify(data);
+        onUpdate(data);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    clearInterval(pollInterval);
+    subscription.unsubscribe();
+  };
+}
+
 /**
  * Get driver's active booking (if any)
  */
@@ -808,7 +1041,13 @@ export async function getDriverActiveBooking(
       .from('bookings')
       .select(`
         *,
-        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
       `)
       .eq('driver_id', driverId)
       .in('status', ['accepted', 'driver_arrived', 'in_progress'])
@@ -837,7 +1076,13 @@ export async function getDriverActiveBookings(
       .from('bookings')
       .select(`
         *,
-        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
       `)
       .eq('driver_id', driverId)
       .in('status', ['accepted', 'driver_arrived', 'in_progress'])
@@ -894,7 +1139,13 @@ export async function getDriverAllBookings(
       .from('bookings')
       .select(`
         *,
-        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
       `)
       .eq('driver_id', driverId)
       .in('status', ['accepted', 'driver_arrived', 'in_progress'])
@@ -904,13 +1155,40 @@ export async function getDriverAllBookings(
 
     if (ongoingError) throw ongoingError;
 
-    // 2. Fetch completed rides (history)
-    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0));
+    // 2. Fetch queued rides so they stay visible in the driver's ride list.
+    const { data: queued, error: queuedError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
+      `)
+      .eq('driver_id', driverId)
+      .eq('status', 'queued')
+      .order('queued_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (queuedError) throw queuedError;
+
+    // 3. Fetch completed rides (history)
+    const remainingLimit = Math.max(0, limit - (ongoing?.length || 0) - (queued?.length || 0));
     const { data: completed, error: completedError } = await supabase
       .from('bookings')
       .select(`
         *,
-        customer:users!bookings_customer_id_fkey(name, phone, avatar_url)
+        customer:users!bookings_customer_id_fkey(name, phone, avatar_url),
+        booking_addons(
+          quantity,
+          unit_price,
+          total_price,
+          addon_services(name, code, price)
+        )
       `)
       .eq('driver_id', driverId)
       .eq('status', 'completed')
@@ -919,13 +1197,14 @@ export async function getDriverAllBookings(
 
     if (completedError) throw completedError;
 
-    // 3. Combine: ongoing FIRST, then history
+    // 4. Combine: ongoing FIRST, then queued, then history
     const allBookings = [
       ...(ongoing || []),
+      ...(queued || []),
       ...(completed || [])
     ];
 
-    return { data: allBookings, error: null };
+    return { data: allBookings as unknown as Booking[], error: null };
   } catch (err: any) {
     console.error('[getDriverAllBookings] Error:', err);
     return { data: [], error: err.message };
@@ -953,8 +1232,12 @@ export async function syncDriverStats(driverId: string): Promise<{ success: bool
     const bookings = data || [];
     const totalTrips = bookings.length;
     const totalEarnings = bookings.reduce((sum, booking) => {
-      // Use driver_payout if available, otherwise total_fare as fallback
-      const earnings = booking.driver_payout ?? booking.total_fare ?? 0;
+      let earnings = 0;
+      if (booking.driver_payout && booking.driver_payout < (booking.total_fare || 0)) {
+          earnings = booking.driver_payout;
+      } else if (booking.total_fare) {
+          earnings = Math.floor(booking.total_fare * 0.85); // fallback approximation
+      }
       return sum + earnings;
     }, 0);
 

@@ -10,12 +10,17 @@ const corsHeaders = {
 }
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
+const DRIVER_RIDE_REQUEST_CHANNEL = 'driver_ride_request_urgent'
 
 interface NotificationRequest {
   user_id: string
   title?: string
   body?: string
   data?: Record<string, any>
+}
+
+function isMissingColumnError(error: any, column: string) {
+  return Boolean(error?.message?.includes(column))
 }
 
 interface ExpoPushMessage {
@@ -56,20 +61,40 @@ serve(async (req) => {
       )
     }
 
-    // Get all active push tokens for this user
-    // 1. Legacy token from users table
-    const { data: userRecord } = await supabase
-      .from('users')
-      .select('expo_push_token')
-      .eq('id', user_id)
-      .single()
+    const targetApp = data?.target_app === 'customer' || data?.target_app === 'driver'
+      ? data.target_app
+      : null
 
-    // 2. Modern tokens from push_tokens table
-    const { data: pushTokens } = await supabase
+    // App-specific deliveries should only use scoped push_tokens rows so a
+    // shared account does not receive driver notifications inside the customer app.
+    const { data: userRecord } = targetApp
+      ? { data: null as { expo_push_token?: string | null } | null }
+      : await supabase
+          .from('users')
+          .select('expo_push_token')
+          .eq('id', user_id)
+          .single()
+
+    let pushTokensQuery = supabase
       .from('push_tokens')
-      .select('token')
+      .select('token, app_type')
       .eq('user_id', user_id)
       .eq('is_active', true)
+
+    if (targetApp) {
+      pushTokensQuery = pushTokensQuery.eq('app_type', targetApp)
+    }
+
+    let pushTokensResult = await pushTokensQuery
+    if (isMissingColumnError(pushTokensResult.error, 'app_type')) {
+      pushTokensResult = await supabase
+        .from('push_tokens')
+        .select('token')
+        .eq('user_id', user_id)
+        .eq('is_active', true)
+    }
+
+    const pushTokens = pushTokensResult.data
 
     const allTokens = new Set<string>()
     if (userRecord?.expo_push_token) allTokens.add(userRecord.expo_push_token)
@@ -83,6 +108,7 @@ serve(async (req) => {
         title,
         body,
         data,
+        processed_at: new Date().toISOString(),
       })
       
       return new Response(
@@ -109,7 +135,7 @@ serve(async (req) => {
         data: data || {},
         sound: 'default',
         priority: 'high',
-        channelId: 'ride-requests',
+        channelId: DRIVER_RIDE_REQUEST_CHANNEL,
         _displayInForeground: true,
       }
 
@@ -151,6 +177,7 @@ serve(async (req) => {
       title,
       body,
       data,
+      processed_at: new Date().toISOString(),
     })
 
     // Check for errors in Expo response

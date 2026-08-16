@@ -4,12 +4,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from 'expo-web-browser';
 import CashfreeCheckoutModal from "@/components/CashfreeCheckoutModal";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { filterCustomerWalletHistory, isCustomerWalletTopupTransaction } from "@/lib/walletTransactions";
 
 const Payment = () => {
   const { user, profile } = useAuth();
+  const { suggestedAmount, returnTo } = useLocalSearchParams<{
+    suggestedAmount?: string;
+    returnTo?: string;
+  }>();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isModalVisible, setModalVisible] = useState(false);
@@ -54,6 +60,13 @@ const Payment = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (typeof suggestedAmount === 'string' && suggestedAmount.length > 0) {
+      setAmount(suggestedAmount);
+      setModalVisible(true);
+    }
+  }, [suggestedAmount]);
+
   const fetchTransactions = async () => {
     if (!user) return;
     try {
@@ -62,10 +75,10 @@ const Payment = () => {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(30);
       
       if (data) {
-        setTransactions(data);
+        setTransactions(filterCustomerWalletHistory(data).slice(0, 10));
       }
     } catch (e) {
       console.log("Error fetching transactions:", e);
@@ -134,9 +147,26 @@ const Payment = () => {
       setStatusType('success');
       setStatusMessage("₹" + finalAmount.toFixed(2) + " added to wallet!");
       setStatusModalVisible(true);
+
+      if (typeof returnTo === 'string' && returnTo.length > 0) {
+        setTimeout(() => {
+          setStatusModalVisible(false);
+          router.replace(returnTo as any);
+        }, 1200);
+      }
     } catch (e) {
       console.error("Error post-payment:", e);
     }
+  };
+
+  const handleStatusDismiss = () => {
+    if (statusType === 'success' && typeof returnTo === 'string' && returnTo.length > 0) {
+      setStatusModalVisible(false);
+      router.replace(returnTo as any);
+      return;
+    }
+
+    setStatusModalVisible(false);
   };
 
   const startPayment = async () => {
@@ -167,14 +197,14 @@ const Payment = () => {
       }
 
       console.log("[PAYMENT] Checking for existing orders...");
-      const { data: existingOrder, error: checkError } = await supabase
+      const { data: pendingOrders, error: checkError } = await supabase
         .from('wallet_transactions')
-        .select('*')
+        .select('id, payment_order_id, description')
         .eq('user_id', user.id)
         .eq('amount', value)
         .eq('status', 'pending')
         .gte('created_at', new Date(Date.now() - 60000).toISOString())
-        .maybeSingle();
+        .limit(10);
 
       if (checkError) {
         console.error("[PAYMENT] Check existing order error:", checkError);
@@ -182,6 +212,10 @@ const Payment = () => {
         setLoading(false);
         return;
       }
+
+      const existingOrder = (pendingOrders || []).find((transaction) =>
+        isCustomerWalletTopupTransaction(transaction)
+      );
 
       if (existingOrder) {
         setLoading(false);
@@ -202,7 +236,7 @@ const Payment = () => {
           amount: value,
           customer_id: user?.id,
           customer_phone: profile?.phone || user?.phone || "9999999999",
-          customer_name: profile?.name || "CartR User",
+          customer_name: profile?.name || "Cartr User",
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey
@@ -277,6 +311,50 @@ const Payment = () => {
     setModalVisible(true);
   };
 
+  const formatTransactionLabel = (txn: any) => {
+    const rawDescription = (txn?.description || "").trim();
+
+    if (!rawDescription) {
+      return txn?.type === 'credit' ? 'Money added to wallet' : 'Wallet payment';
+    }
+
+    const bookingMatch = rawDescription.match(/Booking\s*#?\s*([A-Z0-9-]+)/i);
+    const bookingNumber = bookingMatch?.[1];
+
+    if (/wallet escrow re-hold/i.test(rawDescription)) {
+      return bookingNumber ? `Payment retried for booking ${bookingNumber}` : 'Payment retried';
+    }
+
+    if (/stripe refund booking/i.test(rawDescription) || /trip refund/i.test(rawDescription) || /withdrawal refund/i.test(rawDescription)) {
+      return bookingNumber ? `Refund for booking ${bookingNumber}` : 'Refund to wallet';
+    }
+
+    if (/wallet escrow top-up after tip increase/i.test(rawDescription)) {
+      return bookingNumber ? `Updated amount reserved for booking ${bookingNumber}` : 'Updated reserved amount';
+    }
+
+    if (/wallet escrow hold/i.test(rawDescription)) {
+      return bookingNumber ? `Amount reserved for booking ${bookingNumber}` : 'Amount reserved for booking';
+    }
+
+    if (/additional fare settled from wallet/i.test(rawDescription)) {
+      return bookingNumber ? `Additional fare paid for booking ${bookingNumber}` : 'Additional fare paid from wallet';
+    }
+
+    if (/wallet top-up/i.test(rawDescription)) {
+      return 'Money added to wallet';
+    }
+
+    if (/trip payment/i.test(rawDescription)) {
+      return bookingNumber ? `Payment for booking ${bookingNumber}` : 'Trip payment';
+    }
+
+    return rawDescription
+      .replace(/\(full wallet hold\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-general-900">
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
@@ -289,7 +367,7 @@ const Payment = () => {
                 <View className="absolute right-0 top-0 w-32 h-32 bg-gray-800 rounded-full -mr-10 -mt-10 opacity-20" />
                 <View className="absolute left-0 bottom-0 w-24 h-24 bg-brand-500 rounded-full -ml-8 -mb-8 opacity-20" />
                 
-                <Text className="text-gray-400 font-JakartaMedium text-sm">CartR Credit Balance</Text>
+                <Text className="text-gray-400 font-JakartaMedium text-sm">Cartr Credit Balance</Text>
                 <Text className="text-white font-JakartaExtraBold text-4xl mt-2">
                     ₹ {balance.toFixed(2)}
                 </Text>
@@ -311,13 +389,7 @@ const Payment = () => {
                     </TouchableOpacity>
                 </View>
             </View>
-            
-            {/* SDK Status Indicator (for debugging) */}
-            {__DEV__ && (
-              <Text className="text-xs text-gray-400 mt-2 text-center">
-                🌐 Browser Checkout (Expo Go)
-              </Text>
-            )}
+
         </View>
 
         {/* Transactions list */}
@@ -347,7 +419,7 @@ const Payment = () => {
                       </View>
                       <View className="flex-1">
                         <Text className="font-JakartaBold text-gray-800 text-sm">
-                          {txn.description || (txn.type === 'credit' ? 'Wallet Top-up' : 'Payment')}
+                          {formatTransactionLabel(txn)}
                         </Text>
                         <Text className="text-xs text-gray-500">
                           {new Date(txn.created_at).toLocaleDateString()} • {new Date(txn.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -407,7 +479,7 @@ const Payment = () => {
             ) : (
                 <>
                     <Text className="text-xl font-JakartaBold text-center mb-2">Add Money to Wallet</Text>
-                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your CartR balance</Text>
+                    <Text className="text-gray-500 text-center text-sm mb-8">Enter amount to top up your Cartr balance</Text>
 
                     <View className="items-center mb-8">
                         <View className="flex-row items-center">
@@ -464,16 +536,16 @@ const Payment = () => {
         visible={statusModalVisible} 
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setStatusModalVisible(false)}
+        onRequestClose={handleStatusDismiss}
       >
         <TouchableOpacity 
           style={styles.modalOverlay} 
           activeOpacity={1} 
-          onPress={() => setStatusModalVisible(false)}
+          onPress={handleStatusDismiss}
         >
           <TouchableOpacity activeOpacity={1} style={styles.statusModalContent}>
               <TouchableOpacity 
-                  onPress={() => setStatusModalVisible(false)}
+                  onPress={handleStatusDismiss}
                   className="absolute right-5 top-5 w-9 h-9 rounded-full bg-gray-100 items-center justify-center"
                   style={{ zIndex: 10 }}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -513,14 +585,18 @@ const Payment = () => {
               {statusType === 'success' && <View className="mb-4" />}
 
               <TouchableOpacity
-                  onPress={() => setStatusModalVisible(false)}
+                  onPress={handleStatusDismiss}
                   className={`w-full py-4 rounded-2xl items-center justify-center mb-4 ${
                     statusType === 'success' ? 'bg-yellow-500' : 'bg-red-500'
                   }`}
                   activeOpacity={0.8}
               >
                   <Text className={`font-JakartaBold text-lg ${statusType === 'success' ? 'text-black' : 'text-white'}`}>
-                    {statusType === 'success' ? "Done" : "Try Again"}
+                    {statusType === 'success'
+                      ? typeof returnTo === 'string' && returnTo.length > 0
+                        ? "Back to Booking"
+                        : "Done"
+                      : "Try Again"}
                   </Text>
               </TouchableOpacity>
           </TouchableOpacity>

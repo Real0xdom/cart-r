@@ -1,9 +1,9 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -16,9 +16,13 @@ import CustomButton from "@/components/CustomButton";
 import DateField from "@/components/DateField";
 import DropdownField from "@/components/DropdownField";
 import InputField from "@/components/InputField";
-import { icons } from "@/constants";
+import { icons, images } from "@/constants";
 import { useAuth } from "@/contexts/AuthContext";
-import { getActiveVehicleTypes, VehicleType } from "@/lib/vehicleTypes";
+import {
+  getActiveVehicleTypes,
+  getVehicleImageSource,
+  VehicleType,
+} from "@/lib/vehicleTypes";
 
 const VEHICLE_COLORS = [
   { label: "White", value: "White" },
@@ -31,35 +35,6 @@ const VEHICLE_COLORS = [
 ];
 
 const OTHER_COLOR_OPTION = "Other";
-
-const getVehicleTypeIcon = (vehicleType?: string, iconEmoji?: string) => {
-  const normalized = `${vehicleType || ""} ${iconEmoji || ""}`.toLowerCase();
-
-  if (normalized.includes("bike") || normalized.includes("scooter")) {
-    return <MaterialCommunityIcons name="motorbike" size={26} color="#15803d" />;
-  }
-
-  if (normalized.includes("auto") || normalized.includes("rickshaw")) {
-    return <MaterialCommunityIcons name="rickshaw" size={26} color="#15803d" />;
-  }
-
-  if (
-    normalized.includes("truck") ||
-    normalized.includes("pickup") ||
-    normalized.includes("lorry") ||
-    normalized.includes("van")
-  ) {
-    return (
-      <MaterialCommunityIcons
-        name="truck-delivery-outline"
-        size={26}
-        color="#15803d"
-      />
-    );
-  }
-
-  return <Ionicons name="car-sport-outline" size={26} color="#15803d" />;
-};
 
 const VehicleInfo = () => {
   const { driverProfile } = useAuth();
@@ -380,8 +355,14 @@ const VehicleInfo = () => {
                         : "border-gray-200 bg-white"
                     }`}
                   >
-                    <View className="mb-2 h-11 w-11 items-center justify-center rounded-full bg-green-100">
-                      {getVehicleTypeIcon(type.vehicle_type, type.icon_emoji)}
+                    <View className="mb-3 h-20 items-center justify-center rounded-2xl bg-green-100/60">
+                      <Image
+                        source={
+                          getVehicleImageSource(type.vehicle_type, type.icon_url) ||
+                          images.truckTransparent
+                        }
+                        style={{ width: 72, height: 72, resizeMode: "contain" }}
+                      />
                     </View>
                     <Text
                       className={`font-JakartaSemiBold ${

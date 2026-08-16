@@ -133,6 +133,7 @@ const Home = () => {
           const isExpired = isPendingExpired(b);
           const isOngoing = 
             b.status === 'pending' ||
+            b.status === 'queued' ||
             b.status === 'accepted' || 
             b.status === 'driver_arrived' || 
             b.status === 'in_progress';
@@ -193,6 +194,7 @@ const Home = () => {
       case 'in_progress': return { bg: '#FFF3E0', text: '#FF9800' };
       case 'cancelled': return { bg: '#FFEBEE', text: '#F44336' };
       case 'pending': return { bg: '#E3F2FD', text: '#2196F3' };
+      case 'queued': return { bg: '#DBEAFE', text: '#2563EB' };
       default: return { bg: '#F5F5F5', text: '#757575' };
     }
   };
@@ -302,7 +304,7 @@ const Home = () => {
               {ongoingBookings.map((booking) => {
                 const expired = isPendingExpired(booking);
                 const statusInfo = getStatusColor(booking.status, expired);
-                const isPending = booking.status === 'pending';
+                const isPending = booking.status === 'pending' || booking.status === 'queued';
                 
                 return (
                   <TouchableOpacity 
@@ -322,7 +324,7 @@ const Home = () => {
                           <View className={`px-3 py-1.5 rounded-full flex-row items-center`} style={{ backgroundColor: statusInfo.bg }}>
                             <View className="w-2 h-2 rounded-full mr-2" style={{ backgroundColor: statusInfo.text }} />
                             <Text className="text-xs font-JakartaBold capitalize" style={{ color: statusInfo.text }}>
-                              {expired ? t("searchExpired") : booking.status.replace('_', ' ')}
+                              {expired ? t("searchExpired") : booking.status === 'queued' ? 'queued' : booking.status.replace('_', ' ')}
                             </Text>
                           </View>
                           {booking.estimated_duration != null && booking.estimated_duration > 0 ? (
@@ -380,10 +382,10 @@ const Home = () => {
                         </View>
                         <View className="flex-1">
                           <Text className="text-gray-500 text-[10px] font-JakartaMedium uppercase">
-                            {isPending ? (expired ? t("searchExpired") : t("findingDriver")) : t("driver")}
+                            {isPending ? (expired ? t("searchExpired") : booking.status === 'queued' ? 'driver queued' : t("findingDriver")) : t("driver")}
                           </Text>
                           <Text className="text-black font-JakartaSemiBold text-sm">
-                            {isPending ? (expired ? t("increaseTipRetry") : t("waitingForAcceptance")) : (booking.driver?.user?.name || t("assigned"))}
+                            {isPending ? (expired ? t("increaseTipRetry") : booking.status === 'queued' ? (booking.driver?.user?.name || t("assigned")) : t("waitingForAcceptance")) : (booking.driver?.user?.name || t("assigned"))}
                           </Text>
                         </View>
                       </View>
@@ -499,4 +501,3 @@ const Home = () => {
 };
 
 export default Home;
-

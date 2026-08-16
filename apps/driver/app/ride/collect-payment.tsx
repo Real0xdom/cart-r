@@ -2,22 +2,28 @@
 // Driver acts as Point-Of-Sale: Selects Payer (Sender/Receiver) and Method (Cash/Online)
 // Now supports Dynamic UPI QR code generation via Cashfree
 
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, TextInput, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { Feather } from '@expo/vector-icons';
 import {
     getBookingById,
     subscribeToBooking,
     completeTripAtomic,
+    getDriverActiveBookings,
     Booking
 } from '@/lib/bookings';
+import { getOutstandingCustomerAmount, usesWalletFunds } from '@/lib/bookingPayment';
+import { getEffectiveCommission, type CommissionResult } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
+import { refreshLocationTrackingNotification } from '@/lib/location';
+import { removeActiveRide } from '@/lib/notifications';
 
 
 // Helper to calculate total with fees (simplified for now)
 const calculateTotal = (booking: Booking) => booking.total_fare;
+const formatCurrency = (amount: number) => `₹${Math.round(amount)}`;
 
 const CollectPayment = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -41,6 +47,15 @@ const CollectPayment = () => {
     // SMS Status
     const [smsStatus, setSmsStatus] = useState<{ status: string; error?: string } | null>(null);
     const [isRetryingSms, setIsRetryingSms] = useState(false);
+    const [commissionInfo, setCommissionInfo] = useState<CommissionResult | null>(null);
+    const [isLoadingCommission, setIsLoadingCommission] = useState(true);
+    const [completionSummary, setCompletionSummary] = useState<{
+        payout: number;
+        grossFare: number;
+        platformFee: number;
+        commissionRate: number;
+    } | null>(null);
+    const [nextRideId, setNextRideId] = useState<string | null>(null);
 
     // Fetch booking data & subscribe to updates
     useEffect(() => {
@@ -69,8 +84,8 @@ const CollectPayment = () => {
 
                         if (data.receiver_phone && rpcData?.otp) {
                             Alert.alert(
-                                '✅ Notification Sent',
-                                `Delivery OTP sent to Customer's App. Ask them to check their notifications.`,
+                                '✅ OTP Sent via SMS',
+                                `Delivery OTP sent via SMS to receiver (+91 ${data.receiver_phone}). The sender also sees it in their app.`,
                                 [{ text: 'OK' }]
                             );
                         }
@@ -109,14 +124,24 @@ const CollectPayment = () => {
             // If payment is received via online channel while driver is on this screen
             // but ONLY if we aren't currently middle of manual completion (isProcessingRef.current)
             // to avoid alert conflicts.
-            if (updatedBooking.payment_status === 'paid' && updatedBooking.status !== 'completed' && !isProcessingRef.current) {
+            const hadOutstandingBeforeUpdate = getOutstandingCustomerAmount(booking) > 0;
+            const isSettledNow = getOutstandingCustomerAmount(updatedBooking) <= 0;
+
+            if (
+              updatedBooking.status !== 'completed' &&
+              !isProcessingRef.current &&
+              (
+                updatedBooking.payment_status === 'paid' ||
+                (hadOutstandingBeforeUpdate && isSettledNow)
+              )
+            ) {
 
                 Alert.alert('Payment Received! 💰', 'The payment has been confirmed online.');
             }
         });
 
         return () => unsubscribe();
-    }, [bookingId]);
+    }, [bookingId, booking?.id, booking?.payment_status]);
 
     // Poll for SMS status
     useEffect(() => {
@@ -192,43 +217,59 @@ const CollectPayment = () => {
         };
     }, [bookingId, booking?.delivery_otp]);
 
-    // Retry sending SMS manually
-    const handleRetrySms = async () => {
-        if (!booking || isRetryingSms) return;
-        setIsRetryingSms(true);
+    useEffect(() => {
+        let isActive = true;
 
-        try {
-            const { error } = await supabase
-                .from('sms_queue')
-                .insert({
-                    phone_number: '+91' + booking.receiver_phone,
-                    message: `CARTR Delivery: Your delivery OTP is ${booking.delivery_otp}. Booking #${booking.booking_number}`,
-                    booking_id: booking.id,
-                    status: 'pending'
-                });
+        const loadCommission = async () => {
+            if (!booking) {
+                if (isActive) {
+                    setCommissionInfo(null);
+                    setIsLoadingCommission(true);
+                }
+                return;
+            }
 
-            if (error) throw error;
-            Alert.alert('Retrying', 'Notification has been re-queued for sending.');
-            setSmsStatus({ status: 'pending' });
+            try {
+                setIsLoadingCommission(true);
+                const result = await getEffectiveCommission(
+                    booking.total_fare,
+                    booking.vehicle_type
+                );
 
-        } catch (err: any) {
-            Alert.alert('Error', 'Failed to retry Notification: ' + err.message);
-        } finally {
-            setIsRetryingSms(false);
-        }
-    };
+                if (isActive) {
+                    setCommissionInfo(result);
+                }
+            } catch (error) {
+                console.error('Failed to load commission:', error);
 
-    // Regenerate OTP (Hard Reset)
-    const handleRegenerateOtp = async () => {
+                if (isActive) {
+                    setCommissionInfo(null);
+                }
+            } finally {
+                if (isActive) {
+                    setIsLoadingCommission(false);
+                }
+            }
+        };
+
+        loadCommission();
+
+        return () => {
+            isActive = false;
+        };
+    }, [booking?.id, booking?.total_fare, booking?.vehicle_type]);
+
+    // Resend/Regenerate OTP
+    const handleResendOtp = async () => {
         if (!booking || isRetryingSms) return;
 
         Alert.alert(
-            'Regenerate OTP?',
+            'Resend OTP?',
             'This will create a NEW OTP and send a NEW Notification. The old OTP will be invalid.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Regenerate',
+                    text: 'Resend',
                     style: 'destructive',
                     onPress: async () => {
                         setIsRetryingSms(true);
@@ -240,13 +281,12 @@ const CollectPayment = () => {
 
                             if (rpcError) throw rpcError;
 
-                            Alert.alert('New OTP Generated', `New OTP: ${rpcData.otp}`);
+                            Alert.alert('New OTP Sent', `A new OTP has been sent via SMS to the receiver's phone. The sender's app also shows the updated OTP.`);
                             const { data: refreshed } = await getBookingById(bookingId);
                             if (refreshed) setBooking(refreshed);
-                            setSmsStatus({ status: 'pending' });
-
+                            setDeliveryOtp('');
                         } catch (err: any) {
-                            Alert.alert('Error', 'Failed to regenerate OTP: ' + err.message);
+                            Alert.alert('Error', 'Failed to resend OTP: ' + err.message);
                         } finally {
                             setIsRetryingSms(false);
                         }
@@ -268,6 +308,19 @@ const CollectPayment = () => {
         }
 
         return true;
+    };
+
+    const handleCloseCompletionModal = () => {
+        setCompletionSummary(null);
+        if (nextRideId) {
+            router.replace({
+                pathname: '/ride/[id]',
+                params: { id: nextRideId },
+            });
+            return;
+        }
+
+        router.replace('/(tabs)/home');
     };
 
 
@@ -295,12 +348,44 @@ const CollectPayment = () => {
                 throw new Error(result.error || 'Failed to complete trip');
             }
 
-            // STOP SPINNER BEFORE ALERT - important for UX and state consistency
+            const { data: completedBooking } = await getBookingById(bookingId as string);
+            const finalizedBooking = completedBooking || latestBooking;
+            const finalizedCommission = await getEffectiveCommission(
+                finalizedBooking.total_fare,
+                finalizedBooking.vehicle_type
+            );
+            const isPayoutValid = finalizedBooking.driver_payout && finalizedBooking.driver_payout < finalizedBooking.total_fare;
+            const payout = Number(isPayoutValid ? finalizedBooking.driver_payout : (finalizedCommission.driverShare ?? 0));
+
+            setBooking(finalizedBooking);
+            setCommissionInfo(finalizedCommission);
+            // Mark this ride as completed in the stacking tracker
+            removeActiveRide(bookingId as string);
+            // The server-side notification pipeline handles any post-completion push delivery.
+            void refreshLocationTrackingNotification();
+
+            if (finalizedBooking.driver_id) {
+                const { data: activeBookings } = await getDriverActiveBookings(finalizedBooking.driver_id);
+                const promotedBooking = (activeBookings || []).find((candidate) => candidate.id !== bookingId);
+                setNextRideId(promotedBooking?.id || null);
+            }
+
+            // Stop the spinner before presenting the completion UI.
             setIsProcessing(false);
+            const shouldShowCompletionModal = completionSummary === null;
+
+            if (shouldShowCompletionModal) {
+                setCompletionSummary({
+                    payout,
+                    grossFare: Number(finalizedBooking.total_fare || 0),
+                    platformFee: finalizedCommission.platformFee,
+                    commissionRate: finalizedCommission.rate,
+                });
+            } else {
 
             Alert.alert(
                 'Trip Completed! 🎉',
-                `✅ Payment confirmed & credited to wallet\nYou earned ₹${latestBooking.driver_payout || latestBooking.total_fare}`,
+                `✅ Payment confirmed & credited to wallet\nYou earned ₹${payout}`,
                 [
                     {
                         text: 'Back to Home',
@@ -310,6 +395,7 @@ const CollectPayment = () => {
                     },
                 ]
             );
+            }
 
         } catch (err: any) {
             console.error('[PAYMENT CONFIRM] Update failed:', err);
@@ -338,10 +424,9 @@ const CollectPayment = () => {
             if (!verifyDeliveryOtp()) return;
         }
 
-        const isPaidStatus = booking.payment_status === 'paid';
-        const isPartial = booking.payment_status === 'partial_paid';
         const fare = calculateTotal(booking);
-        const amountToCollect = isPartial ? (fare - (booking.wallet_amount_used || 0)) : fare;
+        const amountToCollect = getOutstandingCustomerAmount(booking);
+        const isPaidStatus = booking.payment_status === 'paid' && amountToCollect <= 0;
 
         if (!isPaidStatus) {
             Alert.alert(
@@ -373,11 +458,9 @@ const CollectPayment = () => {
     }
 
     const fare = calculateTotal(booking);
-    const isPaid = booking.payment_status === 'paid';
-    const isPartial = booking.payment_status === 'partial_paid';
-    const amountToCollect = isPartial
-        ? (fare - (booking.wallet_amount_used || 0))
-        : fare;
+    const amountToCollect = getOutstandingCustomerAmount(booking);
+    const isPaid = booking.payment_status === 'paid' && amountToCollect <= 0;
+    const isPartial = booking.payment_status === 'partial_paid' || (usesWalletFunds(booking) && amountToCollect > 0);
 
     // Complete button is enabled when:
     // - already paid online, OR
@@ -387,6 +470,75 @@ const CollectPayment = () => {
 
     return (
         <SafeAreaView className="flex-1 bg-white">
+            <Modal
+                visible={!!completionSummary}
+                transparent
+                animationType="fade"
+                onRequestClose={handleCloseCompletionModal}
+            >
+                <View className="flex-1 justify-center bg-black/55 px-6">
+                    <View className="overflow-hidden rounded-[28px] bg-white">
+                        <View className="bg-green-600 px-6 pb-10 pt-8">
+                            <View className="mx-auto mb-4 h-16 w-16 items-center justify-center rounded-full bg-white/20">
+                                <Feather name="check" size={32} color="#ffffff" />
+                            </View>
+                            <Text className="text-center text-3xl font-JakartaBold text-white">
+                                Trip Completed
+                            </Text>
+                            <Text className="mt-2 text-center text-sm font-JakartaMedium text-green-50">
+                                Payment confirmed. Your net earnings are ready.
+                            </Text>
+                        </View>
+
+                        <View className="-mt-6 rounded-t-[28px] bg-white px-6 pb-6 pt-5">
+                            <View className="mb-5 rounded-3xl bg-green-50 px-5 py-5">
+                                <Text className="text-center text-sm font-JakartaMedium text-green-700">
+                                    You'll Earn
+                                </Text>
+                                <Text className="mt-2 text-center text-4xl font-JakartaBold text-green-700">
+                                    {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                </Text>
+                                <Text className="mt-2 text-center text-xs font-JakartaMedium text-green-800/70">
+                                    After platform commission deduction
+                                </Text>
+                            </View>
+
+                            <View className="mb-6 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">Trip Fare</Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-gray-900">
+                                        {completionSummary ? formatCurrency(completionSummary.grossFare) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="mb-2 flex-row items-center justify-between">
+                                    <Text className="text-sm font-JakartaMedium text-gray-500">
+                                        Commission ({completionSummary?.commissionRate.toFixed(1)}%)
+                                    </Text>
+                                    <Text className="text-sm font-JakartaSemiBold text-red-500">
+                                        -{completionSummary ? formatCurrency(completionSummary.platformFee) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row items-center justify-between border-t border-gray-200 pt-3">
+                                    <Text className="text-sm font-JakartaBold text-gray-900">Driver Payout</Text>
+                                    <Text className="text-base font-JakartaBold text-green-700">
+                                        {completionSummary ? formatCurrency(completionSummary.payout) : formatCurrency(0)}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity
+                                onPress={handleCloseCompletionModal}
+                                className="rounded-2xl bg-green-600 px-5 py-4"
+                            >
+                                <Text className="text-center text-base font-JakartaBold text-white">
+                                    {nextRideId ? 'Start Next Ride' : 'Back to Home'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
             <ScrollView className="flex-1 px-6" contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Header */}
                 <View className="flex-row items-center justify-between py-4 border-b border-gray-100 mb-4">
@@ -408,20 +560,43 @@ const CollectPayment = () => {
                             <Text className="text-green-700/70 font-JakartaMedium text-sm">Total Fare:</Text>
                             <Text className="text-green-800 font-JakartaSemiBold text-sm">₹{fare}</Text>
                         </View>
-                        <View className="flex-row justify-between mb-1">
-                            <Text className="text-red-500/70 font-JakartaMedium text-sm">Platform Commission:</Text>
-                            <Text className="text-red-500 font-JakartaSemiBold text-sm">-₹{Math.round(fare * 0.2)}</Text>
-                        </View>
-                        <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
-                            <Text className="text-green-800 font-JakartaBold text-sm">Est. Net Earnings:</Text>
-                            <Text className="text-green-800 font-JakartaBold text-sm">₹{Math.round(fare * 0.8)}</Text>
-                        </View>
+                        {isLoadingCommission ? (
+                            <View className="py-3 items-center">
+                                <ActivityIndicator size="small" color="#6b7280" />
+                            </View>
+                        ) : commissionInfo ? (
+                            <>
+                                <View className="flex-row justify-between mb-1">
+                                    <Text className="text-red-500/70 font-JakartaMedium text-sm">
+                                        Platform Commission ({commissionInfo.rate.toFixed(1)}%)
+                                    </Text>
+                                    <Text className="text-red-500 font-JakartaSemiBold text-sm">
+                                        -₹{Math.round(commissionInfo.platformFee)}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between mt-1 pt-2 border-t border-green-500/10">
+                                    <Text className="text-green-800 font-JakartaBold text-sm">You'll Earn:</Text>
+                                    <Text className="text-green-800 font-JakartaBold text-sm">
+                                        ₹{Math.round(commissionInfo.driverShare)}
+                                    </Text>
+                                </View>
+                                {commissionInfo.source === 'vehicle_specific' && (
+                                    <Text className="mt-1 text-[11px] italic text-gray-500 font-JakartaMedium">
+                                        * Custom rate for {booking.vehicle_type}
+                                    </Text>
+                                )}
+                            </>
+                        ) : (
+                            <Text className="mt-2 text-center text-xs text-gray-500 font-JakartaMedium">
+                                Commission details unavailable right now.
+                            </Text>
+                        )}
                     </View>
 
                     {isPartial && (
                         <View className="mt-4 bg-blue-500/20 px-3 py-1 rounded-lg border border-blue-200">
                             <Text className="text-blue-700 text-xs font-JakartaMedium">
-                                Paid via Wallet: ₹{booking.wallet_amount_used}
+                                Paid via Wallet: ₹{booking.wallet_amount_used || booking.quoted_total_fare || 0}
                             </Text>
                         </View>
                     )}
@@ -484,34 +659,24 @@ const CollectPayment = () => {
                                                 smsStatus?.status === 'failed' ? 'text-red-600' :
                                                 'text-blue-600'
                                             }`}>
-                                                {smsStatus?.status === 'sent' ? 'Notification Sent to Customer App' :
-                                                 smsStatus?.status === 'failed' ? `Notification Failed: ${smsStatus.error?.substring(0, 30)}...` :
-                                                 'Sending Notification...'}
+                                                {smsStatus?.status === 'sent' ? 'OTP SMS Sent to Receiver' :
+                                                 smsStatus?.status === 'failed' ? `SMS Failed: ${smsStatus.error?.substring(0, 30)}...` :
+                                                 'Sending OTP SMS to Receiver...'}
                                             </Text>
                                         </View>
                                     </View>
 
-                                    {smsStatus?.status === 'failed' && (
-                                        <TouchableOpacity
-                                            onPress={handleRetrySms}
-                                            disabled={isRetryingSms}
-                                            className="mt-2"
-                                        >
-                                            <Text className="text-blue-600 text-xs text-center font-JakartaBold">
-                                                {isRetryingSms ? 'Retrying...' : 'Tap to Retry Notification'}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-
                                     <TouchableOpacity
-                                        onPress={handleRegenerateOtp}
+                                        onPress={handleResendOtp}
                                         disabled={isRetryingSms}
-                                        className="mt-4 border-t border-gray-200 pt-2"
+                                        className="mt-4 border-t border-gray-200 pt-3"
                                     >
-                                        <Text className="text-gray-600 text-xs text-center font-JakartaMedium">
-                                            Notification not received?{' '}
-                                            <Text className="text-red-600 font-JakartaBold">Regenerate New OTP</Text>
-                                        </Text>
+                                        <View className="flex-row items-center justify-center">
+                                            <Feather name="refresh-cw" size={12} color="#4b5563" />
+                                            <Text className="ml-2 text-gray-600 text-xs text-center font-JakartaBold">
+                                                {isRetryingSms ? 'Sending...' : 'Resend New OTP'}
+                                            </Text>
+                                        </View>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity

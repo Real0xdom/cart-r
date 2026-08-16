@@ -128,8 +128,17 @@ serve(async (req) => {
         )
       }
 
+      const { data: queuedBookings } = await supabase
+        .from('bookings')
+        .select('driver_id')
+        .eq('status', 'queued')
+        .not('driver_id', 'is', null)
+
+      const queuedDriverIds = new Set((queuedBookings || []).map((booking: any) => booking.driver_id))
+
       // Filter by distance and sort
       availableDrivers = allDrivers
+        .filter((d: any) => !queuedDriverIds.has(d.id))
         .filter((d: any) => d.current_latitude && d.current_longitude)
         .map((d: any) => ({
           ...d,
@@ -188,7 +197,7 @@ serve(async (req) => {
       user_id: assignedDriver.user_id,
       title: 'New Ride Request!',
       body: `Pickup: ${booking.origin_address}`,
-      data: { booking_id, type: 'new_ride' },
+      data: { booking_id, type: 'new_booking', target_app: 'driver' },
     })
 
     return new Response(

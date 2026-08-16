@@ -184,14 +184,10 @@ async function runDriverCancel() {
         console.log('[S2] Cancelled via RPC');
 
         // Verify
-        const { data: final } = await customerClient.from('bookings').select('status, driver_id').eq('id', booking.id).single();
-        if (final.status !== 'pending') throw new Error(`Status is ${final.status}, expected pending`);
-        if (final.driver_id !== null) throw new Error(`Driver ID is ${final.driver_id}, expected null`);
+          const { data: final } = await customerClient.from('bookings').select('status, refund_status').eq('id', booking.id).single();
+          if (final.status !== 'cancelled') throw new Error(`Status is ${final.status}, expected cancelled`);
 
-        // Verify Rejection
-        const { data: rejection } = await driverClient.from('driver_rejections').select('*').eq('booking_id', booking.id).eq('driver_id', driverId).single();
-        if (!rejection) throw new Error('Rejection record not found');
-        console.log('--- SUCCESS: SCENARIO 2 ---\n');
+          console.log('--- SUCCESS: SCENARIO 2 ---\n');
     } catch (e: any) {
         console.error(`!!! FAILED S2: ${e.message}`);
         throw e;

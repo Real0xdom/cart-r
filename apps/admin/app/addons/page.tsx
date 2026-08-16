@@ -23,6 +23,7 @@ export default function AddonsPage() {
   const [addons, setAddons] = useState<AddonService[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyAddon);
   const [adding, setAdding] = useState(false);
@@ -200,12 +201,19 @@ export default function AddonsPage() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return;
+    setDeleting(id);
     try {
-      const { error } = await supabase.from('addon_services').delete().eq('id', id);
-      if (error) throw error;
+      const res = await fetch(`/api/addons/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        throw new Error(errorBody?.error || res.statusText || 'Delete failed');
+      }
       toast.success(`${name} deleted`);
       setAddons(prev => prev.filter(a => a.id !== id));
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    }
+    finally { setDeleting(null); }
   };
 
   const toggleActive = async (id: string, current: boolean) => {
@@ -315,7 +323,13 @@ export default function AddonsPage() {
                             className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
                             <Edit2 size={16} />
                           </button>
-                          <button onClick={() => handleDelete(a.id, a.name)} className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg"><Trash2 size={16} /></button>
+                          <button
+                            onClick={() => handleDelete(a.id, a.name)}
+                            disabled={deleting === a.id}
+                            className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </td>
                     </tr>

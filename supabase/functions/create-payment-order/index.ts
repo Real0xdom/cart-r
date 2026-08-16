@@ -18,6 +18,7 @@ interface PaymentOrderRequest {
   customer_phone?: string
   amount: number
   return_url?: string
+  topup_target?: 'customer_wallet' | 'driver_wallet'
 }
 
 import { checkRateLimit, getClientIp, rateLimitedResponse } from '../_shared/rate-limiter.ts'
@@ -77,16 +78,19 @@ serve(async (req) => {
     }
 
     const isWalletTopUp = !booking_id
+    const isDriverWalletTopUp = isWalletTopUp && body.topup_target === 'driver_wallet'
     // Order ID format: strict requirement for alphanumeric
     const orderId = isWalletTopUp 
-      ? `WALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
+      ? (isDriverWalletTopUp
+          ? `DRIVERWALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
+          : `WALLET_${customer_id.substring(0, 8).replace(/-/g, '')}_${Date.now()}`)
       : `BOOKING_${booking_id!.substring(0, 8).replace(/-/g, '')}_${Date.now()}`
 
     // For booking payments, verify the booking exists
     if (!isWalletTopUp) {
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')
-        .select('id, total_fare, payment_status')
+        .select('id, total_fare, quoted_total_fare, payment_status, payment_method')
         .eq('id', booking_id)
         .eq('customer_id', customer_id)
         .single()
@@ -98,7 +102,14 @@ serve(async (req) => {
         )
       }
 
-      if (booking.payment_status === 'paid') {
+      const outstandingAdditional = booking.payment_method === 'wallet_plus_cash'
+        ? 0
+        : Math.max(
+            Number(booking.total_fare ?? 0) - Number(booking.quoted_total_fare ?? booking.total_fare ?? 0),
+            0
+          )
+
+      if (booking.payment_status === 'paid' && outstandingAdditional <= 0) {
         return new Response(
           JSON.stringify({ error: 'Payment already completed for this booking' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -122,7 +133,7 @@ serve(async (req) => {
         notify_url: `${supabaseUrl}/functions/v1/payment-webhook`,
       },
       order_tags: {
-        type: isWalletTopUp ? 'wallet' : 'booking',
+        type: isWalletTopUp ? (isDriverWalletTopUp ? 'driver_wallet' : 'wallet') : 'booking',
         cid: customer_id,
         bid: booking_id || 'none'
       },
@@ -173,7 +184,7 @@ serve(async (req) => {
             type: 'credit',
             status: 'pending',
             payment_order_id: orderId, // Use order_id
-            description: 'Wallet top-up',
+            description: isDriverWalletTopUp ? 'Driver wallet top-up' : 'Wallet top-up',
           })
       } catch (err) {
         console.log('Could not store wallet transaction:', err)
@@ -183,7 +194,9 @@ serve(async (req) => {
         .from('bookings')
         .update({
           payment_id: orderId,
-          payment_method: 'online',
+          payment_method: booking.payment_status === 'paid' && outstandingAdditional > 0
+            ? booking.payment_method
+            : 'online',
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking_id)

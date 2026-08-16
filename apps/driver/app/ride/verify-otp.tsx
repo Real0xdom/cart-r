@@ -1,30 +1,24 @@
 // OTP Verification Screen
 // Driver enters 4-digit pickup OTP from customer to start the trip
 
-import { View, Text, TouchableOpacity, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
 import { Feather } from '@expo/vector-icons';
-import { supabase } from '@/lib/supabase';
-import { getBookingById, updateBookingStatus, subscribeToBooking } from '@/lib/bookings';
+import { getBookingById, subscribeToBooking, verifyPickupOTPAndStartTrip } from '@/lib/bookings';
 import type { Booking } from '@/lib/bookings';
+import OtpCodeField, { type OtpCodeFieldHandle } from '@/components/OtpCodeField';
 
 const VerifyOTP = () => {
     const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
-    const [otp, setOtp] = useState(['', '', '', '']);
+    const [otp, setOtp] = useState('');
     const [booking, setBooking] = useState<Booking | null>(null);
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    
-    // Refs for OTP inputs
-    const inputRefs = [
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-        useRef<TextInput>(null),
-    ];
+    const cancellationHandledRef = useRef(false);
+    const otpInputRef = useRef<OtpCodeFieldHandle>(null);
 
     // Fetch booking data
     useEffect(() => {
@@ -33,9 +27,29 @@ const VerifyOTP = () => {
             return;
         }
 
+        const exitForCancellation = (cancelledBooking: Booking) => {
+            if (cancellationHandledRef.current) return;
+            cancellationHandledRef.current = true;
+            setBooking(cancelledBooking);
+            setIsVerifying(false);
+            Alert.alert(
+                'Ride Cancelled',
+                `The customer has cancelled this ride.\nReason: ${cancelledBooking.cancellation_reason || 'No reason provided'}`,
+                [{
+                    text: 'OK',
+                    onPress: () => router.replace('/(tabs)/home')
+                }]
+            );
+        };
+
         const fetchBooking = async () => {
             const { data, error } = await getBookingById(bookingId);
             if (data) {
+                if (data.status === 'cancelled') {
+                    setIsLoading(false);
+                    exitForCancellation(data);
+                    return;
+                }
                 setBooking(data);
             } else {
                 Alert.alert('Error', 'Failed to load booking details');
@@ -48,16 +62,8 @@ const VerifyOTP = () => {
         
         // Subscribe to booking updates (for cancellation)
         const unsubscribe = subscribeToBooking(bookingId, (updatedBooking) => {
-            // Customer cancelled the ride
             if (updatedBooking.status === 'cancelled') {
-                Alert.alert(
-                    'Ride Cancelled',
-                    `The customer has cancelled this ride.\nReason: ${updatedBooking.cancellation_reason || 'No reason provided'}`,
-                    [{
-                        text: 'OK',
-                        onPress: () => router.replace('/(tabs)/home')
-                    }]
-                );
+                exitForCancellation(updatedBooking);
                 return;
             }
             setBooking(updatedBooking);
@@ -66,32 +72,9 @@ const VerifyOTP = () => {
         return () => unsubscribe();
     }, [bookingId]);
 
-    // Handle OTP input
-    const handleOtpChange = (value: string, index: number) => {
-        // Only allow numbers
-        const numericValue = value.replace(/[^0-9]/g, '');
-        
-        const newOtp = [...otp];
-        newOtp[index] = numericValue;
-        setOtp(newOtp);
-        setError(null);
-
-        // Auto-focus next input
-        if (numericValue && index < 3) {
-            inputRefs[index + 1].current?.focus();
-        }
-    };
-
-    // Handle backspace
-    const handleKeyPress = (key: string, index: number) => {
-        if (key === 'Backspace' && !otp[index] && index > 0) {
-            inputRefs[index - 1].current?.focus();
-        }
-    };
-
     // Verify OTP
     const handleVerify = async () => {
-        const enteredOtp = otp.join('');
+        const enteredOtp = otp;
         
         if (enteredOtp.length !== 4) {
             setError('Please enter complete 4-digit OTP');
@@ -103,6 +86,11 @@ const VerifyOTP = () => {
             return;
         }
 
+        if (booking.status === 'cancelled') {
+            setError('This ride was already cancelled by the customer.');
+            return;
+        }
+
         setIsVerifying(true);
         setError(null);
 
@@ -110,23 +98,17 @@ const VerifyOTP = () => {
             // Check if OTP matches
             if (enteredOtp !== booking.pickup_otp) {
                 setError('Incorrect OTP. Please try again.');
-                setOtp(['', '', '', '']);
-                inputRefs[0].current?.focus();
+                setOtp('');
+                otpInputRef.current?.focus();
                 setIsVerifying(false);
                 return;
             }
 
-            // OTP is correct - start the trip
-            const { error: updateError } = await supabase
-                .from('bookings')
-                .update({
-                    status: 'in_progress',
-                    started_at: new Date().toISOString(),
-                })
-                .eq('id', bookingId);
+            // OTP is correct - start the trip only if the ride is still valid
+            const { success, error: transitionError } = await verifyPickupOTPAndStartTrip(bookingId, enteredOtp);
 
-            if (updateError) {
-                throw updateError;
+            if (!success) {
+                throw new Error(transitionError || 'Unable to start trip');
             }
 
             // Navigate to active ride screen
@@ -137,31 +119,17 @@ const VerifyOTP = () => {
 
         } catch (err: any) {
             console.error('OTP verification failed:', err);
-            setError(err.message || 'Verification failed. Please try again.');
+            const message = err.message || 'Verification failed. Please try again.';
+            setError(message);
+            if (message.includes('cancelled') || message.includes('another state')) {
+                Alert.alert('Ride Cancelled', message, [
+                    { text: 'OK', onPress: () => router.replace('/(tabs)/home') }
+                ]);
+            }
             setIsVerifying(false);
         }
     };
 
-
-    const handleBack = () => {
-        Alert.alert(
-            'Go back?',
-            'Pickup OTP is not verified yet. Return to the ride screen?',
-            [
-                { text: 'Stay', style: 'cancel' },
-                {
-                    text: 'Go back',
-                    onPress: () => {
-                        if (!bookingId) return;
-                        router.replace({
-                            pathname: '/ride/[id]',
-                            params: { id: bookingId },
-                        });
-                    },
-                },
-            ]
-        );
-    };
 
     if (isLoading) {
         return (
@@ -223,49 +191,25 @@ const VerifyOTP = () => {
                             </View>
                         )}
 
-                        <View className="flex-row justify-center gap-4 mb-6">
-                            {otp.map((digit, index) => (
-                                <View
-                                    key={index}
-                                    style={{
-                                        width: 64,
-                                        height: 64,
-                                        backgroundColor: '#f3f4f6', // Light gray box background
-                                        borderWidth: 2,
-                                        borderColor: error ? '#ef4444' : digit ? '#22c55e' : '#e5e7eb',
-                                        borderRadius: 12,
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        zIndex: 10,
-                                        elevation: 5
-                                    }}
-                                >
-                                    <TextInput
-                                        ref={inputRefs[index]}
-                                        value={digit}
-                                        onChangeText={(value) => {
-                                            console.log(`[VerifyOTP] Input ${index} changed:`, value);
-                                            handleOtpChange(value, index);
-                                        }}
-                                        onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            color: '#111827', // Dark text color for light background
-                                            fontSize: 24,
-                                            fontWeight: 'bold',
-                                            textAlign: 'center',
-                                            backgroundColor: 'transparent' // Transparent to show View bg
-                                        }}
-                                        selectionColor="#22c55e"
-                                        cursorColor="#111827"
-                                        keyboardType="number-pad"
-                                        maxLength={1}
-                                        selectTextOnFocus
-                                        placeholderTextColor="#9ca3af"
-                                    />
-                                </View>
-                            ))}
+                        <View className="mb-6 w-full">
+                            <OtpCodeField
+                                ref={otpInputRef}
+                                value={otp}
+                                onChange={(value) => {
+                                    setOtp(value);
+                                    if (error) {
+                                        setError(null);
+                                    }
+                                }}
+                                length={4}
+                                error={!!error}
+                                autoFocus
+                                boxWidth={64}
+                                boxHeight={64}
+                                fontSize={24}
+                                gap={16}
+                                testID="pickup-otp-field"
+                            />
                         </View>
 
                         {/* Error Message */}
@@ -279,16 +223,16 @@ const VerifyOTP = () => {
                         {/* Verify Button */}
                         <TouchableOpacity
                             onPress={handleVerify}
-                            disabled={isVerifying || otp.join('').length !== 4}
+                            disabled={isVerifying || otp.length !== 4}
                             className={`w-full py-4 rounded-xl flex-row items-center justify-center ${
-                                otp.join('').length === 4 ? 'bg-green-500' : 'bg-gray-200'
+                                otp.length === 4 ? 'bg-green-500' : 'bg-gray-200'
                             }`}
                         >
                             {isVerifying ? (
-                                <ActivityIndicator size="small" color={otp.join('').length === 4 ? '#fff' : '#6b7280'} />
+                                <ActivityIndicator size="small" color={otp.length === 4 ? '#fff' : '#6b7280'} />
                             ) : (
                                 <>
-                                    <Feather name="check-circle" size={20} color={otp.join('').length === 4 ? '#fff' : '#6b7280'} />
+                                    <Feather name="check-circle" size={20} color={otp.length === 4 ? '#fff' : '#6b7280'} />
                                     <Text className="ml-2 text-gray-900 font-JakartaBold text-lg">
                                         Verify & Start Trip
                                     </Text>

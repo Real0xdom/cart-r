@@ -33,9 +33,29 @@ export async function GET(request: NextRequest) {
       countsMap[r.referrer_id] = (countsMap[r.referrer_id] || 0) + 1;
     });
 
+    let driversResult = await supabaseAdmin
+      .from('drivers')
+      .select('user_id, driver_app_enabled, verification_status');
+
+    if (driversResult.error?.message?.includes('driver_app_enabled')) {
+      driversResult = await supabaseAdmin
+        .from('drivers')
+        .select('user_id, verification_status');
+    }
+
+    const drivers = driversResult.data || [];
+
+    const driverMap = new Map(
+      (drivers || []).map((driver: any) => [driver.user_id, driver])
+    );
+
     const usersWithReferrals = (users || []).map((u: { id: string }) => ({
       ...u,
+      customer_app_enabled: typeof (u as any).customer_app_enabled === 'boolean' ? (u as any).customer_app_enabled : true,
       referral_count: countsMap[u.id] ?? 0,
+      has_driver_access: driverMap.has(u.id),
+      driver_app_enabled: driverMap.get(u.id)?.driver_app_enabled ?? null,
+      driver_verification_status: driverMap.get(u.id)?.verification_status ?? null,
     }));
 
     return NextResponse.json(usersWithReferrals);
@@ -48,12 +68,13 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
     try {
         const body = await request.json();
-        const { id, name, phone, role } = body;
+        const { id, name, phone, role, customer_app_enabled } = body;
 
         const updateData: any = {};
         if (name !== undefined) updateData.name = name;
         if (phone !== undefined) updateData.phone = phone;
         if (role !== undefined) updateData.role = role;
+        if (customer_app_enabled !== undefined) updateData.customer_app_enabled = customer_app_enabled;
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -63,6 +84,9 @@ export async function PATCH(request: NextRequest) {
             .single();
             
         if (error) {
+            if (error.message?.includes('customer_app_enabled')) {
+                return NextResponse.json({ error: 'Live database is missing the customer access migration.' }, { status: 400 });
+            }
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
         

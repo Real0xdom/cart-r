@@ -27,7 +27,6 @@ interface FareConfig {
   per_km_rate: number;
   per_minute_rate: number;
   minimum_fare: number;
-  cancellation_fee: number;
   driver_search_radius_km?: number;
   is_active: boolean;
 }
@@ -59,7 +58,6 @@ const defaultNewFare = {
   per_km_rate: 5,
   per_minute_rate: 1.5,
   minimum_fare: 60,
-  cancellation_fee: 20,
   driver_search_radius_km: 10,
   is_active: true,
 };
@@ -200,7 +198,6 @@ export default function VehicleTypesPage() {
           per_km_rate: Number(newFare.per_km_rate),
           per_minute_rate: Number(newFare.per_minute_rate),
           minimum_fare: Number(newFare.minimum_fare),
-          cancellation_fee: Number(newFare.cancellation_fee),
           driver_search_radius_km: Number(newFare.driver_search_radius_km),
           is_active: newFare.is_active,
           updated_at: new Date().toISOString(),
@@ -254,12 +251,14 @@ export default function VehicleTypesPage() {
       const { error: fErr } = await supabase
         .from('fare_config')
         .upsert({
-          ...editingFare,
+          id: editingFare.id,
+          vehicle_type: editingFare.vehicle_type,
           base_fare: Number(editingFare.base_fare),
           per_km_rate: Number(editingFare.per_km_rate),
           per_minute_rate: Number(editingFare.per_minute_rate),
           minimum_fare: Number(editingFare.minimum_fare),
-          cancellation_fee: Number(editingFare.cancellation_fee),
+          driver_search_radius_km: Number(editingFare.driver_search_radius_km ?? 10),
+          is_active: editingFare.is_active,
           updated_at: new Date().toISOString(),
         });
       if (fErr) throw fErr;
@@ -679,11 +678,7 @@ export default function VehicleTypesPage() {
                         <input type="number" value={newFare.minimum_fare} onChange={(e) => setNewFare({ ...newFare, minimum_fare: Number(e.target.value) })} className={inputCls} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cancellation Fee (₹)</label>
-                        <input type="number" value={newFare.cancellation_fee} onChange={(e) => setNewFare({ ...newFare, cancellation_fee: Number(e.target.value) })} className={inputCls} />
-                      </div>
+                    <div className="grid grid-cols-1 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Driver Search Radius (km)</label>
                         <input type="number" value={newFare.driver_search_radius_km} onChange={(e) => setNewFare({ ...newFare, driver_search_radius_km: Number(e.target.value) })} className={inputCls} />
@@ -810,16 +805,7 @@ export default function VehicleTypesPage() {
                       <input type="number" value={editingFare.minimum_fare} onChange={(e) => setEditingFare({ ...editingFare, minimum_fare: Number(e.target.value) })} className={inputCls} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cancellation Fee (₹)</label>
-                      <input
-                        type="number"
-                        value={editingFare.cancellation_fee ?? 0}
-                        onChange={(e) => setEditingFare({ ...editingFare, cancellation_fee: Number(e.target.value) })}
-                        className={inputCls}
-                      />
-                    </div>
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Driver Search Radius (km)</label>
                       <input

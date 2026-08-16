@@ -1,168 +1,11 @@
-import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Alert, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getAvailableBookings, subscribeToAvailableBookings, acceptBooking, declineBooking, getDriverActiveBookings, getDriverCompletedTrips, getDriverAllBookings, Booking, getDriverSearchRadius } from '@/lib/bookings';
-import * as Location from 'expo-location';
-import { checkLocationServices } from '@/lib/location';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-
-// Countdown timer hook for expiration
-// NO grace period for display - show actual expiration time
-// Grace period only used for filtering in backend
-const useCountdown = (expiresAt: string | null) => {
-    const [timeLeft, setTimeLeft] = useState<string>('');
-    const [isExpired, setIsExpired] = useState(false);
-
-    useEffect(() => {
-        if (!expiresAt) {
-            setTimeLeft('');
-            return;
-        }
-
-        const updateCountdown = () => {
-            const now = new Date().getTime();
-            const expiry = new Date(expiresAt).getTime();
-            // Use ACTUAL expiration time for display (no grace period)
-            const diff = expiry - now;
-
-            if (diff <= 0) {
-                setTimeLeft('Expired');
-                setIsExpired(true);
-            } else {
-                const mins = Math.floor(diff / 60000);
-                const secs = Math.floor((diff % 60000) / 1000);
-                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')}`);
-                setIsExpired(false);
-            }
-        };
-
-        updateCountdown();
-        const interval = setInterval(updateCountdown, 1000);
-        return () => clearInterval(interval);
-    }, [expiresAt]);
-
-    return { timeLeft, isExpired };
-};
-
-const RideRequestCard = ({ request, index, onAccept, onReject }: { request: Booking; index: number; onAccept: (id: string) => void; onReject: (id: string) => void }) => {
-    const { t } = useLanguage();
-    const { timeLeft, isExpired } = useCountdown(request.expires_at || null);
-    
-    // Don't hide expired requests - show them but indicate expired status
-    // Let server handle rejection when driver tries to accept
-    // This prevents hiding requests due to clock drift between device and server
-    
-    // Debug logging
-    console.log('[DEBUG] RideRequestCard rendering check:', { 
-        id: request.id, 
-        isExpired, 
-        timeLeft, 
-        expires_at: request.expires_at, 
-        now: new Date().toISOString(),
-        serverNow: new Date().toISOString(),
-        deviceTime: Date.now()
-    });
-    
-    return (
-        <View testID={"request.card." + index} accessibilityLabel={"request.card." + index} className="bg-white rounded-2xl p-4 mb-4 border border-gray-200 shadow-sm">
-            {/* Expiration Timer Badge */}
-            {timeLeft && (
-                <View className={`absolute top-3 right-3 px-2 py-1 rounded-full ${
-                    isExpired ? 'bg-gray-500' : (parseInt(timeLeft) < 1 ? 'bg-red-500' : 'bg-blue-500')
-                }`}>
-                    <View className="flex-row items-center">
-                        <Ionicons name={isExpired ? "close-circle-outline" : "time-outline"} size={12} color="#fff" />
-                        <Text className="ml-1 text-white font-JakartaBold text-xs">{isExpired ? 'Expired' : timeLeft}</Text>
-                    </View>
-                </View>
-            )}
-            
-            {/* Increased Fare Badge */}
-            {((request.tip_amount && request.tip_amount > 0) || (request.fare_multiplier && request.fare_multiplier > 1)) && (
-                <View className="bg-orange-500 px-3 py-1 rounded-full self-start mb-2 flex-row items-center">
-                    <Ionicons name="flash-outline" size={12} color="#fff" />
-                    <Text className="ml-1 text-white font-JakartaBold text-xs">{t('increasedFare')}</Text>
-                    {request.tip_amount && request.tip_amount > 0 && (
-                        <Text className="text-white font-JakartaMedium text-xs ml-1">+₹{request.tip_amount} tip</Text>
-                    )}
-                </View>
-            )}
-
-            {/* Addons - driver sees addon names and updated price before accepting */}
-            {request.booking_addons && request.booking_addons.length > 0 && (
-                <View className="bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl mb-3">
-                    <Text className="text-amber-700 font-JakartaBold text-xs mb-1">{t('addonsLabel')}</Text>
-                    {request.booking_addons.map((ba: any, i: number) => (
-                        <Text key={i} className="text-amber-800 font-JakartaMedium text-xs" numberOfLines={1}>
-                            • {ba.addon_services?.name ?? t('addon')} — ₹{(ba.quantity || 1) * (ba.unit_price || 0)}
-                        </Text>
-                    ))}
-                    {request.addon_charges != null && request.addon_charges > 0 && (
-                        <Text className="text-amber-700 font-JakartaSemiBold text-xs mt-1">{t('totalAddons')}: ₹{request.addon_charges}</Text>
-                    )}
-                </View>
-            )}
-            
-            <View className="flex-row justify-between items-start mb-4">
-                <View className="flex-1 pr-16">
-                    <Text className="text-gray-500 text-xs mb-1">{t('pickup')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                        {request.origin_address}
-                    </Text>
-                </View>
-                <View className="bg-green-100 px-3 py-1 rounded-full ml-2 absolute right-0 top-6">
-                    <Text className="text-green-700 font-JakartaBold">₹{request.total_fare}</Text>
-                    <Text className="text-green-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">Est. Payout: ₹{Math.round(request.total_fare * 0.8)}</Text>
-                </View>
-            </View>
-
-            <View className="mb-4">
-                <Text className="text-gray-500 text-xs mb-1">DROP-OFF</Text>
-                <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
-                    {request.destination_address}
-                </Text>
-            </View>
-
-            <View className="flex-row gap-4 mb-4">
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('distance')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_distance ? `${request.estimated_distance.toFixed(1)} km` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">Est. Time</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold">
-                        {request.estimated_duration ? `${request.estimated_duration.toFixed(0)} min` : '-'}
-                    </Text>
-                </View>
-                <View className="flex-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                    <Text className="text-gray-500 text-xs">{t('payment')}</Text>
-                    <Text className="text-gray-900 font-JakartaSemiBold capitalize">{request.payment_method}</Text>
-                </View>
-            </View>
-
-            <View className="flex-row gap-3">
-                <TouchableOpacity
-                    testID={"request.decline." + index} accessibilityLabel={"request.decline." + index} onPress={() => onReject(request.id)}
-                    className="flex-1 bg-red-50 p-4 rounded-xl border border-red-200"
-                >
-                    <Text className="text-red-600 text-center font-JakartaBold">{t('decline')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    testID={"request.accept." + index} accessibilityLabel={"request.accept." + index} onPress={() => onAccept(request.id)}
-                    className={`flex-1 p-4 rounded-xl ${isExpired ? 'bg-gray-300' : 'bg-green-500'}`}
-                    disabled={isExpired}
-                >
-                    <Text className={`text-center font-JakartaBold ${isExpired ? 'text-gray-500' : 'text-white'}`}>{t('accept')}</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-};
+import { getDriverAllBookings, Booking } from '@/lib/bookings';
+import { Ionicons } from '@expo/vector-icons';
 
 const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     const { t } = useLanguage();
@@ -206,6 +49,37 @@ const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     );
 };
 
+const QueuedRideCard = ({ booking }: { booking: Booking }) => {
+    return (
+        <View className="bg-amber-50 rounded-2xl p-4 mb-4 border border-amber-200 shadow-sm">
+            <View className="mb-3">
+                <View className="self-start px-3 py-1 rounded-full bg-amber-500">
+                    <Text className="text-xs font-JakartaBold text-white">
+                        Next Ride Queued
+                    </Text>
+                </View>
+            </View>
+            <View className="flex-row justify-between items-start mb-2">
+                <View className="flex-1 pr-4">
+                    <Text className="text-gray-500 text-xs mb-1">NEXT DROP-OFF</Text>
+                    <Text className="text-gray-900 font-JakartaSemiBold text-base" numberOfLines={2}>
+                        {booking.destination_address}
+                    </Text>
+                    <Text className="text-amber-700 font-JakartaMedium text-sm mt-2">
+                        {booking.customer?.name || 'Customer'} is waiting for you next
+                    </Text>
+                </View>
+                <View className="bg-amber-100 px-3 py-1 rounded-full items-center justify-center">
+                    <Text className="text-amber-700 font-JakartaBold">₹{booking.total_fare}</Text>
+                </View>
+            </View>
+            <Text className="text-amber-700 font-JakartaMedium text-sm mt-2 text-center">
+                Finish your current ride to activate this trip
+            </Text>
+        </View>
+    );
+};
+
 /**
  * History ride card for completed trips
  */
@@ -226,12 +100,21 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
         return `${diffDays}d ago`;
     };
     
+    const getTripEarning = () => {
+        if (booking.driver_payout && booking.driver_payout < booking.total_fare) {
+            return Math.round(Number(booking.driver_payout));
+        }
+        return Math.round(booking.total_fare * 0.85);
+    };
+
+    const payout = getTripEarning();
+
     return (
         <View className="bg-green-50/50 rounded-2xl p-4 mb-4 border border-green-200 shadow-sm">
             <View className="mb-3">
                 <View className="self-start px-3 py-1 rounded-full bg-green-500">
                     <Text className="text-xs font-JakartaBold text-white">
-                        Completed {formatTimeAgo(booking.completed_at)}
+                        Completed {formatTimeAgo(booking.completed_at || null)}
                     </Text>
                 </View>
             </View>
@@ -244,13 +127,11 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
                 </View>
                 <View className="bg-emerald-100 px-3 py-1 rounded-full items-center justify-center">
                     <Text className="text-emerald-700 font-JakartaBold">
-                        ₹{booking.total_fare}
+                        ₹{payout}
                     </Text>
-                    {booking.driver_payout && (
-                        <Text className="text-emerald-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">
-                            Payout: ₹{booking.driver_payout}
-                        </Text>
-                    )}
+                    <Text className="text-emerald-700 text-[10px] text-center mt-0.5 opacity-80 font-JakartaMedium">
+                        Fare: ₹{booking.total_fare}
+                    </Text>
                 </View>
             </View>
             <View className="flex-row gap-2 mt-2">
@@ -270,12 +151,11 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
 };
 
 const DriverRequests = () => {
-    const { driverProfile, profile } = useAuth();
+    const { driverProfile } = useAuth();
     const { t } = useLanguage();
     const [allRides, setAllRides] = useState<Booking[]>([]);
     const [refreshing, setRefreshing] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
     const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
     // Subtle pulse animation for the background-loading banner
@@ -291,7 +171,7 @@ const DriverRequests = () => {
         return () => pulse.stop();
     }, [loading]);
 
-    // Fetch ALL rides: past, current, and available requests in a single list
+    // Fetch all rides that belong to this driver.
     const fetchAllRides = async () => {
         console.log('[ALL RIDES] Fetching all rides...');
         
@@ -302,35 +182,13 @@ const DriverRequests = () => {
         }
         
         try {
-            let availableBookings: Booking[] = [];
-            if (location && driverProfile.vehicle_type) {
-                // Fetch admin-configured search radius for this vehicle type
-                const searchRadiusKm = await getDriverSearchRadius(driverProfile.vehicle_type);
-                const { data } = await getAvailableBookings(
-                    location.latitude,
-                    location.longitude,
-                    driverProfile.vehicle_type,
-                    searchRadiusKm
-                );
-                availableBookings = data || [];
-            }
-            
-            // Fetch driver rides (ongoing + completed, prioritized)
             const { data: driverRides, error } = await getDriverAllBookings(driverProfile.id, 50);
             if (error) throw new Error(error);
             
-            // Combine: pending + driver rides (ongoing first, then completed)
-            const combined = [
-                ...availableBookings,
-                ...driverRides
-            ];
-            
-            // Sort by created_at DESC (recent first, ongoing already prioritized by query)
+            const combined = [...driverRides];
             combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             
-            console.log('[ALL RIDES] Total:', combined.length, 
-                'Pending:', availableBookings.length,
-                'Driver rides:', driverRides.length);
+            console.log('[ALL RIDES] Total driver rides:', combined.length);
             setAllRides(combined);
         } catch (error) {
             console.error('[ALL RIDES] Error:', error);
@@ -344,153 +202,16 @@ const DriverRequests = () => {
         setRefreshing(true);
         await fetchAllRides();
         setRefreshing(false);
-    }, [location]);
-
-    // Initial load and subscription
-    useEffect(() => {
-        (async () => {
-            try {
-                // Check if services are enabled first
-                const servicesEnabled = await checkLocationServices();
-                if (!servicesEnabled) {
-                    Alert.alert(
-                        t('locationServicesDisabled') || 'Location Services Disabled',
-                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
-                        [{ text: t('ok') }]
-                    );
-                }
-
-                // Get current location first
-                let { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') {
-                    Alert.alert(t('permissionLocationDenied') || 'Permission to access location was denied');
-                    setLoading(false);
-                    return;
-                }
-
-                let location = await Location.getCurrentPositionAsync({});
-                setLocation({
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude
-                });
-            } catch (error) {
-                console.error('[REQUESTS] Location error:', error);
-                const message = error instanceof Error ? error.message : String(error);
-                if (message.includes('Location services are disabled') || message.includes('Current location is unavailable')) {
-                    Alert.alert(
-                        t('locationServicesDisabled') || 'Location Services Disabled',
-                        t('enableLocationServices') || 'Please enable location services (GPS) to use the app properly.',
-                        [{ text: t('ok') }]
-                    );
-                }
-                setLoading(false);
-            }
-        })();
     }, []);
 
-    // Fetch all rides when location and driver profile are available
     useEffect(() => {
-        if (location && driverProfile?.vehicle_type) {
-            // Initial fetch
-            fetchAllRides();
-
-            // Subscribe to real-time updates - filtered by vehicle type
-            const unsubscribe = subscribeToAvailableBookings(
-                driverProfile.vehicle_type,
-                (newBooking: Booking) => {
-                    console.log('[SUBSCRIPTION] INSERT - new booking:', newBooking.id, 'expires_at:', newBooking.expires_at);
-                    // Add to the TOP of the list (prepend)
-                    setAllRides(prev => {
-                        // Avoid duplicates
-                        if (prev.some(b => b.id === newBooking.id)) {
-                            return prev;
-                        }
-                        return [newBooking, ...prev];
-                    });
-                },
-                (removedBookingId: string) => {
-                    console.log('[SUBSCRIPTION] DELETE - removing booking:', removedBookingId);
-                    setAllRides(prev => prev.filter(b => b.id !== removedBookingId));
-                },
-                (updatedBooking: Booking) => {
-                    console.log('[SUBSCRIPTION] UPDATE - booking updated:', updatedBooking.id);
-                    setAllRides(prev => {
-                        const idx = prev.findIndex(b => b.id === updatedBooking.id);
-                        if (idx >= 0) {
-                            const next = [...prev];
-                            next[idx] = { ...next[idx], ...updatedBooking };
-                            return next;
-                        }
-                        return [updatedBooking, ...prev];
-                    });
-                }
-            );
-
-            return () => {
-                unsubscribe();
-            };
-        }
-    }, [location, driverProfile?.vehicle_type]);
-
-    const handleAccept = async (id: string) => {
-        console.log('========================================');
-        console.log('[HANDLE ACCEPT] Booking ID:', id);
-        console.log('[HANDLE ACCEPT] Driver profile:', driverProfile?.id);
-        console.log('========================================');
-        
         if (!driverProfile?.id) {
-            console.error('[HANDLE ACCEPT] No driver profile found');
-            Alert.alert(t("error"), t("driverProfileNotFound"));
+            setLoading(false);
             return;
         }
 
-        console.log('[HANDLE ACCEPT] Calling acceptBooking...');
-        const { success, error } = await acceptBooking(id, driverProfile.id);
-        
-        console.log('[HANDLE ACCEPT] Accept result:', { success, error });
-        
-        if (success) {
-            console.log('[HANDLE ACCEPT] Booking accepted successfully');
-            console.log('[HANDLE ACCEPT] Navigating to /ride/' + id);
-            Alert.alert("Success", "Booking accepted! Navigate to pickup location.");
-            // Navigate to active ride screen
-            router.push(`/ride/${id}`);
-            console.log('[HANDLE ACCEPT] Navigation triggered');
-        } else {
-            console.error('[HANDLE ACCEPT] Failed to accept:', error);
-            Alert.alert("Error", error || "Failed to accept booking. It might have been taken.");
-            // Refresh list
-            fetchAllRides();
-        }
-    };
-
-    const handleDecline = async (id: string) => {
-          Alert.alert(
-              t("declineRequest"),
-              t("areYouSureDecline"),
-              [
-                  { text: t("cancel"), style: "cancel" },
-                  { 
-                      text: t("decline"), 
-                      style: "destructive",
-                      onPress: async () => {
-                          // Optimistically remove from list
-                          setAllRides(prev => prev.filter(r => r.id !== id));
-                          
-                        // Call API to persist decline
-                        const { success, error } = await declineBooking(id);
-                          
-                          if (!success) {
-                              console.error('[HANDLE REJECT] Failed to decline:', error);
-                              // Ideally we would show it again or show toast, but for now just log
-                          } else {
-                              console.log('[HANDLE REJECT] Booking declined successfully');
-                          }
-                      }
-                  }
-              ]
-          );
-      };
+        void fetchAllRides();
+    }, [driverProfile?.id]);
 
     // No blocking loading guard - page is always visible immediately
 
@@ -516,7 +237,7 @@ const DriverRequests = () => {
                     >
                         <ActivityIndicator size="small" color="#2563eb" />
                         <Text className="text-blue-600 font-JakartaMedium text-sm ml-3">
-                            {t('findingNearbyRequests') || 'Finding nearby ride requests...'}
+                            Loading your rides...
                         </Text>
                     </Animated.View>
                 )}
@@ -542,18 +263,15 @@ const DriverRequests = () => {
                         {/* SINGLE LIST - All rides together */}
                         {allRides.map((ride, index) => {
                             // Check if it's an available request (pending) or active/completed ride
-                            const isPending = ride.status === 'pending';
+                            const isQueued = ride.status === 'queued';
                             const isOngoing = ['accepted', 'driver_arrived', 'in_progress'].includes(ride.status);
                             const isCompleted = ride.status === 'completed';
                             
-                            if (isPending) {
+                            if (isQueued) {
                                 return (
-                                    <RideRequestCard
+                                    <QueuedRideCard
                                         key={ride.id}
-                                        request={ride}
-                                        index={index}
-                                        onAccept={handleAccept}
-                                        onReject={handleDecline}
+                                        booking={ride}
                                     />
                                 );
                             } else if (isOngoing) {
@@ -581,3 +299,6 @@ const DriverRequests = () => {
 };
 
 export default DriverRequests;
+
+
+
