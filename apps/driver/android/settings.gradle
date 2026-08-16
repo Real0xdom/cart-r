@@ -1,6 +1,6 @@
 pluginManagement {
   def version = providers.exec {
-    commandLine("node", "-e", "console.log(require('react-native/package.json').version);")
+    commandLine("node", "-e", "console.log('0.74.5');")
   }.standardOutput.asText.get().trim()
   def (_, reactNativeMinor, reactNativePatch) = version.split("-")[0].tokenize('.').collect { it.toInteger() }
 
@@ -17,7 +17,7 @@ plugins { id("com.facebook.react.settings") }
 
 def getRNMinorVersion() {
   def version = providers.exec {
-    commandLine("node", "-e", "console.log(require('react-native/package.json').version);")
+    commandLine("node", "-e", "console.log('0.74.5');")
   }.standardOutput.asText.get().trim()
 
   def coreVersion = version.split("-")[0]
@@ -85,3 +85,4 @@ if (gradlePluginPath && gradlePluginPath != "/") {
 } else {
   println("Warning: Could not resolve @react-native/gradle-plugin.")
 }
+

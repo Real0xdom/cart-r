@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+﻿import { supabase } from './supabase';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 
@@ -98,7 +98,7 @@ export function formatInvoiceNumber(invoiceNumber: string): string {
  */
 export function formatCurrency(amount: number | null | undefined): string {
   const n = amount ?? 0;
-  return `₹${Number(n).toFixed(2)}`;
+  return `Rs. ${Number(n).toFixed(2)}`;
 }
 
 /**
@@ -136,14 +136,14 @@ export function invoiceToHtml(invoice: InvoiceData): string {
   const invDate = formatInvoiceDate(invoice.invoice_date);
   const pickupTime = formatInvoiceDate(invoice.pickup_time);
   const dropoffTime = formatInvoiceDate(invoice.dropoff_time);
-  const fmt = (n: number | null | undefined) => `₹${(n ?? 0).toFixed(2)}`;
+  const fmt = (n: number | null | undefined) => `â‚¹${(n ?? 0).toFixed(2)}`;
 
   const addonsRows =
     invoice.addons && invoice.addons.length > 0
       ? invoice.addons
           .map(
             (a) =>
-              `<tr><td style="padding:4px 8px;color:#666;">• ${escapeHtml(a.name)}</td><td style="padding:4px 8px;text-align:right;">${fmt(a.price)}</td></tr>`
+              `<tr><td style="padding:4px 8px;color:#666;">â€¢ ${escapeHtml(a.name)}</td><td style="padding:4px 8px;text-align:right;">${fmt(a.price)}</td></tr>`
           )
           .join('')
       : '';
@@ -235,7 +235,7 @@ export function invoiceToHtml(invoice: InvoiceData): string {
 
 /**
  * Generate a PDF file from invoice data and return the file URI.
- * Uses expo-print to convert HTML → PDF, then renames to a readable filename.
+ * Uses expo-print to convert HTML â†’ PDF, then renames to a readable filename.
  */
 export async function generatePdfUri(invoice: InvoiceData): Promise<string> {
   const html = invoiceToHtml(invoice);
@@ -248,3 +248,4 @@ export async function generatePdfUri(invoice: InvoiceData): Promise<string> {
   await FileSystem.moveAsync({ from: uri, to: newUri });
   return newUri;
 }
+

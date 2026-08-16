@@ -179,6 +179,11 @@ const Home = () => {
     });
   };
 
+  const formatFare = (amount: number | null | undefined, decimals = 0) => {
+    const value = Number(amount ?? 0);
+    return `Rs. ${value.toFixed(decimals)}`;
+  };
+
 
   // Get status color
   const getStatusColor = (status: string, expired = false) => {
@@ -384,7 +389,7 @@ const Home = () => {
                       </View>
                       <View>
                           <Text className="text-xs text-gray-400 font-JakartaMedium text-right">{t("fare")}</Text>
-                          <Text className="text-brand-500 font-JakartaBold text-lg">₹{booking.total_fare}</Text>
+                          <Text className="text-brand-500 font-JakartaBold text-lg">{formatFare(booking.total_fare)}</Text>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -460,7 +465,7 @@ const Home = () => {
 
                       <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-gray-100">
                         <Text className="text-black font-JakartaBold text-sm">
-                          ₹{booking.total_fare?.toFixed(0) || '0'}
+                          {formatFare(booking.total_fare)}
                         </Text>
                         <Feather name="chevron-right" size={14} color="#999" />
                       </View>

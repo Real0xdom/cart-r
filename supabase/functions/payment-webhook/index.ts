@@ -180,11 +180,11 @@ serve(async (req) => {
         )
       }
 
-      // Find booking by payment_id (handles both regular online payments and UPI QR payments)
+      // Find booking by payment_id OR cashfree_order_id (for upfront payment flow)
       const { data: booking, error: findError } = await supabase
         .from('bookings')
-        .select('id, customer_id, driver_id, total_fare, payment_status')
-        .eq('payment_id', orderId)
+        .select('id, customer_id, driver_id, total_fare, payment_status, status, cashfree_order_id')
+        .or(`payment_id.eq.${orderId},cashfree_order_id.eq.${orderId}`)
         .single()
 
       if (findError || !booking) {
@@ -204,13 +204,16 @@ serve(async (req) => {
         )
       }
 
-      // Update booking payment status
-      // NOTE: This UPDATE triggers on_booking_payment_received which auto-credits the driver wallet
+      // Update booking payment status AND status for upfront payment flow
+      // If status is 'payment_pending', transition to 'payment_confirmed' to trigger driver search
+      const newStatus = booking.status === 'payment_pending' ? 'payment_confirmed' : booking.status
+      
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
           payment_status: 'paid',
-          payment_method: 'online', // UPI is an online payment method
+          payment_method: 'online',
+          status: newStatus,
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking.id)
@@ -221,6 +224,34 @@ serve(async (req) => {
           JSON.stringify({ error: 'Failed to update booking' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
+      }
+
+      console.log(`Payment confirmed for booking ${booking.id}, status: ${booking.status} -> ${newStatus}`)
+
+      // For upfront payment flow: auto-trigger driver assignment when payment is confirmed
+      if (booking.status === 'payment_pending' && newStatus === 'payment_confirmed') {
+        console.log('Auto-triggering driver assignment for booking:', booking.id)
+        try {
+          // Invoke assign-driver function
+          const assignResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/assign-driver`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ booking_id: booking.id }),
+          })
+
+          if (assignResponse.ok) {
+            const assignResult = await assignResponse.json()
+            console.log('Driver assignment result:', assignResult)
+          } else {
+            console.error('Driver assignment failed:', await assignResponse.text())
+          }
+        } catch (assignError) {
+          console.error('Error triggering driver assignment:', assignError)
+          // Don't fail the webhook if driver assignment fails - it can be retried
+        }
       }
 
       // Notify driver about payment received
@@ -266,28 +297,31 @@ serve(async (req) => {
       // Optionally update booking or create notification
       const { data: booking } = await supabase
         .from('bookings')
-        .select('id, customer_id')
-        .eq('payment_id', orderId)
+        .select('id, customer_id, payment_status')
+        .or(`payment_id.eq.${orderId},cashfree_order_id.eq.${orderId}`)
         .single()
 
       if (booking) {
-        // Update booking payment status to 'failed' so UI reflects the failure
         // Guard: never overwrite a successful payment with 'failed'
-        await supabase
-          .from('bookings')
-          .update({
-            payment_status: 'failed',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', booking.id)
-          .neq('payment_status', 'paid')
+        if (booking.payment_status === 'paid') {
+          console.log('Booking already paid, skipping failure update:', booking.id)
+        } else {
+          // Update booking payment status to 'failed' so UI reflects the failure
+          await supabase
+            .from('bookings')
+            .update({
+              payment_status: 'failed',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', booking.id)
 
-        await supabase.from('notifications').insert({
-          user_id: booking.customer_id,
-          title: 'Payment Failed',
-          body: 'Your payment could not be processed. Please try again.',
-          data: { booking_id: booking.id, type: 'payment_failed' },
-        })
+          await supabase.from('notifications').insert({
+            user_id: booking.customer_id,
+            title: 'Payment Failed',
+            body: 'Your payment could not be processed. Please try again.',
+            data: { booking_id: booking.id, type: 'payment_failed' },
+          })
+        }
       }
     }
 

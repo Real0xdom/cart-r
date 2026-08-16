@@ -3328,6 +3328,52 @@ export type Database = {
         Args: { geom: unknown; move: number; wrap: number }
         Returns: unknown
       }
+      create_or_update_user_after_otp: {
+        Args: {
+          p_metadata?: Json
+          p_name?: string
+          p_phone: string
+          p_role?: string
+        }
+        Returns: {
+          user_id: string
+          is_new_user: boolean
+          email: string
+        }
+      }
+      generate_fast2sms_otp: {
+        Args: {
+          p_booking_id?: string
+          p_metadata?: Json
+          p_phone_number: string
+          p_purpose: string
+          p_user_id?: string
+        }
+        Returns: string
+      }
+      queue_fast2sms_message: {
+        Args: {
+          p_booking_id?: string
+          p_message: string
+          p_metadata?: Json
+          p_phone_number: string
+          p_purpose: string
+        }
+        Returns: string
+      }
+      verify_fast2sms_otp: {
+        Args: {
+          p_otp_code: string
+          p_phone_number: string
+          p_purpose?: string
+        }
+        Returns: {
+          success: boolean
+          message: string
+          user_id: string
+          booking_id: string
+        }
+      }
       start_ride: {
         Args: { p_booking_id: string; p_otp: string }
         Returns: Json

@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Truck, Smartphone, Shield, Clock, MapPin, DollarSign, Rocket } from "lucide-react";
+import { Clock, MapPin, DollarSign, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import heroImage from "@/assets/hero-logistics.jpg";
 import truckIcon from "@/assets/truck-icon.png";
@@ -243,10 +243,7 @@ const Index = () => {
       <footer className="py-12 px-4 border-t border-border">
         <div className="container mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <span className="font-bold text-lg text-foreground">Cart-R</span>
-            <p className="text-muted-foreground text-center">
-              © 2025 Cart-R. All rights reserved. Launching soon.
-            </p>
+
           </div>
         </div>
       </footer>

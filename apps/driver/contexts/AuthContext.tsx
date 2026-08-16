@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import 'react-native-get-random-values';
 
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/lib/database.types';
@@ -28,6 +30,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Session storage keys
+const FAST2SMS_USER_KEY = '@fast2sms_user_driver';
+const FAST2SMS_SESSION_KEY = '@fast2sms_session_driver';
+const FAST2SMS_PROFILE_KEY = '@fast2sms_profile_driver';
+const FAST2SMS_DRIVER_PROFILE_KEY = '@fast2sms_driver_profile';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -35,16 +43,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Load session from storage on mount
+  useEffect(() => {
+    loadStoredSession();
+  }, []);
+
+  const loadStoredSession = async () => {
+    try {
+      const [storedUser, storedSession, storedProfile, storedDriverProfile] = await Promise.all([
+        AsyncStorage.getItem(FAST2SMS_USER_KEY),
+        AsyncStorage.getItem(FAST2SMS_SESSION_KEY),
+        AsyncStorage.getItem(FAST2SMS_PROFILE_KEY),
+        AsyncStorage.getItem(FAST2SMS_DRIVER_PROFILE_KEY),
+      ]);
+
+      if (storedUser && storedSession) {
+        setUser(JSON.parse(storedUser));
+        setSession(JSON.parse(storedSession));
+        if (storedProfile) {
+          setProfile(JSON.parse(storedProfile));
+        }
+        if (storedDriverProfile) {
+          setDriverProfile(JSON.parse(storedDriverProfile));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading session:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const saveSession = async (
+    userData: User,
+    sessionData: Session,
+    profileData: UserProfile,
+    driverData?: DriverProfile
+  ) => {
+    try {
+      await Promise.all([
+        AsyncStorage.setItem(FAST2SMS_USER_KEY, JSON.stringify(userData)),
+        AsyncStorage.setItem(FAST2SMS_SESSION_KEY, JSON.stringify(sessionData)),
+        AsyncStorage.setItem(FAST2SMS_PROFILE_KEY, JSON.stringify(profileData)),
+        driverData ? AsyncStorage.setItem(FAST2SMS_DRIVER_PROFILE_KEY, JSON.stringify(driverData)) : Promise.resolve(),
+      ]);
+    } catch (error) {
+      console.error('Error saving session:', error);
+    }
+  };
+
+  const clearSession = async () => {
+    try {
+      await Promise.all([
+        AsyncStorage.removeItem(FAST2SMS_USER_KEY),
+        AsyncStorage.removeItem(FAST2SMS_SESSION_KEY),
+        AsyncStorage.removeItem(FAST2SMS_PROFILE_KEY),
+        AsyncStorage.removeItem(FAST2SMS_DRIVER_PROFILE_KEY),
+      ]);
+    } catch (error) {
+      console.error('Error clearing session:', error);
+    }
+  };
+
   // Fetch user profile from database
   const fetchProfile = async (userId: string) => {
     try {
-      // Fetch user profile (might not exist for new phone auth users)
+      // Fetch user profile
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
         .single();
-      
+
       if (!userError && userData) {
         setProfile(userData);
       }
@@ -55,108 +125,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select('*')
         .eq('user_id', userId)
         .maybeSingle();
-      
+
       if (!driverError && driverData) {
         setDriverProfile(driverData);
       } else {
         setDriverProfile(null);
       }
+
+      return { userData, driverData };
     } catch (error) {
       console.error('Error fetching profile:', error);
+      return { userData: null, driverData: null };
     }
   };
 
-  // Initialize auth state
-  useEffect(() => {
-    // Get initial session
-    const initializeAuth = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        // Handle invalid refresh token by signing out
-        if (error) {
-          console.warn('Session error, signing out:', error.message);
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          setIsLoading(false);
-          return;
-        }
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        // Clear any invalid session
-        await supabase.auth.signOut();
-        setSession(null);
-        setUser(null);
-      }
-      setIsLoading(false);
-    };
-    
-    initializeAuth();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-          // Register push token with retries
-          import('@/lib/notifications').then(async ({ registerPushToken }) => {
-            let attempts = 0;
-            const maxAttempts = 3;
-            
-            while (attempts < maxAttempts) {
-              try {
-                const success = await registerPushToken(supabase, session.user.id);
-                if (success) {
-                  console.log('✅ Push token registered after attempt', attempts + 1);
-                  break;
-                }
-              } catch (err) {
-                console.warn(`Attempt ${attempts + 1}/${maxAttempts} failed:`, err);
-              }
-              
-              attempts++;
-              if (attempts < maxAttempts) {
-                // Wait before retrying (2 seconds, then 5 seconds)
-                await new Promise(resolve => 
-                  setTimeout(resolve, attempts === 1 ? 2000 : 5000)
-                );
-                console.log(`Retrying push token registration (${attempts}/${maxAttempts})...`);
-              }
-            }
-            
-            if (attempts === maxAttempts) {
-              console.error('❌ Failed to register push token after 3 attempts');
-            }
-          });
-        } else {
-          setProfile(null);
-          setDriverProfile(null);
-        }
-
-        // Handle navigation based on auth state
-        if (event === 'SIGNED_IN') {
-          // Will navigate based on role in the calling component
-        } else if (event === 'SIGNED_OUT') {
-          router.replace('/');
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // [G4] Realtime sync for driver profile — keeps is_online and verification_status
-  // up to date across devices and reflects admin overrides (suspend, force-offline) immediately.
+  // [G4] Realtime sync for driver profile
   useEffect(() => {
     if (!driverProfile?.id) return;
 
@@ -171,8 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           filter: `id=eq.${driverProfile.id}`,
         },
         (payload) => {
-          console.log('[AUTH] Driver profile updated remotely — syncing:', payload.new);
+          console.log('[AUTH] Driver profile updated remotely - syncing:', payload.new);
           setDriverProfile((prev: DriverProfile | null) => prev ? { ...prev, ...payload.new } : prev);
+          // Update storage
+          AsyncStorage.setItem(FAST2SMS_DRIVER_PROFILE_KEY, JSON.stringify({ ...driverProfile, ...payload.new }));
         }
       )
       .subscribe();
@@ -182,30 +167,112 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [driverProfile?.id]);
 
-  // Sign up with email/password
+  // Sign up with email/password (kept for compatibility)
   const signUp = async (email: string, password: string, name: string, phone?: string) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error: profileError } = await supabase.from('users').insert({
         email,
-        password,
-        options: {
-          data: { name, phone },
-        },
+        name,
+        phone: phone || null,
+        role: 'driver',
       });
 
-      if (error) throw error;
+      if (profileError) throw profileError;
 
-      // Create user profile in database
-      if (data.user) {
-        const { error: profileError } = await supabase.from('users').insert({
-          id: data.user.id,
-          email,
-          name,
-          phone: phone || null,
-          role: 'customer', // Default role
-        });
+      return { error: null };
+    } catch (error) {
+      return { error: error as Error };
+    }
+  };
 
-        if (profileError) throw profileError;
+  // Sign in with email/password (kept for compatibility)
+  const signIn = async (email: string, password: string) => {
+    try {
+      // Find user by email
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
+
+      if (userError || !userData) {
+        throw new Error('User not found');
+      }
+
+      // Fetch driver profile
+      const { data: driverData } = await supabase
+        .from('drivers')
+        .select('*')
+        .eq('user_id', userData.id)
+        .maybeSingle();
+
+      // Create mock session
+      const mockUser = {
+        id: userData.id,
+        email: userData.email,
+        phone: userData.phone,
+        user_metadata: { name: userData.name },
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      } as unknown as User;
+
+      const mockSession = {
+        user: mockUser,
+        access_token: 'fast2sms-session',
+        refresh_token: 'fast2sms-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+      } as unknown as Session;
+
+      setUser(mockUser);
+      setSession(mockSession);
+      setProfile(userData);
+      if (driverData) {
+        setDriverProfile(driverData);
+      }
+      await saveSession(mockUser, mockSession, userData, driverData || undefined);
+
+      return { error: null };
+    } catch (error) {
+      return { error: error as Error };
+    }
+  };
+
+  // Sign in with phone (OTP) using Fast2SMS
+  const signInWithPhone = async (phone: string) => {
+    try {
+      // Generate OTP via RPC
+      const { data: otp, error: genError } = await supabase.rpc('generate_fast2sms_otp', {
+        p_phone_number: phone,
+        p_purpose: 'auth'
+      });
+
+      if (genError) throw genError;
+      if (!otp) throw new Error('Failed to generate OTP');
+
+      console.log(`[DEV] OTP for ${phone}: ${otp}`);
+
+      // Send OTP via Fast2SMS edge function using fetch
+      const { data: { session } } = await supabase.auth.getSession();
+      const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/fast2sms`;
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({
+          action: 'send-otp',
+          phone: phone,
+          otp: otp,
+          purpose: 'auth'
+        })
+      });
+
+      if (!response.ok) {
+        console.warn('Fast2SMS failed, but OTP was generated:', await response.text());
+        // Continue anyway - user can see OTP in console during development
       }
 
       return { error: null };
@@ -214,46 +281,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Sign in with email/password
-  const signIn = async (email: string, password: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  // Sign in with phone (OTP)
-  const signInWithPhone = async (phone: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone,
-      });
-
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  // Verify OTP
+  // Verify OTP using Fast2SMS
   const verifyOtp = async (phone: string, token: string) => {
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone,
-        token,
-        type: 'sms',
+      // Verify OTP via RPC
+      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_fast2sms_otp', {
+        p_phone_number: phone,
+        p_otp_code: token,
+        p_purpose: 'auth'
       });
 
-      if (error) throw error;
-      return { error: null, data };
+      if (verifyError) throw verifyError;
+      if (!verifyResult?.success) {
+        throw new Error(verifyResult?.message || 'Invalid OTP');
+      }
+
+      // Create or update user after OTP verification with driver role
+      const { data: userResult, error: userError } = await supabase.rpc('create_or_update_user_after_otp', {
+        p_phone: phone,
+        p_role: 'driver',
+        p_metadata: { source: 'driver_app' }
+      });
+
+      if (userError) throw userError;
+      if (!userResult?.user_id) {
+        throw new Error('Failed to create or update user');
+      }
+
+      // Fetch profile and driver data
+      const { userData, driverData } = await fetchProfile(userResult.user_id);
+
+      if (!userData) {
+        throw new Error('Failed to fetch user profile');
+      }
+
+      // Create mock user and session
+      const mockUser = {
+        id: userResult.user_id,
+        phone: phone,
+        email: userResult.email,
+        user_metadata: { name: userData.name },
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      } as unknown as User;
+
+      const mockSession = {
+        user: mockUser,
+        access_token: 'fast2sms-session',
+        refresh_token: 'fast2sms-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+      } as unknown as Session;
+
+      setUser(mockUser);
+      setSession(mockSession);
+      setProfile(userData);
+      await saveSession(mockUser, mockSession, userData, driverData || undefined);
+
+      return { error: null, data: { user: mockUser, session: mockSession } };
     } catch (error) {
       return { error: error as Error };
     }
@@ -266,59 +352,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Verify WhatsApp/Phone OTP with role-based navigation
   const verifyWhatsAppOtp = async (phone: string, token: string, targetRole: string) => {
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone,
-        token,
-        type: 'sms',
-      });
-
-      if (error) throw error;
-
-      // Check if user profile exists
-      if (data.user) {
-        const { data: existingProfile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        // Create profile if it doesn't exist
-        if (!existingProfile) {
-          await supabase.from('users').insert({
-            id: data.user.id,
-            email: data.user.email || `${phone}@phone.carter.app`,
-            name: 'Carter User',
-            phone,
-            role: targetRole as 'customer' | 'driver',
-          });
-        }
-
-        // Navigate based on role
-        if (targetRole === 'driver') {
-          router.replace('/(tabs)/home');
-        } else {
-          router.replace('/');
-        }
-      }
-
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
+    return verifyOtp(phone, token);
   };
 
   // Sign out
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await clearSession();
+    setUser(null);
+    setSession(null);
     setProfile(null);
     setDriverProfile(null);
+    router.replace('/');
   };
 
   // Refresh profile
   const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user.id);
+    if (user?.id) {
+      const { userData, driverData } = await fetchProfile(user.id);
+      if (userData) {
+        await AsyncStorage.setItem(FAST2SMS_PROFILE_KEY, JSON.stringify(userData));
+      }
+      if (driverData) {
+        await AsyncStorage.setItem(FAST2SMS_DRIVER_PROFILE_KEY, JSON.stringify(driverData));
+      }
     }
   };
 

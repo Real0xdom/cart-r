@@ -299,9 +299,9 @@ export default function Home() {
               </div>
 
               {/* Chart */}
-              <div className="h-[400px] w-full">
+              <div className="h-[400px] w-full min-w-0">
                 {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart
                       data={chartData}
                       margin={{ top: 20, right: 30, left: 20, bottom: 5 }}

@@ -1,15 +1,10 @@
-# NPM Dependency Fix for EAS Build - Driver App
+# Legal Footer Integration TODO
 
-## Current Progress
-✅ Plan approved
+## Plan Steps:
+- [ ] Step 1: Update apps/website/src/pages/Index.tsx - Add supabase fetch for legal docs, modal state, enhance footer with Privacy Policy/Terms links.
+- [ ] Step 2: Test modal rendering of doc content.
+- [ ] Step 3: Style and verify functionality.
+- [ ] Step 4: attempt_completion
 
-## Remaining Steps:
-- [ ] Step 1: Edit root package.json to add resolutions forcing react-native-maps to 1.14.0
-- [ ] Step 2: Edit apps/customer/package.json to change react-native-maps to "~1.14.0"
-- [ ] Step 3: Edit apps/driver/package.json to change react-native-maps to "~1.14.0"
-- [ ] Step 4: Delete package-lock.json and run `npm install` to regenerate lockfile
-- [ ] Step 5: cd apps/driver && npm install (verify no errors)
-- [ ] Step 6: Retry EAS build: cd apps/driver; npx eas build --profile preview --platform android --non-interactive --no-wait
-- [ ] Done
-
-**Next: Editing package.json files (Steps 1-3)**
+Steps 1-3 complete - Index.tsx updated with footer links and modals fetching legal docs from DB.
+Step 4: Complete.

@@ -70,9 +70,13 @@ serve(async (req) => {
       )
     }
 
-    if (booking.status !== 'pending') {
+    if (booking.status !== 'payment_confirmed') {
       return new Response(
-        JSON.stringify({ error: 'Booking is not in pending status' }),
+        JSON.stringify({ 
+          error: 'Booking payment not confirmed',
+          status: booking.status,
+          message: 'Driver assignment only available after payment is confirmed'
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }

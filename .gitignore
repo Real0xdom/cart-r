@@ -48,3 +48,12 @@ allure-report/
 !.env.example
 !configs/test-automation/env/.env.staging.example
 !configs/test-automation/env/.env.production.example
+
+# Caches & Logs
+.npm-cache/
+*.log
+latest-eas-log*.txt
+supabase_migration_dump/
+.tmp-*
+tmp-*
+tmp_*

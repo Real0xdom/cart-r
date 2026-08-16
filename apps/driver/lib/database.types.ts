@@ -3355,6 +3355,42 @@ export type Database = {
         }
         Returns: string
       }
+      generate_fast2sms_otp: {
+        Args: {
+          p_phone_number: string
+          p_purpose: string
+          p_user_id?: string
+          p_booking_id?: string
+          p_metadata?: Json
+        }
+        Returns: string
+      }
+      verify_fast2sms_otp: {
+        Args: {
+          p_phone_number: string
+          p_otp_code: string
+          p_purpose?: string
+        }
+        Returns: {
+          success: boolean
+          message: string
+          user_id: string | null
+          booking_id: string | null
+        }
+      }
+      create_or_update_user_after_otp: {
+        Args: {
+          p_phone: string
+          p_role?: string
+          p_name?: string
+          p_metadata?: Json
+        }
+        Returns: {
+          user_id: string
+          is_new_user: boolean
+          email: string
+        }
+      }
     }
     Enums: {
       booking_status:
@@ -3365,6 +3401,8 @@ export type Database = {
         | "completed"
         | "cancelled"
         | "scheduled"
+        | "payment_pending"
+        | "payment_confirmed"
       payment_method:
         | "cash"
         | "online"
@@ -3528,6 +3566,8 @@ export const Constants = {
         "completed",
         "cancelled",
         "scheduled",
+        "payment_pending",
+        "payment_confirmed",
       ],
       payment_method: [
         "cash",

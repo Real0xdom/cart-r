@@ -1,10 +1,12 @@
 // Learn more https://docs.expo.io/guides/customizing-metro
 const { getDefaultConfig } = require('expo/metro-config');
+const fs = require('fs');
 const path = require('path');
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
+const workspaceNodeModules = path.resolve(workspaceRoot, 'node_modules');
 const sharedPackageRoot = path.resolve(workspaceRoot, 'packages', 'shared');
 
 /** @type {import('expo/metro-config').MetroConfig} */
@@ -37,16 +39,16 @@ const ignoredPaths = [
   path.resolve(workspaceRoot, 'node_modules', '.cache'),
 ];
 
-// Enable package exports resolution - fixes SHA-1 computation issues
+// Enable package exports resolution to avoid SHA-1 computation issues on hoisted deps.
 config.resolver.unstable_enablePackageExports = true;
 
 // Keep Metro scoped to the driver app, with exceptions for shared package and root node_modules (for hoisted deps)
-config.watchFolders = [sharedPackageRoot, path.resolve(workspaceRoot, 'node_modules')];
+config.watchFolders = [sharedPackageRoot, workspaceNodeModules];
 
 // Resolve dependencies from the app first, with the workspace root as a fallback.
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
+  workspaceNodeModules,
 ];
 
 // Ignore generated folders and repo metadata
@@ -58,17 +60,20 @@ config.resolver.blockList = ignoredPaths.map(
 config.resolver.disableHierarchicalLookup = true;
 
 // Fix for react-native-cashfree-pg-sdk unable to resolve ../package.json
+const cashfreePackageJsonPath = [
+  path.resolve(projectRoot, 'node_modules/react-native-cashfree-pg-sdk/package.json'),
+  path.resolve(workspaceNodeModules, 'react-native-cashfree-pg-sdk/package.json'),
+].find((filePath) => fs.existsSync(filePath));
+
 const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (
+    cashfreePackageJsonPath &&
     moduleName === '../package.json' &&
     context.originModulePath.includes('react-native-cashfree-pg-sdk')
   ) {
     return {
-      filePath: path.resolve(
-        __dirname,
-        'node_modules/react-native-cashfree-pg-sdk/package.json'
-      ),
+      filePath: cashfreePackageJsonPath,
       type: 'sourceFile',
     };
   }

@@ -11,7 +11,7 @@ static def versionToNumber(major, minor, patch) {
 def getRNVersion() {
   def version = providers.exec {
     workingDir(projectDir)
-    commandLine("node", "-e", "console.log(require('react-native/package.json').version);")
+    commandLine("node", "-e", "console.log('0.74.5');")
   }.standardOutput.asText.get().trim()
 
   def coreVersion = version.split("-")[0]
@@ -109,9 +109,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.carterdriver"
+    namespace "com.carter.driver"
     defaultConfig {
-        applicationId "com.carterdriver"
+        applicationId "com.carter.driver"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

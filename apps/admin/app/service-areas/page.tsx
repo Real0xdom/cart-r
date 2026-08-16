@@ -109,8 +109,6 @@ export default function ServiceAreasPage() {
   const handleSave = async (area: ServiceArea) => {
     setSaving(area.id);
     try {
-      // Build geometry as a circle (buffer) from center + radius
-      const geometryWkt = `POINT(${area.center_longitude} ${area.center_latitude})`;
       const { error } = await supabase.from('service_areas').update({
         name: area.name, city: area.city, state: area.state, country: area.country,
         center_latitude: Number(area.center_latitude),
@@ -143,8 +141,6 @@ export default function ServiceAreasPage() {
         center_longitude: Number(form.center_longitude),
         radius_km: Number(form.radius_km),
         priority: Number(form.priority),
-        // Geometry will be auto-set by the trigger, but provide a fallback point
-        geometry: `SRID=4326;POINT(${form.center_longitude} ${form.center_latitude})`,
       });
       if (error) throw error;
       toast.success('Service area added!');
