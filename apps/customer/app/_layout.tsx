@@ -9,6 +9,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import NetworkBanner from "@/components/NetworkBanner";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient();
 
 import {
   initializeNotifications,
@@ -92,42 +95,44 @@ export default function RootLayout() {
   }
 
   return (
-    <LanguageProvider>
-      <LocationProvider>
-        <AuthProvider>
-          <NetworkBanner />
-          <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="welcome" options={{ headerShown: false }} />
-            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="account-blocked"
-              options={{
-                headerShown: false,
-                presentation: "transparentModal",
-                animation: "fade",
-              }}
-            />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="(stack)" options={{ headerShown: false }} />
-            <Stack.Screen name="ride-details/[id]" options={{ headerShown: false }} />
-            <Stack.Screen name="find-ride" options={{ headerShown: false }} />
-            <Stack.Screen name="receiver-details" options={{ headerShown: false }} />
-            <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />
-            <Stack.Screen name="review-booking" options={{ headerShown: false }} />
-            <Stack.Screen name="confirm-ride" options={{ headerShown: false }} />
-            <Stack.Screen name="book-ride" options={{ headerShown: false }} />
-            <Stack.Screen name="profile-details" options={{ headerShown: false }} />
-            <Stack.Screen name="saved-addresses" options={{ headerShown: false }} />
-            <Stack.Screen name="terms" options={{ headerShown: false }} />
-            <Stack.Screen name="help" options={{ headerShown: false }} />
-            <Stack.Screen name="waiting-for-driver" options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="track-ride" options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="pay-booking" options={{ headerShown: false, gestureEnabled: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-        </AuthProvider>
-      </LocationProvider>
-    </LanguageProvider>
+    <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
+        <LocationProvider>
+          <AuthProvider>
+            <NetworkBanner />
+            <Stack>
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="welcome" options={{ headerShown: false }} />
+              <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="account-blocked"
+                options={{
+                  headerShown: false,
+                  presentation: "transparentModal",
+                  animation: "fade",
+                }}
+              />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
+              <Stack.Screen name="(stack)" options={{ headerShown: false }} />
+              <Stack.Screen name="ride-details/[id]" options={{ headerShown: false }} />
+              <Stack.Screen name="find-ride" options={{ headerShown: false }} />
+              <Stack.Screen name="receiver-details" options={{ headerShown: false }} />
+              <Stack.Screen name="select-vehicle" options={{ headerShown: false }} />
+              <Stack.Screen name="review-booking" options={{ headerShown: false }} />
+              <Stack.Screen name="confirm-ride" options={{ headerShown: false }} />
+              <Stack.Screen name="book-ride" options={{ headerShown: false }} />
+              <Stack.Screen name="profile-details" options={{ headerShown: false }} />
+              <Stack.Screen name="saved-addresses" options={{ headerShown: false }} />
+              <Stack.Screen name="terms" options={{ headerShown: false }} />
+              <Stack.Screen name="help" options={{ headerShown: false }} />
+              <Stack.Screen name="waiting-for-driver" options={{ headerShown: false, gestureEnabled: false }} />
+              <Stack.Screen name="track-ride" options={{ headerShown: false, gestureEnabled: false }} />
+              <Stack.Screen name="pay-booking" options={{ headerShown: false, gestureEnabled: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+          </AuthProvider>
+        </LocationProvider>
+      </LanguageProvider>
+    </QueryClientProvider>
   );
 }

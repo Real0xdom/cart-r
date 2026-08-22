@@ -10,6 +10,7 @@ import { getDriverCompletedTrips, Booking } from '@/lib/bookings';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { useQuery } from '@tanstack/react-query';
 
 const { width } = Dimensions.get('window');
 
@@ -395,8 +396,6 @@ const DriverEarnings = () => {
     const [historyTab, setHistoryTab] = useState<HistoryTab>('trips');
 
     // UI states
-    const [isLoading, setIsLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
@@ -490,10 +489,10 @@ const DriverEarnings = () => {
         }, 3000);
     }, []);
 
-    const loadWalletInfo = useCallback(async () => {
-        if (!driverId) return;
-
-        try {
+    const { data: dashboardData, isLoading, isRefetching, refetch } = useQuery({
+        queryKey: ['driverEarnings', driverId, user?.id],
+        queryFn: async () => {
+            if (!driverId) return null;
             const [walletRes, settingsRes, tripsRes, transactionsRes, withdrawalsRes, walletPaymentsRes] = await Promise.all([
                 getDriverWalletInfo(driverId),
                 getPlatformSetting('payout'),
@@ -503,32 +502,36 @@ const DriverEarnings = () => {
                 user?.id ? getWalletPaymentTransactions(user.id, 50) : Promise.resolve({ data: [], error: null })
             ]);
 
-            if (walletRes.data?.wallet) {
-                setWallet({
+            return {
+                wallet: walletRes.data?.wallet ? {
                     ...walletRes.data.wallet,
                     pending_withdrawals: walletRes.data.wallet.pending_withdrawals ?? walletRes.data.stats?.pending_withdrawals ?? 0,
-                });
-            }
-            if (settingsRes.data) setPayoutSettings(settingsRes.data);
-            if (!tripsRes.error && tripsRes.data) setTrips(tripsRes.data);
-            if (!transactionsRes.error && transactionsRes.data) {
-                setWalletTransactions(transactionsRes.data);
-            } else if (walletRes.data?.recent_transactions?.length) {
-                setWalletTransactions(walletRes.data.recent_transactions);
-            }
-            if (!withdrawalsRes.error && withdrawalsRes.data) setWithdrawals(withdrawalsRes.data);
-            if (!walletPaymentsRes.error && walletPaymentsRes.data) setWalletPaymentTransactions(walletPaymentsRes.data);
-
-        } catch (error) {
-            console.error('Error fetching earnings dashboard:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [driverId, user?.id]);
+                } : null,
+                settings: settingsRes.data,
+                trips: tripsRes.data || [],
+                transactions: transactionsRes.data || walletRes.data?.recent_transactions || [],
+                withdrawals: withdrawalsRes.data || [],
+                walletPayments: walletPaymentsRes.data || []
+            };
+        },
+        enabled: !!driverId,
+        refetchInterval: 60000, // Background refresh every 60s
+    });
 
     useEffect(() => {
-        loadWalletInfo();
-    }, [loadWalletInfo]);
+        if (dashboardData) {
+            setWallet(dashboardData.wallet);
+            setPayoutSettings(dashboardData.settings);
+            setTrips(dashboardData.trips);
+            setWalletTransactions(dashboardData.transactions);
+            setWithdrawals(dashboardData.withdrawals);
+            setWalletPaymentTransactions(dashboardData.walletPayments);
+        }
+    }, [dashboardData]);
+
+    const loadWalletInfo = useCallback(async () => {
+        await refetch();
+    }, [refetch]);
 
     useEffect(() => {
         if (!driverId) {
@@ -645,10 +648,8 @@ const DriverEarnings = () => {
     }, []);
 
     const onRefresh = useCallback(async () => {
-        setRefreshing(true);
-        await loadWalletInfo();
-        setRefreshing(false);
-    }, [loadWalletInfo]);
+        await refetch();
+    }, [refetch]);
 
     const handleWithdrawRequest = async () => {
         if (!wallet) return;
@@ -710,12 +711,18 @@ const DriverEarnings = () => {
 
     const verifyPaymentStatus = async (orderId: string, forceFail: boolean = false) => {
         try {
-            const { data } = await supabase.functions.invoke('verify-payment', {
-                body: {
-                    order_id: orderId,
-                    force_fail: forceFail
-                }
+            const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+            const response = await fetch(`${BACKEND_URL}/api/payment/verify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ order_id: orderId, force_fail: forceFail })
             });
+            const data = await response.json();
 
             if (data?.status === 'PAID' && data?.wallet_credited !== false) {
                 await handleTopupSuccess(data.amount);
@@ -798,8 +805,17 @@ const DriverEarnings = () => {
                 ? 'https://docs.cashfree.com/docs/payment-success'
                 : 'carter://payment-callback';
 
-            const { data, error } = await supabase.functions.invoke('create-payment-order', {
-                body: {
+            const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData?.session?.access_token;
+
+            const response = await fetch(`${BACKEND_URL}/api/payment/order`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
                     amount: value,
                     customer_id: user.id,
                     customer_phone: profile?.phone || user.phone || '9999999999',
@@ -808,8 +824,10 @@ const DriverEarnings = () => {
                     return_url: callbackUrl,
                     idempotency_key: idempotencyKey,
                     topup_target: 'driver_wallet',
-                }
+                })
             });
+            const data = await response.json();
+            const error = response.ok ? null : data.error;
 
             if (error) {
                 throw error;
@@ -943,7 +961,7 @@ const DriverEarnings = () => {
                 className="flex-1"
                 contentContainerStyle={{ paddingBottom: 100 }}
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22c55e" />
+                    <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor="#22c55e" />
                 }
             >
                 {/* Balance Card */}

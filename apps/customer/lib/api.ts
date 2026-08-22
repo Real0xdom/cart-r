@@ -1,7 +1,7 @@
 // API helper functions for Supabase Edge Functions
 import { supabase } from './supabase';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
 interface FareCalculation {
   base_fare: number;
@@ -35,7 +35,7 @@ interface AssignDriverResult {
 }
 
 /**
- * Calculate fare for a trip using the Edge Function
+ * Calculate fare for a trip using the Express Backend
  */
 export async function calculateFareFromAPI(
   originLat: number,
@@ -48,7 +48,7 @@ export async function calculateFareFromAPI(
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
 
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/calculate-fare`, {
+    const response = await fetch(`${BACKEND_URL}/api/fare/calculate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -77,7 +77,7 @@ export async function calculateFareFromAPI(
 }
 
 /**
- * Create a payment order via Cashfree
+ * Create a payment order via Express Backend
  */
 export async function createPaymentOrder(
   bookingId: string,
@@ -91,7 +91,7 @@ export async function createPaymentOrder(
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
 
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/create-payment-order`, {
+    const response = await fetch(`${BACKEND_URL}/api/payment/order`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -131,7 +131,7 @@ export async function requestDriverAssignment(
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
 
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/assign-driver`, {
+    const response = await fetch(`${BACKEND_URL}/api/driver/assign`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -221,5 +221,36 @@ export async function markNotificationRead(notificationId: string): Promise<{ su
     return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Verify a payment
+ */
+export async function verifyPayment(orderId: string): Promise<{ data: any; error: string | null }> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
+    const response = await fetch(`${BACKEND_URL}/api/payment/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ order_id: orderId }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { data: null, error: data.error || 'Failed to verify payment' };
+    }
+
+    return { data, error: null };
+  } catch (err: any) {
+    console.error('Verify payment error:', err);
+    return { data: null, error: err.message || 'Network error' };
   }
 }

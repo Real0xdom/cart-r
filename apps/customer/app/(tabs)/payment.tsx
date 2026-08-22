@@ -104,12 +104,18 @@ const Payment = () => {
 
   const verifyPaymentStatus = async (orderId: string, forceFail: boolean = false) => {
     try {
-      const { data, error } = await supabase.functions.invoke('verify-payment', {
-        body: { 
-            order_id: orderId,
-            force_fail: forceFail
-        }
+      const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const response = await fetch(`${BACKEND_URL}/api/payment/verify`, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ order_id: orderId, force_fail: forceFail }),
       });
+      const data = await response.json();
 
       await fetchTransactions();
 
@@ -231,8 +237,17 @@ const Payment = () => {
         ? 'https://docs.cashfree.com/docs/payment-success'
         : 'carter://payment-callback';
         
-      const { data, error } = await supabase.functions.invoke('create-payment-order', {
-        body: {
+      const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const response = await fetch(`${BACKEND_URL}/api/payment/order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           amount: value,
           customer_id: user?.id,
           customer_phone: profile?.phone || user?.phone || "9999999999",
@@ -240,25 +255,34 @@ const Payment = () => {
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey
-        }
+        }),
       });
+      const data = await response.json();
+      const error = response.ok ? null : data.error;
 
       if (error) {
         let errorDetails = "";
-        try {
-          if (error && typeof error === 'object' && 'context' in error) {
-            const context = (error as any).context;
-            if (context && typeof context.json === 'function') {
-              const json = await context.json();
-              errorDetails = JSON.stringify(json);
-            } else {
-              errorDetails = String(context);
-            }
-          }
-        } catch(e) { errorDetails = "Failed to parse context"; }
+        let errorMessage = "Unknown error";
         
-        console.error("[PAYMENT] Edge Function error:", error.message, errorDetails);
-        Alert.alert("Payment Error", "Error: " + (error.message || "Unknown error") + "\nDetails: " + errorDetails);
+        if (typeof error === 'string') {
+          errorMessage = error;
+        } else if (error && typeof error === 'object') {
+          errorMessage = error.message || "Unknown error";
+          try {
+            if ('context' in error) {
+              const context = (error as any).context;
+              if (context && typeof context.json === 'function') {
+                const json = await context.json();
+                errorDetails = JSON.stringify(json);
+              } else {
+                errorDetails = String(context);
+              }
+            }
+          } catch(e) { errorDetails = "Failed to parse context"; }
+        }
+        
+        console.error("[PAYMENT] Backend error:", errorMessage, errorDetails);
+        Alert.alert("Payment Error", "Error: " + errorMessage + (errorDetails && errorDetails !== errorMessage ? "\nDetails: " + errorDetails : ""));
         setLoading(false);
         return;
       }

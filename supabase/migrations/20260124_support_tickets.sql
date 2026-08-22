@@ -43,6 +43,7 @@ CREATE POLICY "Admins can update tickets" ON support_tickets
 ALTER PUBLICATION supabase_realtime ADD TABLE support_tickets;
 
 -- Trigger to update updated_at
+DROP TRIGGER IF EXISTS update_support_tickets_updated_at ON support_tickets;
 CREATE TRIGGER update_support_tickets_updated_at
     BEFORE UPDATE ON support_tickets
     FOR EACH ROW

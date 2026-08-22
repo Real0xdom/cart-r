@@ -7,6 +7,7 @@ import { ActivityIndicator, FlatList, Image, Text, View, TouchableOpacity, Refre
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useCallback } from "react";
 import { router } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { images } from "@/constants";
 import { getCustomerBookings } from "@/lib/bookings";
@@ -156,6 +157,7 @@ const BookingCard = ({
 const Rides = () => {
   const { profile } = useAuth();
   const { t } = useLanguage();
+  const isFocused = useIsFocused();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -164,7 +166,7 @@ const Rides = () => {
 
   const fetchBookings = useCallback(async () => {
     if (!profile?.id) return;
-    
+
     const { data, error } = await getCustomerBookings(profile.id);
     if (data) {
       setBookings(data);
@@ -173,15 +175,21 @@ const Rides = () => {
     setRefreshing(false);
   }, [profile?.id]);
 
+  // Refetch whenever the tab regains focus so a status change made elsewhere
+  // (e.g. cancelling a ride on the waiting screen) isn't acted on as stale data.
   useEffect(() => {
-    fetchBookings();
-    
+    if (isFocused) {
+      fetchBookings();
+    }
+  }, [fetchBookings, isFocused]);
+
+  useEffect(() => {
     const fetchVehicleSpecs = async () => {
         const { data } = await getActiveVehicleTypes();
         if (data) setVehicleSpecs(data);
     };
     fetchVehicleSpecs();
-  }, [fetchBookings]);
+  }, []);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -251,7 +259,7 @@ const Rides = () => {
                 </Text>
                 <TouchableOpacity 
                   onPress={() => router.push('/(tabs)/home')}
-                  className="mt-6 bg-green-500 px-6 py-3 rounded-xl"
+                  className="mt-6 bg-primary-500 px-6 py-3 rounded-xl"
                 >
                   <Text className="text-white font-JakartaBold">{t('bookARide')}</Text>
                 </TouchableOpacity>

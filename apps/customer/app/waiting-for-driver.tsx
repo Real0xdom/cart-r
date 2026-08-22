@@ -91,11 +91,6 @@ const WaitingForDriverPage = () => {
     fetchVehicleSpecs();
   }, []);
 
-  // Watch for driverAccepted state changes
-  useEffect(() => {
-    console.log('[STATE CHANGE] driverAccepted changed to:', driverAccepted);
-  }, [driverAccepted]);
-
   useEffect(() => {
     if (booking?.status !== QUEUED_BOOKING_STATUS || !booking.queued_at) {
       setQueuedElapsedSeconds(0);
@@ -115,23 +110,14 @@ const WaitingForDriverPage = () => {
 
   // Countdown timer
   useEffect(() => {
-    console.log('[TIMER] Effect triggered - driverAccepted:', driverAccepted, 'showTimeout:', showTimeout);
-    
     if (driverAccepted || showTimeout || booking?.status === QUEUED_BOOKING_STATUS) {
-      console.log('[TIMER] Timer should be stopped (driverAccepted or timeout)');
       return;
     }
 
-    console.log('[TIMER] Starting countdown timer from', timeRemaining);
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         const newValue = prev - 1;
-        if (newValue % 10 === 0) { // Log every 10 seconds
-          console.log('[TIMER] Time remaining:', newValue);
-        }
-        
         if (newValue <= 1) {
-          console.log('[TIMER] Timeout reached! Showing timeout screen');
           clearInterval(timer);
           setShowTimeout(true);
           timeoutExpiryRequestedRef.current = false;
@@ -141,10 +127,7 @@ const WaitingForDriverPage = () => {
       });
     }, 1000);
 
-    return () => {
-      console.log('[TIMER] Cleanup - clearing timer');
-      clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, [driverAccepted, showTimeout, booking?.status]);
 
   useEffect(() => {
@@ -184,6 +167,34 @@ const WaitingForDriverPage = () => {
 
     console.log('[WAITING] Setting up subscription for booking:', bookingId);
 
+    // Handles a booking that is already cancelled, whether discovered on
+    // initial load (e.g. stale list data navigated here after the ride was
+    // already cancelled) or via a later realtime update. Guarded so a
+    // realtime echo of the same cancellation doesn't stack a second alert.
+    let cancelledHandled = false;
+    const handleCancelled = (cancelledBooking: Booking) => {
+      if (cancelledHandled) return;
+      cancelledHandled = true;
+
+      const isTimeout = cancelledBooking.cancellation_reason === 'Search timed out';
+
+      if (isTimeout) {
+        setDriverAccepted(false);
+        setShowTimeout(true);
+        setTimeRemaining(0);
+        return;
+      }
+
+      Alert.alert(
+        "Ride Cancelled",
+        cancelledBooking.cancellation_reason || "This booking has been cancelled.",
+        [{ text: "OK", onPress: () => {
+          clearAll();
+          router.replace("/(tabs)/home");
+        }}]
+      );
+    };
+
     // Fetch latest booking data
     getBookingById(bookingId).then(({ data }) => {
       if (data) {
@@ -214,6 +225,12 @@ const WaitingForDriverPage = () => {
           setShowTimeout(true);
           setTimeRemaining(0);
           timeoutExpiryRequestedRef.current = false;
+        } else if (data.status === 'cancelled') {
+          // Landed here with an already-cancelled booking (e.g. a stale list
+          // entry navigated here after cancellation went through elsewhere).
+          // Show it immediately instead of a spinner that waits on a realtime echo.
+          console.log('[WAITING] Booking already cancelled on load');
+          handleCancelled(data);
         }
       }
     });
@@ -226,6 +243,8 @@ const WaitingForDriverPage = () => {
         driverObject: updatedBooking.driver
       });
       
+      const prevStatus = previousStatusRef.current;
+
       setBooking(updatedBooking);
       setCurrentBooking(updatedBooking);
       previousStatusRef.current = updatedBooking.status;
@@ -259,70 +278,26 @@ const WaitingForDriverPage = () => {
           });
         }
       } else if (updatedBooking.status === 'pending') {
-          console.log('[WAITING] Status reverted to pending (driver cancelled). Resetting search.');
-          setDriverAccepted(false);
-          // Reset timer for fresh search
-          setShowTimeout(false);
-          setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
-          timeoutExpiryRequestedRef.current = false;
-      } else if (updatedBooking.status === 'cancelled') {
-          console.log('[WAITING] Booking was cancelled (possibly search timeout)');
-          const isTimeout = updatedBooking.cancellation_reason === 'Search timed out';
-
-          if (isTimeout) {
+          if (prevStatus && ASSIGNED_BOOKING_STATUSES.includes(prevStatus)) {
+            console.log('[WAITING] Status reverted to pending (driver cancelled). Resetting search.');
             setDriverAccepted(false);
-            setShowTimeout(true);
-            setTimeRemaining(0);
-            return;
+            // Reset timer for fresh search
+            setShowTimeout(false);
+            setTimeRemaining(SEARCH_TIMEOUT_SECONDS);
+            timeoutExpiryRequestedRef.current = false;
+          } else {
+            console.log('[WAITING] Booking still pending - no-op update, keeping current search state.');
           }
-
-          Alert.alert(
-            "Ride Cancelled",
-            updatedBooking.cancellation_reason || "This booking has been cancelled.",
-            [{ text: "OK", onPress: () => {
-              clearAll();
-              router.replace("/(tabs)/home");
-            }}]
-          );
+      } else if (updatedBooking.status === 'cancelled') {
+          console.log('[WAITING] Booking was cancelled');
+          handleCancelled(updatedBooking);
       }
     });
 
-    // ── RAPID INITIAL POLLING BURST ─────────────────────────────────────────
-    // For the first 15 seconds, poll every 2 seconds to catch fast acceptances
-    // that may slip through while the Realtime channel is still handshaking.
-    let burstStopped = false;
-    const burstInterval = setInterval(async () => {
-      if (burstStopped) return;
-      try {
-        const { data } = await getBookingById(bookingId);
-        if (data && hasAssignedDriver(data)) {
-          console.log('[WAITING] Rapid-burst detected driver acceptance!');
-          setBooking(data);
-          setCurrentBooking(data);
-          setDriverAccepted(true);
-          burstStopped = true;
-          clearInterval(burstInterval);
-        }
-      } catch (e) {
-        // Non-critical — subscribeToBooking polling will also catch it
-      }
-    }, 2000);
-
-    const burstTimeout = setTimeout(() => {
-      burstStopped = true;
-      clearInterval(burstInterval);
-      console.log('[WAITING] Rapid-burst phase ended (15s)');
-    }, 15000);
-    // ────────────────────────────────────────────────────────────────────────
-
     return () => {
-      console.log('[WAITING] Unsubscribing from booking updates');
       // Navigation away from this screen must not cancel the booking.
       // Cancellation is only allowed from explicit user action.
       unsubscribe();
-      burstStopped = true;
-      clearInterval(burstInterval);
-      clearTimeout(burstTimeout);
     };
   }, [bookingId]);
 

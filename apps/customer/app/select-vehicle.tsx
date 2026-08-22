@@ -214,13 +214,13 @@ const SelectVehiclePage = () => {
       testID={"vehicle.option." + index}
       accessibilityLabel={"vehicle.option." + index}
       onPress={() => handleSelectVehicle(item)}
-      className={`mb-3 flex-row items-center rounded-2xl border p-4 ${
+      className={`mb-2 flex-row items-center rounded-2xl border p-2.5 ${
         selectedVehicle?.vehicle_type === item.vehicle_type
           ? "border-brand-500 bg-brand-100"
           : "border-gray-100 bg-white"
       }`}
     >
-      <View className="mr-3 h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+      <View className="mr-3 h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
         {(() => {
           const spec = vehicleSpecs.find((vehicle) => vehicle.vehicle_type === item.vehicle_type);
           const source = getVehicleImageSource(item.vehicle_type, spec?.icon_url);
@@ -237,7 +237,7 @@ const SelectVehiclePage = () => {
         <Text className="text-base font-JakartaBold capitalize text-gray-900">
           {getVehicleDisplayName(item.vehicle_type, vehicleSpecs)}
         </Text>
-        <Text className="text-xs font-JakartaMedium text-gray-500">
+        <Text className="text-xs font-JakartaMedium text-gray-500" numberOfLines={1}>
           {getVehicleDescription(item.vehicle_type, vehicleSpecs)}
         </Text>
         <Text className="mt-0.5 text-xs text-gray-400">
@@ -279,13 +279,14 @@ const SelectVehiclePage = () => {
           </View>
         ) : (
           <>
-            <View>
+            <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
               {visibleFares.map((item, index) => (
                 <View key={item.vehicle_type}>{renderVehicleItem({ item, index })}</View>
               ))}
-            </View>
+            </ScrollView>
 
-            <View className="mt-4">
+            {/* Fixed footer so the Review Booking button is always visible without scrolling */}
+            <View className="border-t border-gray-100 bg-[#f8fafc] px-1 pb-2 pt-3">
               {selectedVehicle ? (
                 <View className="mb-3 flex-row items-center justify-between px-1">
                   <Text className="font-JakartaMedium text-gray-600">Fare</Text>
@@ -298,20 +299,18 @@ const SelectVehiclePage = () => {
                 </View>
               ) : null}
 
-              <View className="mt-4">
-                <TouchableOpacity
-                  onPress={handleReviewBooking}
-                  testID="booking.confirmButton"
-                  accessibilityLabel="booking.confirmButton"
-                  disabled={!selectedVehicle}
-                  className={`w-full flex-row items-center justify-center rounded-xl py-4 ${
-                    selectedVehicle ? "bg-brand-500" : "bg-gray-300"
-                  }`}
-                >
-                  <Feather name="arrow-right" size={18} color="#fff" />
-                  <Text className="ml-2 font-JakartaBold text-white">Review Booking</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                onPress={handleReviewBooking}
+                testID="booking.confirmButton"
+                accessibilityLabel="booking.confirmButton"
+                disabled={!selectedVehicle}
+                className={`w-full flex-row items-center justify-center rounded-xl py-4 ${
+                  selectedVehicle ? "bg-brand-500" : "bg-gray-300"
+                }`}
+              >
+                <Feather name="arrow-right" size={18} color="#fff" />
+                <Text className="ml-2 font-JakartaBold text-white">Review Booking</Text>
+              </TouchableOpacity>
             </View>
           </>
         )}
@@ -323,9 +322,9 @@ const SelectVehiclePage = () => {
           onRequestClose={() => setShowAddonModal(false)}
         >
           <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setShowAddonModal(false)}>
-            <Pressable className="max-h-[85%] rounded-t-3xl bg-white" onPress={(event) => event.stopPropagation()}>
+            <Pressable className="max-h-[70%] rounded-t-3xl bg-white" onPress={(event) => event.stopPropagation()}>
               <View className="mb-1 mt-2 h-1 w-12 self-center rounded-full bg-gray-300" />
-              <ScrollView className="px-5 pb-8" showsVerticalScrollIndicator={false}>
+              <ScrollView className="px-5" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
                 {selectedVehicle ? (
                   <AddonSelector
                     addons={availableAddons}
@@ -340,8 +339,11 @@ const SelectVehiclePage = () => {
                     vehicleType={selectedVehicle.vehicle_type}
                   />
                 ) : null}
+              </ScrollView>
 
-                <View className="mb-6 mt-4 flex-row items-center justify-between">
+              {/* Fixed footer so Total + Continue are always visible without scrolling */}
+              <View className="border-t border-gray-100 px-5 pb-6 pt-3">
+                <View className="mb-3 flex-row items-center justify-between">
                   <Text className="font-JakartaBold text-gray-800">Total</Text>
                   <Text className="text-2xl font-JakartaBold text-green-600">₹{totalFare}</Text>
                 </View>
@@ -365,7 +367,7 @@ const SelectVehiclePage = () => {
                     <Text className="ml-2 font-JakartaBold text-white">Continue</Text>
                   </TouchableOpacity>
                 </View>
-              </ScrollView>
+              </View>
             </Pressable>
           </Pressable>
         </Modal>

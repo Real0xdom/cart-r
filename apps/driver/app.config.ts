@@ -88,7 +88,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         "origin": "https://driver.cart-r.com/"
       }
     ],
-    "@react-native-community/datetimepicker",
     [
       "expo-location",
       {
@@ -97,8 +96,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       }
     ],
     "expo-font",
-    "expo-secure-store",
-    "expo-document-picker"
+    "expo-secure-store"
   ],
   experiments: {
     typedRoutes: true
@@ -108,8 +106,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "origin": "https://driver.cart-r.com/"
     },
     eas: {
-      "projectId": "40c749db-9fc6-4dc2-8c84-9905b2ce9a9d"
+      "projectId": "2cd0761a-e158-47f2-b8d6-ae09d029a49a"
     }
-  },
-  owner: "cartrlogistics"
+  }
 });

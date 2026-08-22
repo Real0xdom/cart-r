@@ -62,9 +62,10 @@ export default function Home() {
   const fetchFinanceData = async () => {
     try {
       const data = await getDashboardFinanceData(dateRange);
-      setInvoices(data);
+      setInvoices(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching finance data:', error);
+      setInvoices([]);
     }
   };
 
@@ -81,14 +82,15 @@ export default function Home() {
 
   // Compute aggregated numbers for the selected range
   const financeSummary = useMemo(() => {
-    const paidInvoices = invoices.filter(i => i.payment_status === 'paid');
-    const pendingInvoices = invoices.filter(i => i.payment_status !== 'paid');
+    const validInvoices = Array.isArray(invoices) ? invoices : [];
+    const paidInvoices = validInvoices.filter(i => i.payment_status === 'paid');
+    const pendingInvoices = validInvoices.filter(i => i.payment_status !== 'paid');
 
     const totalRevenue = paidInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
     const platformEarnings = paidInvoices.reduce((sum, i) => sum + Number(i.platform_fee || 0), 0);
     const driverPayouts = paidInvoices.reduce((sum, i) => sum + Number(i.driver_payout || 0), 0);
     const pendingAmount = pendingInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-    const avgAmount = invoices.length > 0 ? totalRevenue / paidInvoices.length || 0 : 0;
+    const avgAmount = validInvoices.length > 0 ? totalRevenue / paidInvoices.length || 0 : 0;
 
     return {
       totalRevenue,
@@ -102,8 +104,9 @@ export default function Home() {
   // Aggregate data for the chart by date
   const chartData = useMemo(() => {
     const dailyData: Record<string, ChartDataPoint> = {};
+    const validInvoices = Array.isArray(invoices) ? invoices : [];
 
-    invoices.forEach(inv => {
+    validInvoices.forEach(inv => {
       const dateKey = format(new Date(inv.created_at), 'MMM dd');
       if (!dailyData[dateKey]) {
         dailyData[dateKey] = {

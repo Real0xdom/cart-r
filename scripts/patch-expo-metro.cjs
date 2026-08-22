@@ -18,6 +18,8 @@ function patchMetroPackage(rootDir) {
   const metroPackageJson = readJson(metroPackageJsonPath);
   const exportsField = metroPackageJson.exports ?? {};
   const requiredExports = {
+    ".": "./src/index.js",
+    "./package.json": "./package.json",
     "./src/*": "./src/*.js",
     "./src/*/*": "./src/*/*.js",
     "./src/*/*/*": "./src/*/*/*.js",

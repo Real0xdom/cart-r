@@ -243,12 +243,22 @@ const TrackRidePage = () => {
     getBookingById(bookingId).then(async ({ data }) => {
       if (data) {
         // If booking is still pending/queued, redirect back to waiting screen
-        if (data.status === 'pending' || data.status === 'queued' || !data.driver_id) {
+        if (data.status === 'pending' || data.status === 'queued') {
             router.replace({
               pathname: "/waiting-for-driver",
               params: { bookingId }
             });
             return;
+        }
+
+        if (data.status === 'cancelled') {
+          // Cancelled bookings get a dedicated static screen (see render
+          // below) instead of the live tracking UI.
+          console.log('[TRACK-RIDE] Booking already cancelled on load');
+          setBooking(data);
+          setCurrentBooking(data);
+          setIsLoading(false);
+          return;
         }
 
         setBooking(data);
@@ -326,14 +336,10 @@ const TrackRidePage = () => {
           params: { bookingId }
         });
       } else if (updatedBooking.status === 'cancelled') {
-        // Ride was cancelled (by customer or driver) - go back home
-        Alert.alert(
-          'Ride Cancelled',
-          usesWalletFunds(updatedBooking)
-            ? `${updatedBooking.cancellation_reason || 'This ride has been cancelled'}. Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.`
-            : (updatedBooking.cancellation_reason || 'This ride has been cancelled'),
-          [{ text: 'OK', onPress: () => router.replace("/(tabs)/home") }]
-        );
+        // Ride was cancelled (by customer or driver) - the render below
+        // switches to the static cancelled screen since `booking` is
+        // already updated above.
+        console.log('[TRACK-RIDE] Booking was cancelled');
       } else if (updatedBooking.status === 'in_progress' && updatedBooking.delivery_otp) {
         // Show delivery OTP in sheet (previous behavior) - stay on track-ride
         console.log('[TRACK-RIDE] Delivery OTP generated:', updatedBooking.delivery_otp);
@@ -587,6 +593,31 @@ const TrackRidePage = () => {
       <SafeAreaView className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#FF9800" />
         <Text className="mt-4 text-gray-500 font-JakartaMedium">Loading tracking...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (booking?.status === 'cancelled') {
+    return (
+      <SafeAreaView className="flex-1 bg-white items-center justify-center px-8">
+        <View className="w-20 h-20 rounded-full bg-red-50 items-center justify-center mb-6">
+          <Feather name="x-circle" size={40} color="#EF4444" />
+        </View>
+        <Text className="text-xl font-JakartaBold text-black mb-2">Ride Cancelled</Text>
+        <Text className="text-gray-500 font-JakartaMedium text-center mb-1">
+          {booking.cancellation_reason || 'This ride has been cancelled.'}
+        </Text>
+        {usesWalletFunds(booking) && (
+          <Text className="text-gray-400 font-JakartaMedium text-center text-sm mt-2">
+            Any wallet hold is being returned to your wallet, and any online refund will follow the refund timeline shown in the app.
+          </Text>
+        )}
+        <TouchableOpacity
+          className="bg-brand-500 rounded-2xl px-8 py-4 mt-8"
+          onPress={() => router.replace("/(tabs)/home")}
+        >
+          <Text className="text-white font-JakartaBold">Back to Home</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }

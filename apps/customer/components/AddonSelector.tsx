@@ -56,15 +56,15 @@ export const AddonSelector: React.FC<AddonSelectorProps> = ({
   }
 
   return (
-    <View className="mb-4">
-      <Text className="text-lg font-JakartaBold text-gray-900 mb-2">
+    <View className="mb-2">
+      <Text className="text-base font-JakartaBold text-gray-900 mb-1">
         Add-on Services
       </Text>
-      <Text className="text-sm text-gray-500 font-JakartaMedium mb-3">
+      <Text className="text-xs text-gray-500 font-JakartaMedium mb-2">
         Select additional services for your delivery
       </Text>
 
-      <View className="gap-3">
+      <View className="gap-2">
         {applicableAddons.map((addon) => {
           const isSelected = selectedAddonIds.includes(addon.id);
 
@@ -72,7 +72,7 @@ export const AddonSelector: React.FC<AddonSelectorProps> = ({
             <TouchableOpacity
               key={addon.id}
               onPress={() => onToggleAddon(addon.id)}
-              className={`flex-row items-center p-4 rounded-2xl border-2 ${
+              className={`flex-row items-center p-2.5 rounded-xl border-2 ${
                 isSelected
                   ? 'bg-green-50 border-green-500'
                   : 'bg-gray-50 border-gray-200'
@@ -81,21 +81,21 @@ export const AddonSelector: React.FC<AddonSelectorProps> = ({
             >
               {/* Tick / Checkbox */}
               <View
-                className={`w-6 h-6 rounded-md border-2 items-center justify-center mr-3 ${
+                className={`w-5 h-5 rounded-md border-2 items-center justify-center mr-2 ${
                   isSelected ? 'bg-green-500 border-green-500' : 'border-gray-300'
                 }`}
               >
-                {isSelected && <Feather name="check" size={14} color="#fff" />}
+                {isSelected && <Feather name="check" size={12} color="#fff" />}
               </View>
 
               {/* Icon: emoji from admin or fallback to Material icon */}
-              <View className="w-12 h-12 bg-white rounded-full items-center justify-center mr-3">
+              <View className="w-9 h-9 bg-white rounded-full items-center justify-center mr-2">
                 {addon.icon_emoji ? (
-                  <Text className="text-2xl">{addon.icon_emoji}</Text>
+                  <Text className="text-lg">{addon.icon_emoji}</Text>
                 ) : (
                   <MaterialCommunityIcons
                     name={getIconComponent(addon.icon || '') as any}
-                    size={24}
+                    size={18}
                     color={isSelected ? '#16a34a' : '#666'}
                   />
                 )}
@@ -103,11 +103,11 @@ export const AddonSelector: React.FC<AddonSelectorProps> = ({
 
               {/* Details */}
               <View className="flex-1">
-                <Text className="text-base font-JakartaBold text-gray-900">
+                <Text className="text-sm font-JakartaBold text-gray-900">
                   {addon.name}
                 </Text>
                 {addon.description ? (
-                  <Text className="text-xs text-gray-500 font-JakartaMedium mt-0.5">
+                  <Text className="text-xs text-gray-500 font-JakartaMedium mt-0.5" numberOfLines={1}>
                     {addon.description}
                   </Text>
                 ) : null}
@@ -115,7 +115,7 @@ export const AddonSelector: React.FC<AddonSelectorProps> = ({
 
               {/* Price */}
               <View className="ml-2">
-                <Text className="text-lg font-JakartaBold text-green-600">
+                <Text className="text-base font-JakartaBold text-green-600">
                   ₹{addon.price}
                 </Text>
               </View>

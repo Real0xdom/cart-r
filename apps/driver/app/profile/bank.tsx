@@ -106,13 +106,23 @@ export default function BankDetails() {
         return;
     }
 
-    // Call Cashfree Beneficiary Edge Function
+    // Call Cashfree Beneficiary Express Endpoint
     try {
-        const { data, error: funcError } = await supabase.functions.invoke('create-beneficiary', {
-            body: { driver_id: driverProfile?.id }
+        const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const response = await fetch(`${BACKEND_URL}/api/payout/beneficiary`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ driver_id: driverProfile?.id })
         });
+        const data = await response.json();
+        const funcError = response.ok ? null : new Error(data.error || 'Failed to create beneficiary');
 
-        console.log('Edge function response:', data); // Log full response
+        console.log('Backend API response:', data); // Log full response
 
         if (funcError) throw funcError;
         

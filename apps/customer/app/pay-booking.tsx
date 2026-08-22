@@ -483,9 +483,20 @@ const PayBooking = () => {
         try {
             // If we have a specific order ID (from callback), verify it specifically
             if (specificOrderId) {
-                 const { data, error } = await supabase.functions.invoke('verify-payment', {
-                    body: { order_id: specificOrderId }
-                });
+                const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+                 const { data: sessionData } = await supabase.auth.getSession();
+                 const token = sessionData?.session?.access_token;
+
+                 const response = await fetch(`${BACKEND_URL}/api/payment/verify`, {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'Authorization': `Bearer ${token}`,
+                     },
+                     body: JSON.stringify({ order_id: specificOrderId }),
+                 });
+                 const data = await response.json();
+                 const error = response.ok ? null : data.error;
                 
                 if (data?.status === 'PAID') {
                      // If split payment, ensure we complete the wallet part

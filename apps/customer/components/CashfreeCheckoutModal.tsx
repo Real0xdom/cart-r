@@ -30,7 +30,7 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
   onClose,
 }) => {
   const webViewRef = useRef<WebView>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset state when modal opens
@@ -41,164 +41,8 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
     }
   }, [visible]);
 
-  // HTML template that loads Cashfree JS SDK and triggers popup checkout
-  const getCheckoutHTML = () => {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Payment</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .loader-container {
-      text-align: center;
-      color: white;
-    }
-    .spinner {
-      width: 50px;
-      height: 50px;
-      border: 4px solid rgba(255,255,255,0.2);
-      border-top-color: #F5B800;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .message {
-      font-size: 16px;
-      opacity: 0.9;
-      margin-top: 10px;
-    }
-    .error-container {
-      text-align: center;
-      color: white;
-      padding: 30px;
-    }
-    .error-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-    }
-    .error-message {
-      color: #ff6b6b;
-      font-size: 14px;
-      margin-top: 10px;
-    }
-    .retry-btn {
-      background: #F5B800;
-      color: #000;
-      border: none;
-      padding: 12px 32px;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 20px;
-    }
-  </style>
-</head>
-<body>
-  <div id="loader" class="loader-container">
-    <div class="spinner"></div>
-    <p class="message">Initializing secure payment...</p>
-  </div>
-  
-  <div id="error" class="error-container" style="display: none;">
-    <div class="error-icon">⚠️</div>
-    <p>Payment could not be initialized</p>
-    <p class="error-message" id="error-message"></p>
-    <button class="retry-btn" onclick="initPayment()">Retry</button>
-  </div>
-
-  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-  <script>
-    // Communication bridge to React Native
-    function sendMessage(type, data) {
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type, data }));
-      }
-    }
-
-    function showError(message) {
-      document.getElementById('loader').style.display = 'none';
-      document.getElementById('error').style.display = 'block';
-      document.getElementById('error-message').textContent = message;
-    }
-
-    async function initPayment() {
-      document.getElementById('loader').style.display = 'block';
-      document.getElementById('error').style.display = 'none';
-      
-      try {
-        // Initialize Cashfree SDK
-        const cashfree = Cashfree({
-          mode: "${environment}"
-        });
-
-        sendMessage('SDK_INITIALIZED', { environment: "${environment}" });
-
-        // Checkout options for popup mode
-        const checkoutOptions = {
-          paymentSessionId: "${paymentSessionId}",
-          redirectTarget: "_modal", // This makes it a popup/modal checkout
-        };
-
-        sendMessage('CHECKOUT_STARTING', { orderId: "${orderId}" });
-
-        // Trigger checkout
-        const result = await cashfree.checkout(checkoutOptions);
-
-        if (result.error) {
-          // User closed the popup or payment error
-          sendMessage('PAYMENT_ERROR', { 
-            error: result.error.message || 'Payment was cancelled or failed',
-            orderId: "${orderId}"
-          });
-        } else if (result.redirect) {
-          // Redirection case (exceptional, shouldn't happen in modal mode)
-          sendMessage('PAYMENT_REDIRECT', { orderId: "${orderId}" });
-        } else if (result.paymentDetails) {
-          // Payment completed - check status
-          sendMessage('PAYMENT_COMPLETED', { 
-            orderId: "${orderId}",
-            paymentDetails: result.paymentDetails
-          });
-        }
-
-      } catch (err) {
-        console.error('Checkout error:', err);
-        showError(err.message || 'Failed to initialize payment');
-        sendMessage('CHECKOUT_ERROR', { 
-          error: err.message || 'Unknown error',
-          orderId: "${orderId}"
-        });
-      }
-    }
-
-    // Start payment when page loads
-    window.onload = function() {
-      setTimeout(initPayment, 500); // Small delay to ensure SDK is loaded
-    };
-  </script>
-</body>
-</html>
-    `;
-  };
+  const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+  const directCheckoutUrl = `${backendUrl}/api/payment/checkout-page?session_id=${paymentSessionId}&env=${environment}`;
 
   // Handle messages from WebView
   const handleMessage = (event: WebViewMessageEvent) => {
@@ -243,9 +87,22 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
     }
   };
 
+  const isReturnUrl = (url: string) =>
+    url.includes('payment-callback') || url.includes('payment-complete') || url.includes('payment-success');
+
   const handleWebViewError = (syntheticEvent: any) => {
     const { nativeEvent } = syntheticEvent;
     console.error('WebView error:', nativeEvent);
+
+    // Cashfree's return_url is a placeholder page that may 404 - the payment itself
+    // can still have succeeded, so don't show a fatal error for it. Treat it as success
+    // and let the app verify the real payment status with the backend instead.
+    if (isReturnUrl(nativeEvent.url || '')) {
+      console.log('Return URL failed to load (expected) - verifying payment instead:', nativeEvent.url);
+      onSuccess(orderId);
+      return;
+    }
+
     setError('Failed to load payment page. Please check your internet connection.');
     setLoading(false);
   };
@@ -302,7 +159,7 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
             ) : (
               <WebView
                 ref={webViewRef}
-                source={{ html: getCheckoutHTML() }}
+                source={{ uri: directCheckoutUrl }}
                 style={styles.webView}
                 onMessage={handleMessage}
                 onError={handleWebViewError}
@@ -313,10 +170,16 @@ const CashfreeCheckoutModal: React.FC<CashfreeCheckoutModalProps> = ({
                 scalesPageToFit={true}
                 mixedContentMode="compatibility"
                 allowsInlineMediaPlayback={true}
-                // Enable secure context for payment
                 originWhitelist={['*']}
-                // Allow popups for payment flows
                 setSupportMultipleWindows={true}
+                onShouldStartLoadWithRequest={(request) => {
+                  if (isReturnUrl(request.url)) {
+                    console.log('Payment return URL intercepted (navigation blocked):', request.url);
+                    onSuccess(orderId);
+                    return false;
+                  }
+                  return true;
+                }}
                 onNavigationStateChange={(navState) => {
                   console.log('WebView navigation:', navState.url);
                 }}

@@ -14,9 +14,7 @@ ALTER TABLE bookings
 -- Add index for Cashfree order lookups
 CREATE INDEX IF NOT EXISTS idx_bookings_cashfree_order_id ON bookings(cashfree_order_id);
 
--- Add index for payment status filtering (used by driver search)
-CREATE INDEX IF NOT EXISTS idx_bookings_payment_confirmed ON bookings(status) 
-  WHERE status = 'payment_confirmed';
+-- (Index moved to 101_upfront_payment_flow_index.sql to avoid transaction error)
 
 COMMENT ON COLUMN bookings.cashfree_order_id IS 'Cashfree order ID for upfront payment tracking';
 COMMENT ON COLUMN bookings.payment_initiated_at IS 'When payment was initiated (for timeout handling)';

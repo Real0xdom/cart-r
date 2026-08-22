@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Polyline } from 'react-native-maps';
+import { simplifyPath } from '../lib/polyline';
 
 const olaMapsApiKey = process.env.EXPO_PUBLIC_OLA_MAPS_API_KEY;
 
@@ -82,7 +83,8 @@ export const OlaMapViewDirections: React.FC<OlaMapViewDirectionsProps> = ({
           const distance = route.distance || 0; // meters
           const duration = route.duration || 0; // seconds
 
-          const points = decodePolyline(polylineString);
+          let points = decodePolyline(polylineString);
+          points = simplifyPath(points);
 
           if (isActive) {
             setCoordinates(points);

@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Image, Text, View, TouchableOpacity, Alert, ImageSourcePropType, Share } from "react-native";
@@ -54,9 +54,17 @@ const ProfileItem = ({ icon, ionicon, title, onPress }: ProfileItemProps) => (
 );
 
 const Profile = () => {
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile } = useAuth();
   const { t } = useLanguage();
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
+
+  // If the user is logged in but profile hasn't loaded yet (race between
+  // setUser and fetchProfile in AuthContext), fetch it now.
+  useEffect(() => {
+    if (user && !profile) {
+      void refreshProfile();
+    }
+  }, [user, profile]);
 
   const handleReferFriends = async () => {
     const baseUrl = Linking.createURL("");

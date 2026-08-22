@@ -10,7 +10,8 @@
   ],
   "description": "Carter - Pune's Logistics App",
   "scripts": {
-    "customer": "cd apps/customer && npx expo start",
+    "backend": "cd apps/backend && npm run dev",
+    "customer": "cd apps/customer && npx expo start --port 8082",
     "driver": "cd apps/driver && npm run start",
     "test:wallet:unit": "vitest run tests/unit/driver-wallet-commission.test.ts tests/unit/driver-wallet-restrictions.test.ts tests/unit/payment-split.test.ts tests/unit/payment-webhook.test.ts tests/unit/wallet-credit.test.ts tests/api/payment-order.test.ts tests/api/verify-payment.test.ts tests/integration/booking-lifecycle.test.ts",
     "test:wallet:api": "playwright test -c e2e/playwright.wallet.config.ts e2e/tests/api/payment.test.ts e2e/tests/api/driver-wallet-release-gate.test.ts e2e/tests/multi-user/race-condition.test.ts e2e/tests/driver/edge-cases.test.ts",
@@ -72,6 +73,7 @@
     "metro-config": "0.80.12",
     "metro-minify-terser": "0.80.12",
     "mocha": "^11.7.0",
+    "regenerator-runtime": "^0.14.1",
     "rimraf": "^5.0.1",
     "tailwindcss": "3.3.2",
     "tsx": "^4.20.0",

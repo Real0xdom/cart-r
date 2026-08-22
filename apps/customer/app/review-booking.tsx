@@ -300,12 +300,18 @@ const ReviewBookingPage = () => {
   const verifyTopUpPaymentStatus = useCallback(
     async (orderId: string, forceFail: boolean = false) => {
       try {
-        const { data } = await supabase.functions.invoke("verify-payment", {
-          body: {
-            order_id: orderId,
-            force_fail: forceFail,
-          },
+        const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const response = await fetch(`${BACKEND_URL}/api/payment/verify`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ order_id: orderId, force_fail: forceFail }),
         });
+        const data = await response.json();
 
         if (data?.status === "PAID") {
           await handleTopUpSuccess(data.amount);
@@ -385,8 +391,17 @@ const ReviewBookingPage = () => {
         ? "https://docs.cashfree.com/docs/payment-success"
         : "carter://payment-callback";
 
-      const { data, error } = await supabase.functions.invoke("create-payment-order", {
-        body: {
+      const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const response = await fetch(`${BACKEND_URL}/api/payment/order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           amount: value,
           customer_id: userId,
           customer_phone: profile?.phone || user?.phone || "9999999999",
@@ -394,8 +409,10 @@ const ReviewBookingPage = () => {
           customer_email: profile?.email || user?.email || "user@cartr.app",
           return_url: callbackUrl,
           idempotency_key: idempotencyKey,
-        },
+        }),
       });
+      const data = await response.json();
+      const error = response.ok ? null : data.error;
 
       if (error || !data?.payment_session_id || !data?.order_id) {
         Alert.alert("Payment Error", error?.message || "Payment service returned an invalid response.");

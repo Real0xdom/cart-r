@@ -10,6 +10,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { RideNotificationProvider } from "@/contexts/RideNotificationContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import NetworkBanner from "@/components/NetworkBanner";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient();
 
 import { 
   setupNotificationChannels, 
@@ -122,45 +125,47 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <LanguageProvider>
-        <AuthProvider>
-          <RideNotificationProvider>
-            <NetworkBanner />
-            <Stack>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="account-blocked"
-                options={{
-                  headerShown: false,
-                  presentation: "transparentModal",
-                  animation: "fade",
-                }}
-              />
-              <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="profile" options={{ headerShown: false }} />
-              <Stack.Screen name="ride/[id]" options={{ headerShown: true, headerTitle: 'Active Ride', headerStyle: { backgroundColor: "#ffffff" }, headerTintColor: "#111827", headerTitleStyle: { fontFamily: "Jakarta-Bold" } }} />
-              <Stack.Screen name="ride/verify-otp" options={{ headerShown: false }} />
-              <Stack.Screen name="ride/collect-payment" options={{ headerShown: false }} />
-              <Stack.Screen name="ride/invoice" options={{ headerShown: false }} />
-              <Stack.Screen name="ride/debug-sms" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="vehicle-info"
-                options={{
-                  headerShown: true,
-                  headerTitle: "Vehicle Details",
-                  headerStyle: { backgroundColor: "#ffffff" },
-                  headerTintColor: "#111827",
-                  headerTitleStyle: { fontFamily: "Jakarta-Bold" },
-                }}
-              />
-              <Stack.Screen name="+not-found" />
-            </Stack>
-          </RideNotificationProvider>
-        </AuthProvider>
-      </LanguageProvider>
-    </GestureHandlerRootView>
+    <QueryClientProvider client={queryClient}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <LanguageProvider>
+          <AuthProvider>
+            <RideNotificationProvider>
+              <NetworkBanner />
+              <Stack>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="account-blocked"
+                  options={{
+                    headerShown: false,
+                    presentation: "transparentModal",
+                    animation: "fade",
+                  }}
+                />
+                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="profile" options={{ headerShown: false }} />
+                <Stack.Screen name="ride/[id]" options={{ headerShown: true, headerTitle: 'Active Ride', headerStyle: { backgroundColor: "#ffffff" }, headerTintColor: "#111827", headerTitleStyle: { fontFamily: "Jakarta-Bold" } }} />
+                <Stack.Screen name="ride/verify-otp" options={{ headerShown: false }} />
+                <Stack.Screen name="ride/collect-payment" options={{ headerShown: false }} />
+                <Stack.Screen name="ride/invoice" options={{ headerShown: false }} />
+                <Stack.Screen name="ride/debug-sms" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="vehicle-info"
+                  options={{
+                    headerShown: true,
+                    headerTitle: "Vehicle Details",
+                    headerStyle: { backgroundColor: "#ffffff" },
+                    headerTintColor: "#111827",
+                    headerTitleStyle: { fontFamily: "Jakarta-Bold" },
+                  }}
+                />
+                <Stack.Screen name="+not-found" />
+              </Stack>
+            </RideNotificationProvider>
+          </AuthProvider>
+        </LanguageProvider>
+      </GestureHandlerRootView>
+    </QueryClientProvider>
   );
 }

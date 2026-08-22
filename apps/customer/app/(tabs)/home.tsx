@@ -5,7 +5,7 @@ import { View, Text, TouchableOpacity, Image, ScrollView, ActivityIndicator, Dim
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons, Ionicons } from "@expo/vector-icons";
 import { images } from "@/constants";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getCustomerBookings } from "@/lib/bookings";
 import { useLocationStore, useBookingStore, useRideStore, useDriverStore } from "@/store";
 import { getActiveVehicleTypes, getVehicleImageSource, VehicleType } from "@/lib/vehicleTypes";
@@ -114,17 +114,26 @@ const Home = () => {
   const isPendingExpired = (b: Booking) =>
     !!(b.status === 'pending' && !b.driver_id && b.expires_at && new Date(b.expires_at) < new Date());
 
-  const fetchBookings = useCallback(async () => {
+  const lastFetchedAtRef = useRef(0);
+
+  const fetchBookings = useCallback(async (force = false) => {
     if (!profile?.id) {
-      console.log('[HOME] No profile ID, skipping fetch');
       setLoading(false);
       return;
     }
-    
-    console.log('[HOME] Fetching bookings for customer:', profile.id);
-    
+
+    // Skip redundant refetches when refocusing the tab shortly after the
+    // last fetch (e.g. quick tab switches) — realtime/manual refresh still
+    // covers actual updates.
+    if (!force && Date.now() - lastFetchedAtRef.current < 15000) {
+      return;
+    }
+    lastFetchedAtRef.current = Date.now();
+
     try {
-      const { data, error } = await getCustomerBookings(profile.id);
+      // 30 is comfortably more than any customer's active bookings plus the
+      // 5 most recent completed/cancelled ones we display.
+      const { data, error } = await getCustomerBookings(profile.id, 30);
       
       if (data && !error) {
         // Find ALL active bookings (accepted, driver arrived, pending, in progress)
@@ -141,7 +150,6 @@ const Home = () => {
           return isOngoing && !isExpired;
         });
         
-        console.log('[HOME] Ongoing bookings count:', active.length);
         setOngoingBookings(active);
         
         // Get recent completed bookings for history
@@ -160,9 +168,8 @@ const Home = () => {
   }, [profile?.id]);
 
   const onRefresh = useCallback(() => {
-    console.log('[HOME] Manual refresh triggered');
     setRefreshing(true);
-    fetchBookings();
+    fetchBookings(true);
   }, [fetchBookings]);
 
   useEffect(() => {

@@ -1,6 +1,10 @@
 -- Keep booking-level waiting charge fields in sync with admin waiting config
 -- so the customer UI and backend charge calculation use the same values.
 
+ALTER TABLE public.bookings
+  ADD COLUMN IF NOT EXISTS free_waiting_time_minutes integer,
+  ADD COLUMN IF NOT EXISTS waiting_charge_per_minute numeric(10,2);
+
 CREATE OR REPLACE FUNCTION public.apply_waiting_config_to_booking()
 RETURNS trigger
 LANGUAGE plpgsql

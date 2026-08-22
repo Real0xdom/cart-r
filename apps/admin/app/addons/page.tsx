@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import Sidebar from '@/components/Sidebar';
 import { Puzzle, Plus, Save, RefreshCw, X, Trash2, ChevronDown, Edit2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -20,6 +20,7 @@ interface VehicleOption {
 const emptyAddon = { code: '', name: '', description: '', price: 0, icon_emoji: '🔧', applicable_vehicle_types: [] as string[], display_order: 0 };
 
 export default function AddonsPage() {
+  const supabase = createClient();
   const [addons, setAddons] = useState<AddonService[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);

@@ -182,20 +182,27 @@ const CollectPayment = () => {
                 // FALLBACK: If stuck in pending for > 6 seconds (2 polls), wake the edge function
                 if (data.status === 'pending' && attempts > 2) {
                     console.log(`[SMS Poll] Status stuck in pending. Triggering Edge Function manually...`);
-                    supabase.functions.invoke('send-sms').then(({ data: funcData, error: funcError }) => {
-                        if (funcError) {
-                            console.error('Failed to invoke send-sms:', funcError);
-                            if (funcError instanceof Error && 'context' in funcError) {
-                                const context: any = (funcError as any).context;
-                                if (context?.status === 404) {
-                                    Alert.alert('System Error', 'SMS Service not deployed (404). Please contact support.');
-                                    setSmsStatus({ status: 'failed', error: 'Service Missing (404)' });
-                                    clearInterval(interval);
-                                }
+                    const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+                    supabase.auth.getSession().then(({ data: sessionData }) => {
+                        const token = sessionData?.session?.access_token;
+                        fetch(`${BACKEND_URL}/api/sms/process`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
                             }
-                        } else {
-                            console.log('Manually invoked send-sms function', funcData);
-                        }
+                        })
+                        .then(res => res.json())
+                        .then(funcData => {
+                            if (funcData.error) {
+                                console.error('Failed to invoke send-sms:', funcData.error);
+                            } else {
+                                console.log('Manually invoked send-sms function', funcData);
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Failed to invoke send-sms:', err);
+                        });
                     });
                     attempts = 0;
                 }

@@ -194,14 +194,12 @@ export async function getBookingById(bookingId: string): Promise<{
 /**
  * Get all bookings for a customer (history)
  */
-export async function getCustomerBookings(customerId: string): Promise<{
+export async function getCustomerBookings(customerId: string, limit?: number): Promise<{
   data: Booking[];
   error: string | null;
 }> {
   try {
-    console.log('[GET_CUSTOMER_BOOKINGS] Fetching bookings for customer_id:', customerId);
-    
-    const { data, error } = await supabase
+    let query = supabase
       .from('bookings')
       .select(`
         *,
@@ -218,23 +216,11 @@ export async function getCustomerBookings(customerId: string): Promise<{
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
-    console.log('[GET_CUSTOMER_BOOKINGS] Query result:', {
-      hasData: !!data,
-      dataLength: data?.length || 0,
-      error: error?.message || null,
-      errorCode: error?.code || null,
-      errorDetails: error?.details || null
-    });
-
-    if (data && data.length > 0) {
-      console.log('[GET_CUSTOMER_BOOKINGS] Sample booking:', {
-        id: data[0].id.slice(0, 8),
-        status: data[0].status,
-        customer_id: data[0].customer_id,
-        driver_id: data[0].driver_id,
-        created_at: data[0].created_at
-      });
+    if (limit) {
+      query = query.limit(limit);
     }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[GET_CUSTOMER_BOOKINGS] Supabase error:', error);
@@ -260,25 +246,26 @@ export function subscribeToBooking(
   bookingId: string,
   onUpdate: (booking: Booking) => void
 ) {
-  let lastStateString = '';
+  // Monotonic request counter: guards against an older in-flight fetch
+  // (poll or realtime re-hydration) resolving after a newer one and
+  // clobbering fresher state with stale data.
+  let latestRequestId = 0;
 
-  const pollLatest = async () => {
+  const fetchAndApply = async () => {
+    const requestId = ++latestRequestId;
     try {
       const { data } = await getBookingById(bookingId);
-      if (data) {
-        const stateString = JSON.stringify(data);
-        if (stateString !== lastStateString) {
-          lastStateString = stateString;
-          onUpdate(data);
-        }
+      if (data && requestId === latestRequestId) {
+        onUpdate(data);
       }
     } catch (e) {
       console.warn('[subscribeToBooking] Polling failed:', e);
     }
   };
 
-  // Fallback polling every 3 seconds (reduced from 5s for faster detection)
-  const pollInterval = setInterval(pollLatest, 3000);
+  // Fallback polling — realtime is the primary path, this only covers
+  // missed/delayed events, so it doesn't need to be aggressive.
+  const pollInterval = setInterval(fetchAndApply, 5000);
 
   // Unique channel name to prevent Supabase Realtime collisions on re-mount
   const channelName = `customer-booking-${bookingId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -293,29 +280,34 @@ export function subscribeToBooking(
         table: 'bookings',
         filter: `id=eq.${bookingId}`,
       },
-      async (payload) => {
+      (payload) => {
         const updatedBooking = payload.new as Booking;
 
-        // Re-hydrate the booking so screens receive the latest relational data
-        // together with the status change. This avoids stale UI state on track pages.
-        const { data } = await getBookingById(bookingId);
-        const bookingToUpdate = data ?? updatedBooking;
-        
-        lastStateString = JSON.stringify(bookingToUpdate);
-        onUpdate(bookingToUpdate);
+        // The row payload already carries every scalar column. Only fall
+        // back to a full re-fetch when the joined driver relation is
+        // actually needed but missing — avoids a duplicate network round
+        // trip on every single status update.
+        const needsDriverHydration = !!updatedBooking.driver_id && !updatedBooking.driver;
+
+        if (needsDriverHydration) {
+          void fetchAndApply();
+        } else {
+          // A fresh event supersedes any fetch already in flight.
+          latestRequestId += 1;
+          onUpdate(updatedBooking);
+        }
       }
     )
     .subscribe((status) => {
-      console.log(`[subscribeToBooking] Channel ${channelName} status:`, status);
-      // Immediately poll when connected to catch any updates missed during setup
+      // Immediately fetch once connected to catch anything missed during setup
       if (status === 'SUBSCRIBED') {
-        void pollLatest();
+        void fetchAndApply();
       }
     });
 
   return () => {
     clearInterval(pollInterval);
-    subscription.unsubscribe();
+    supabase.removeChannel(subscription);
   };
 }
 
@@ -352,12 +344,10 @@ export function subscribeToBookingDriverLocation(
         }
       }
     )
-    .subscribe((status) => {
-      console.log(`[REALTIME-LOCATION] Subscription status for ${driverId}:`, status);
-    });
+    .subscribe();
 
   return () => {
-    subscription.unsubscribe();
+    supabase.removeChannel(subscription);
   };
 }
 
@@ -469,7 +459,7 @@ export function subscribeToDriverLocation(
     .subscribe();
 
   return () => {
-    subscription.unsubscribe();
+    supabase.removeChannel(subscription);
   };
 }
 

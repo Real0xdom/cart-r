@@ -54,7 +54,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create trigger
-DROP TRIGGER IF NOT EXISTS notify_delivery_otp ON bookings;
+DROP TRIGGER IF EXISTS notify_delivery_otp ON bookings;
 CREATE TRIGGER notify_delivery_otp
   AFTER UPDATE ON bookings
   FOR EACH ROW

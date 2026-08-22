@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import Sidebar from '@/components/Sidebar';
 import { MapPin, Plus, Save, RefreshCw, X, Globe, AlertTriangle, Edit2, Trash2, CheckCircle, XCircle, Search } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -36,6 +36,7 @@ const defaultForm = {
 };
 
 export default function ServiceAreasPage() {
+  const supabase = createClient();
   const [areas, setAreas] = useState<ServiceArea[]>([]);
   const [expansions, setExpansions] = useState<ExpansionInterest[]>([]);
   const [loading, setLoading] = useState(true);

@@ -239,108 +239,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Sign in with phone (OTP) using Fast2SMS
+  // Sign in with phone (OTP) using Supabase Auth
   const signInWithPhone = async (phone: string) => {
     try {
-      // Generate OTP via RPC
-      const { data: otp, error: genError } = await supabase.rpc('generate_fast2sms_otp', {
-        p_phone_number: phone,
-        p_purpose: 'auth'
+      const { error } = await supabase.auth.signInWithOtp({
+        phone: phone.trim(),
       });
 
-      if (genError) throw genError;
-      if (!otp) throw new Error('Failed to generate OTP');
-
-      console.log(`[DEV] OTP for ${phone}: ${otp}`);
-
-      // Send OTP via Fast2SMS edge function using fetch
-      const { data: { session } } = await supabase.auth.getSession();
-      const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/fast2sms`;
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || ''}`,
-        },
-        body: JSON.stringify({
-          action: 'send-otp',
-          phone: phone,
-          otp: otp,
-          purpose: 'auth'
-        })
-      });
-
-      if (!response.ok) {
-        console.warn('Fast2SMS failed, but OTP was generated:', await response.text());
-        // Continue anyway - user can see OTP in console during development
-      }
-
+      if (error) throw error;
       return { error: null };
     } catch (error) {
       return { error: error as Error };
     }
   };
 
-  // Verify OTP using Fast2SMS
+  // Verify OTP using Supabase Auth
   const verifyOtp = async (phone: string, token: string) => {
     try {
-      // Verify OTP via RPC
-      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_fast2sms_otp', {
-        p_phone_number: phone,
-        p_otp_code: token,
-        p_purpose: 'auth'
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: phone.trim(),
+        token: token.replace(/\D/g, ''),
+        type: 'sms',
       });
 
-      if (verifyError) throw verifyError;
-      if (!verifyResult?.success) {
-        throw new Error(verifyResult?.message || 'Invalid OTP');
-      }
-
-      // Create or update user after OTP verification with driver role
-      const { data: userResult, error: userError } = await supabase.rpc('create_or_update_user_after_otp', {
-        p_phone: phone,
-        p_role: 'driver',
-        p_metadata: { source: 'driver_app' }
-      });
-
-      if (userError) throw userError;
-      if (!userResult?.user_id) {
-        throw new Error('Failed to create or update user');
+      if (error) throw error;
+      if (!data.user || !data.session) {
+        throw new Error('Failed to create session');
       }
 
       // Fetch profile and driver data
-      const { userData, driverData } = await fetchProfile(userResult.user_id);
+      const { userData, driverData } = await fetchProfile(data.user.id);
 
-      if (!userData) {
-        throw new Error('Failed to fetch user profile');
-      }
+      setUser(data.user);
+      setSession(data.session);
+      if (userData) setProfile(userData);
+      if (driverData) setDriverProfile(driverData);
 
-      // Create mock user and session
-      const mockUser = {
-        id: userResult.user_id,
-        phone: phone,
-        email: userResult.email,
-        user_metadata: { name: userData.name },
-        app_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-      } as unknown as User;
+      // Still save to AsyncStorage for backwards compatibility with the existing load logic
+      await saveSession(
+        data.user,
+        data.session,
+        userData || ({} as UserProfile),
+        driverData || undefined
+      );
 
-      const mockSession = {
-        user: mockUser,
-        access_token: 'fast2sms-session',
-        refresh_token: 'fast2sms-refresh',
-        expires_in: 3600,
-        token_type: 'bearer',
-      } as unknown as Session;
-
-      setUser(mockUser);
-      setSession(mockSession);
-      setProfile(userData);
-      await saveSession(mockUser, mockSession, userData, driverData || undefined);
-
-      return { error: null, data: { user: mockUser, session: mockSession } };
+      console.log('[AuthContext] OTP Verified Successfully');
+      return { error: null, data: { user: data.user, session: data.session } };
     } catch (error) {
+      console.error('[AuthContext] verifyOtp failed with error:', error);
       return { error: error as Error };
     }
   };

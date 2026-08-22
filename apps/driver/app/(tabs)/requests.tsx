@@ -1,11 +1,12 @@
 import { View, Text, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getDriverAllBookings, Booking } from '@/lib/bookings';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 
 const ActiveRideCard = ({ booking }: { booking: Booking }) => {
     const { t } = useLanguage();
@@ -84,7 +85,6 @@ const QueuedRideCard = ({ booking }: { booking: Booking }) => {
  * History ride card for completed trips
  */
 const HistoryRideCard = ({ booking }: { booking: Booking }) => {
-    const { t } = useLanguage();
     
     const formatTimeAgo = (dateString: string | null) => {
         if (!dateString) return 'Unknown';
@@ -153,14 +153,30 @@ const HistoryRideCard = ({ booking }: { booking: Booking }) => {
 const DriverRequests = () => {
     const { driverProfile } = useAuth();
     const { t } = useLanguage();
-    const [allRides, setAllRides] = useState<Booking[]>([]);
-    const [refreshing, setRefreshing] = useState(false);
-    const [loading, setLoading] = useState(true);
+    
+    const { data: allRides = [], isLoading, isRefetching, refetch } = useQuery({
+        queryKey: ['driverBookings', driverProfile?.id],
+        queryFn: async () => {
+            if (!driverProfile?.id) return [];
+            const { data, error } = await getDriverAllBookings(driverProfile.id, 50);
+            if (error) throw new Error(error);
+            const combined = [...data];
+            combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            return combined;
+        },
+        enabled: !!driverProfile?.id,
+        refetchInterval: 30000, // Background refresh every 30s
+    });
+
+    const onRefresh = useCallback(async () => {
+        await refetch();
+    }, [refetch]);
+
     const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
     // Subtle pulse animation for the background-loading banner
     useEffect(() => {
-        if (!loading) return;
+        if (!isLoading) return;
         const pulse = Animated.loop(
             Animated.sequence([
                 Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
@@ -169,49 +185,7 @@ const DriverRequests = () => {
         );
         pulse.start();
         return () => pulse.stop();
-    }, [loading]);
-
-    // Fetch all rides that belong to this driver.
-    const fetchAllRides = async () => {
-        console.log('[ALL RIDES] Fetching all rides...');
-        
-        if (!driverProfile?.id) {
-            console.log('[ALL RIDES] Missing driver profile, skipping fetch');
-            setLoading(false);
-            return;
-        }
-        
-        try {
-            const { data: driverRides, error } = await getDriverAllBookings(driverProfile.id, 50);
-            if (error) throw new Error(error);
-            
-            const combined = [...driverRides];
-            combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            
-            console.log('[ALL RIDES] Total driver rides:', combined.length);
-            setAllRides(combined);
-        } catch (error) {
-            console.error('[ALL RIDES] Error:', error);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    };
-
-    const onRefresh = useCallback(async () => {
-        setRefreshing(true);
-        await fetchAllRides();
-        setRefreshing(false);
-    }, []);
-
-    useEffect(() => {
-        if (!driverProfile?.id) {
-            setLoading(false);
-            return;
-        }
-
-        void fetchAllRides();
-    }, [driverProfile?.id]);
+    }, [isLoading]);
 
     // No blocking loading guard - page is always visible immediately
 
@@ -230,7 +204,7 @@ const DriverRequests = () => {
                 </View>
 
                 {/* Background loading banner - shown while fetching, never blocks the page */}
-                {loading && (
+                {isLoading && (
                     <Animated.View
                         style={{ opacity: pulseAnim }}
                         className="flex-row items-center bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4"
@@ -242,7 +216,7 @@ const DriverRequests = () => {
                     </Animated.View>
                 )}
 
-                {allRides.length === 0 && !loading ? (
+                {allRides.length === 0 && !isLoading ? (
                     <View className="bg-gray-50 rounded-2xl p-8 border border-gray-200 items-center">
                         <Ionicons name="car-outline" size={64} color="#9ca3af" />
                         <Text className="text-gray-500 text-center mt-4 font-JakartaMedium text-lg">
@@ -255,7 +229,7 @@ const DriverRequests = () => {
                 ) : (
                     <ScrollView
                         refreshControl={
-                            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                            <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} />
                         }
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: 100 }}

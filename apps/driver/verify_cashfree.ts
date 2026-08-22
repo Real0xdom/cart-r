@@ -43,10 +43,14 @@ async function runTests() {
 
     // Call create-beneficiary
     console.log("-> 1. Registering Driver as Beneficiary...");
-    const { data: beneData, error: beneError } = await supabase.functions.invoke('create-beneficiary', {
-      body: { driver_id: driver.id }
+    const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+    const bResponse = await fetch(`${BACKEND_URL}/api/payout/beneficiary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driver_id: driver.id })
     });
-    console.log("Beneficiary Response:", beneData || beneError);
+    const beneData = await bResponse.json();
+    console.log("Beneficiary Response:", beneData);
 
     // Create a mock booking
     console.log("-> 2. Creating a test booking...");
@@ -70,11 +74,14 @@ async function runTests() {
     console.log(`Mock Booking Created: ${booking.id}`);
 
     // Generate UPI QR Order
-    console.log("-> 3. Generating UPI QR via Edge Function...");
-    const { data: qrData, error: qrError } = await supabase.functions.invoke('create-upi-qr', {
-      body: { booking_id: booking.id }
+    console.log("-> 3. Generating UPI QR via Express Backend...");
+    const qrResponse = await fetch(`${BACKEND_URL}/api/payment/create-upi-qr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ booking_id: booking.id })
     });
-    console.log("QR Order Response:", qrData || qrError);
+    const qrData = await qrResponse.json();
+    console.log("QR Order Response:", qrData);
     if (!qrData?.order_id) throw new Error("Failed to create UPIDR order");
     
     const orderId = qrData.order_id;
@@ -132,11 +139,14 @@ async function runTests() {
       await supabase.from('withdrawals').update({ status: 'approved' }).eq('id', withdrawal.id);
       
       // Process Payout
-      console.log("-> 8. Processing Payout via Edge Function...");
-      const { data: payoutData, error: payoutError } = await supabase.functions.invoke('process-withdrawal', {
-        body: { withdrawal_id: withdrawal.id }
+      console.log("-> 8. Processing Payout via Express Backend...");
+      const payoutResponse = await fetch(`${BACKEND_URL}/api/payout/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withdrawal_id: withdrawal.id })
       });
-      console.log("Payout Response:", payoutData || payoutError);
+      const payoutData = await payoutResponse.json();
+      console.log("Payout Response:", payoutData);
       
       const { data: finalWd } = await supabase.from('withdrawals').select('payout_status, payout_reference, payout_error').eq('id', withdrawal.id).single();
       console.log("Final Withdrawal Payout Status:", finalWd?.payout_status, "Ref:", finalWd?.payout_reference, "Error:", finalWd?.payout_error);
